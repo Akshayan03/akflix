@@ -1,0 +1,76 @@
+# Builds Akflix for Windows, macOS (Intel + Apple Silicon) and Linux, signs
+# updater artifacts, and attaches everything (installers + latest.json) to a
+# GitHub Release. Trigger by pushing a tag like `v1.0.0`.
+#
+# Required repository secrets:
+#   TAURI_SIGNING_PRIVATE_KEY           — from `npm run updater:keygen`
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  — the key's password (may be empty)
+#
+# The public half of the key goes into tauri.conf.json > plugins.updater.pubkey.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: "--target universal-apple-darwin --bundles app,dmg"
+          - platform: ubuntu-22.04
+            args: "--bundles deb,appimage"
+          - platform: windows-latest
+            args: "--bundles msi,nsis"
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libgtk-3-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # Regenerate platform icons from the source PNG (committed in assets/).
+      - run: npx tauri icon assets/icon.png
+
+      - name: Build and attach to release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Akflix ${{ github.ref_name }}"
+          releaseBody: "See CHANGELOG for details. ⚖️ Use torrent features only for content you may lawfully access."
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true # emits latest.json for the auto-updater
+          args: ${{ matrix.args }}
