@@ -1,0 +1,119 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Akflix backend stack: Jellyfin (media server) + qBittorrent (torrent client)
+# + Prowlarr (indexer aggregator) + optional Radarr/Sonarr (*arr automation).
+#
+# Usage:
+#   cd docker && docker compose up -d
+#   # optional automation:
+#   docker compose --profile arr up -d
+#
+# First-run checklist:
+#   1. Jellyfin   → http://localhost:8096  — create an admin user, then add
+#      TWO libraries:  Movies/Shows → /media   and  "Downloads" → /downloads
+#      (the /downloads library is what makes torrent streaming work).
+#   2. qBittorrent→ http://localhost:8080  — temp password is printed in logs:
+#      `docker logs qbittorrent`. Set a permanent one (Options → Web UI) and
+#      put it in Akflix Settings. Set default save path to /downloads.
+#   3. Prowlarr   → http://localhost:9696  — add indexers, copy the API key
+#      (Settings → General) into Akflix Settings.
+#
+# ⚖️ LEGAL: This stack contains general-purpose software. Torrenting is legal;
+# downloading copyrighted content without authorization is not. Configure
+# indexers and use these tools only for content you may lawfully access.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: akflix
+
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: jellyfin
+    ports:
+      - "8096:8096" # HTTP
+    volumes:
+      - ./config/jellyfin:/config
+      - ./media:/media # permanent, curated library
+      - ./downloads:/downloads # qBittorrent's save path — add as a library!
+    environment:
+      - TZ=America/New_York
+    restart: unless-stopped
+    # Uncomment for Intel/AMD GPU hardware transcoding:
+    # devices:
+    #   - /dev/dri:/dev/dri
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    ports:
+      - "8080:8080" # Web UI / API
+      - "6881:6881" # BitTorrent
+      - "6881:6881/udp"
+    volumes:
+      - ./config/qbittorrent:/config
+      - ./downloads:/downloads # must match Akflix "Download path" setting
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/New_York
+      - WEBUI_PORT=8080
+    restart: unless-stopped
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    ports:
+      - "9696:9696"
+    volumes:
+      - ./config/prowlarr:/config
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/New_York
+    restart: unless-stopped
+
+  # ── Optional *arr automation (enable with: --profile arr) ────────────────
+  # Radarr/Sonarr watch for finished downloads, rename them properly and move
+  # them into /media so Jellyfin gets clean, well-tagged libraries.
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    profiles: ["arr"]
+    ports:
+      - "7878:7878"
+    volumes:
+      - ./config/radarr:/config
+      - ./media/movies:/movies
+      - ./downloads:/downloads
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/New_York
+    restart: unless-stopped
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    profiles: ["arr"]
+    ports:
+      - "8989:8989"
+    volumes:
+      - ./config/sonarr:/config
+      - ./media/shows:/tv
+      - ./downloads:/downloads
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/New_York
+    restart: unless-stopped
+
+  # FlareSolverr helps Prowlarr reach indexers behind Cloudflare.
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    profiles: ["arr"]
+    ports:
+      - "8191:8191"
+    environment:
+      - TZ=America/New_York
+    restart: unless-stopped

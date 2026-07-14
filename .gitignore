@@ -1,0 +1,18 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+
+# Tauri
+src-tauri/target
+src-tauri/gen
+
+# Docker runtime data
+docker/config
+docker/downloads
+docker/media
+
+# Env
+.env
+.env.*

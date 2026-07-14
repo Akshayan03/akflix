@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Akflix — Your media. Cinematic.</title>
+<meta name="description" content="Akflix is a beautiful Netflix-style desktop client for Jellyfin with built-in torrent search and streaming. Free and open source for Windows, macOS and Linux." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23e50914'/><text x='50' y='72' font-size='64' font-weight='bold' font-family='Arial' fill='white' text-anchor='middle'>A</text></svg>" />
+<style>
+  /* ── Akflix brand ─────────────────────────────────────────────── */
+  :root {
+    --brand: #e50914;
+    --brand-light: #f6121d;
+    --bg: #0b0b0b;
+    --surface: #141414;
+    --raised: #1d1d1d;
+    --border: #2c2c2c;
+    --text: #ffffff;
+    --muted: #9b9b9b;
+    --faint: #6b6b6b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Inter", "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* ── Nav ──────────────────────────────────────────────────────── */
+  nav {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; gap: 28px;
+    padding: 18px 32px;
+    background: rgba(11,11,11,.85); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .logo { font-size: 24px; font-weight: 900; letter-spacing: -.5px; color: var(--brand); text-decoration: none; }
+  nav .links { margin-left: auto; display: flex; gap: 24px; }
+  nav .links a { color: var(--muted); text-decoration: none; font-size: 14px; transition: color .15s; }
+  nav .links a:hover { color: #fff; }
+
+  /* ── Hero ─────────────────────────────────────────────────────── */
+  header.hero {
+    position: relative; overflow: hidden;
+    padding: 96px 24px 72px; text-align: center;
+  }
+  header.hero::before {
+    content: ""; position: absolute; inset: -40% -20% auto;  height: 130%;
+    background:
+      radial-gradient(60% 55% at 50% 10%, rgba(229,9,20,.28), transparent 70%),
+      radial-gradient(45% 40% at 20% 30%, rgba(120,20,160,.14), transparent 70%);
+    pointer-events: none;
+  }
+  .hero h1 {
+    position: relative;
+    font-size: clamp(40px, 7vw, 72px); font-weight: 900; letter-spacing: -1.5px; line-height: 1.05;
+  }
+  .hero h1 em { font-style: normal; color: var(--brand); }
+  .hero p.tag {
+    position: relative;
+    margin: 20px auto 0; max-width: 640px;
+    color: var(--muted); font-size: clamp(16px, 2.2vw, 19px);
+  }
+  .cta-row {
+    position: relative;
+    margin-top: 40px; display: flex; flex-wrap: wrap; gap: 14px; justify-content: center;
+  }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 14px 26px; border-radius: 8px; border: 0;
+    font-size: 15px; font-weight: 700; text-decoration: none; cursor: pointer;
+    transition: transform .12s, background .15s;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn.primary { background: var(--brand); color: #fff; }
+  .btn.primary:hover { background: var(--brand-light); }
+  .btn.ghost { background: #262626; color: #fff; }
+  .btn.ghost:hover { background: #333; }
+  .btn svg { width: 18px; height: 18px; fill: currentColor; }
+  .hero .fineprint { position: relative; margin-top: 14px; color: var(--faint); font-size: 12px; }
+
+  /* ── App mockup (pure CSS/SVG "screenshot") ───────────────────── */
+  .mockup {
+    position: relative; margin: 64px auto 0; max-width: 880px;
+    border-radius: 14px; overflow: hidden;
+    border: 1px solid var(--border);
+    box-shadow: 0 40px 90px -30px rgba(229,9,20,.35), 0 30px 60px -30px rgba(0,0,0,.9);
+    background: var(--surface);
+    text-align: left;
+  }
+  .mock-titlebar { display: flex; gap: 7px; padding: 12px 14px; background: #0e0e0e; border-bottom: 1px solid #222; }
+  .mock-titlebar i { width: 11px; height: 11px; border-radius: 50%; display: block; }
+  .mock-hero {
+    position: relative; height: 300px;
+    background:
+      linear-gradient(to top, var(--surface), transparent 55%),
+      linear-gradient(to right, rgba(0,0,0,.75), transparent 65%),
+      radial-gradient(80% 100% at 75% 25%, #4a1020 0%, #1a0a2e 55%, #0c0c14 100%);
+    padding: 28px;
+  }
+  .mock-nav { display: flex; gap: 18px; align-items: center; font-size: 12px; color: #ccc; }
+  .mock-nav b { color: var(--brand); font-size: 16px; letter-spacing: -.5px; }
+  .mock-copy { position: absolute; bottom: 28px; left: 28px; }
+  .mock-copy h3 { font-size: 30px; font-weight: 900; letter-spacing: -.5px; }
+  .mock-copy p { color: #bbb; font-size: 12px; max-width: 380px; margin-top: 6px; }
+  .mock-copy .mock-btns { display: flex; gap: 8px; margin-top: 14px; }
+  .mock-copy .mock-btns span {
+    font-size: 11px; font-weight: 700; padding: 7px 16px; border-radius: 4px;
+  }
+  .mock-btns span:first-child { background: #fff; color: #000; }
+  .mock-btns span:last-child  { background: rgba(109,109,110,.7); color: #fff; }
+  .mock-row { padding: 10px 28px 26px; }
+  .mock-row h4 { font-size: 12px; color: #ddd; margin-bottom: 10px; }
+  .mock-cards { display: flex; gap: 8px; }
+  .mock-cards i {
+    display: block; flex: 1; aspect-ratio: 2/3; max-width: 96px; border-radius: 5px;
+    background: linear-gradient(160deg, hsl(var(--h) 45% 26%), hsl(var(--h) 55% 12%));
+    position: relative; overflow: hidden;
+  }
+  .mock-cards i::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: #333;
+  }
+  .mock-cards i b { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--brand); }
+
+  /* ── Sections ─────────────────────────────────────────────────── */
+  section { padding: 88px 0; border-top: 1px solid #1a1a1a; }
+  section h2 { font-size: clamp(26px, 4vw, 36px); font-weight: 900; letter-spacing: -.8px; margin-bottom: 12px; }
+  section > .wrap > p.lead { color: var(--muted); max-width: 620px; margin-bottom: 40px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 18px; }
+  .card {
+    background: var(--raised); border: 1px solid var(--border); border-radius: 12px; padding: 24px;
+  }
+  .card .ico { font-size: 24px; }
+  .card h3 { font-size: 16px; margin: 10px 0 6px; }
+  .card p { color: var(--muted); font-size: 14px; }
+
+  /* Download cards */
+  .dl-card { display: flex; flex-direction: column; gap: 4px; }
+  .dl-card h3 { display: flex; align-items: center; gap: 10px; font-size: 18px; margin: 0 0 4px; }
+  .dl-card h3 svg { width: 22px; height: 22px; fill: #fff; }
+  .dl-card .meta { color: var(--faint); font-size: 12px; margin-bottom: 16px; }
+  .dl-card .btn { justify-content: center; }
+  .dl-card .alt { margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .dl-card .alt a { color: var(--muted); }
+  .dl-card .alt a:hover { color: #fff; }
+
+  /* Requirements table */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  th { color: var(--faint); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  td:first-child { color: var(--muted); white-space: nowrap; }
+
+  /* Release notes */
+  .release { border-left: 3px solid var(--brand); padding: 4px 0 4px 22px; margin-bottom: 36px; }
+  .release .ver { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .release .ver h3 { font-size: 20px; }
+  .release .ver time { color: var(--faint); font-size: 13px; }
+  .release ul { margin: 12px 0 0 18px; color: var(--muted); font-size: 14px; }
+  .release li { margin-bottom: 6px; }
+
+  /* Legal + footer */
+  .legal {
+    background: var(--raised); border: 1px solid var(--border); border-radius: 12px;
+    padding: 22px 26px; color: var(--muted); font-size: 13px;
+  }
+  .legal strong { color: #ddd; }
+  footer {
+    border-top: 1px solid #1a1a1a; padding: 40px 24px; text-align: center;
+    color: var(--faint); font-size: 13px;
+  }
+  footer a { color: var(--muted); text-decoration: none; }
+  footer a:hover { color: #fff; }
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="logo" href="#">AKFLIX</a>
+  <div class="links">
+    <a href="#features">Features</a>
+    <a href="#download">Download</a>
+    <a href="#requirements">Requirements</a>
+    <a href="#releases">Release Notes</a>
+    <a href="https://github.com/Akshayan03/akflix" target="_blank" rel="noreferrer">GitHub</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <h1>Your media.<br /><em>Cinematic.</em></h1>
+  <p class="tag">
+    Akflix is a gorgeous Netflix-style desktop client for your
+    <strong>Jellyfin</strong> server — with built-in torrent search, streaming
+    while downloading, and a player that just feels right.
+  </p>
+  <div class="cta-row">
+    <a class="btn primary" href="#download">
+      <svg viewBox="0 0 24 24"><path d="M12 16l-6-6h4V4h4v6h4l-6 6zm-8 2h16v2H4v-2z"/></svg>
+      Download free
+    </a>
+    <a class="btn ghost" href="https://github.com/Akshayan03/akflix" target="_blank" rel="noreferrer">
+      <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85V21c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg>
+      View source
+    </a>
+  </div>
+  <p class="fineprint">Free &amp; open source · Windows · macOS · Linux</p>
+
+  <!-- Stylized app screenshot (CSS mockup; swap for real PNGs when captured) -->
+  <div class="mockup" role="img" aria-label="Screenshot of the Akflix home screen">
+    <div class="mock-titlebar">
+      <i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
+    </div>
+    <div class="mock-hero">
+      <div class="mock-nav"><b>AKFLIX</b><span>Home</span><span>Downloads</span></div>
+      <div class="mock-copy">
+        <h3>Interstellar Nights</h3>
+        <p>A crew of dreamers crosses the dark between stars in search of a signal that shouldn't exist.</p>
+        <div class="mock-btns"><span>▶ Play</span><span>ⓘ More Info</span></div>
+      </div>
+    </div>
+    <div class="mock-row">
+      <h4>Continue Watching</h4>
+      <div class="mock-cards">
+        <i style="--h:355"><b style="width:70%"></b></i>
+        <i style="--h:215"><b style="width:34%"></b></i>
+        <i style="--h:38"><b style="width:88%"></b></i>
+        <i style="--h:150"><b style="width:12%"></b></i>
+        <i style="--h:275"><b style="width:55%"></b></i>
+        <i style="--h:190"><b style="width:41%"></b></i>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Everything a media app should be</h2>
+    <p class="lead">Jellyfin power underneath, Netflix polish on top.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">🎬</div><h3>Netflix-grade UI</h3><p>Hero banners, buttery rows, hover previews, dark cinematic theme, and smooth animations everywhere.</p></div>
+      <div class="card"><div class="ico">🗄️</div><h3>Jellyfin native</h3><p>Your libraries, users, subtitles, transcoding and watch progress — synced with every other Jellyfin client.</p></div>
+      <div class="card"><div class="ico">🧲</div><h3>Torrent search built in</h3><p>Search all your Prowlarr indexers from inside the app and send results straight to qBittorrent.</p></div>
+      <div class="card"><div class="ico">⚡</div><h3>Stream while downloading</h3><p>Sequential downloads make files playable in minutes, then scan them into your library with one click.</p></div>
+      <div class="card"><div class="ico">🎯</div><h3>Mini player</h3><p>Keep watching in a floating picture-in-picture card with a Spotify-style now-playing bar while you browse.</p></div>
+      <div class="card"><div class="ico">👥</div><h3>Profiles &amp; servers</h3><p>Multiple Jellyfin servers and users with a “Who's watching?” switcher. Auto-updates keep you current.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="download">
+  <div class="wrap">
+    <h2>Download Akflix</h2>
+    <p class="lead">Version 1.0.0 · all builds are produced from source by GitHub Actions.</p>
+    <div class="grid">
+      <div class="card dl-card">
+        <h3><svg viewBox="0 0 24 24"><path d="M3 5.5 10.5 4.4v7.1H3V5.5zm0 13 7.5 1.1v-7H3v5.9zM11.5 4.2 21 3v8.5h-9.5V4.2zm0 15.6L21 21v-8.5h-9.5v7.3z"/></svg>Windows</h3>
+        <p class="meta">Windows 10/11 · 64-bit · ~9 MB</p>
+        <a class="btn primary" href="https://github.com/Akshayan03/akflix/releases/latest/download/Akflix_1.0.0_x64-setup.exe">Download .exe installer</a>
+        <p class="alt">or the <a href="https://github.com/Akshayan03/akflix/releases/latest/download/Akflix_1.0.0_x64_en-US.msi">.msi package</a></p>
+      </div>
+      <div class="card dl-card">
+        <h3><svg viewBox="0 0 24 24"><path d="M16.7 12.9c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.9-1.6 0-3.2 1-4 2.4-1.7 3-.4 7.5 1.2 9.9.8 1.2 1.8 2.5 3.1 2.5 1.2-.1 1.7-.8 3.2-.8s1.9.8 3.2.8c1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8-.1 0-2.6-1-2.7-4zM14.4 5.6c.7-.8 1.1-1.9 1-3.1-1 0-2.2.7-2.9 1.5-.6.7-1.2 1.9-1 3 1.1.1 2.2-.6 2.9-1.4z"/></svg>macOS</h3>
+        <p class="meta">macOS 10.15+ · Universal (Intel + Apple Silicon) · ~12 MB</p>
+        <a class="btn primary" href="https://github.com/Akshayan03/akflix/releases/latest/download/Akflix_1.0.0_universal.dmg">Download .dmg</a>
+        <p class="alt">drag to Applications, done</p>
+      </div>
+      <div class="card dl-card">
+        <h3><svg viewBox="0 0 24 24"><path d="M12 2c-1.9 0-3 1.4-3 3.2 0 1.5-.6 2.6-1.3 3.8C6.6 10.8 5 12.6 5 15.4 5 19.1 8 22 12 22s7-2.9 7-6.6c0-2.8-1.6-4.6-2.7-6.4-.7-1.2-1.3-2.3-1.3-3.8C15 3.4 13.9 2 12 2zm-2.5 13a1.3 1.3 0 1 1 0 2.6 1.3 1.3 0 0 1 0-2.6zm5 0a1.3 1.3 0 1 1 0 2.6 1.3 1.3 0 0 1 0-2.6zm-3.6 3.7c.3.5.9.8 1.6.8s1.3-.3 1.6-.8l1.1.7c-.5.9-1.5 1.4-2.7 1.4s-2.2-.5-2.7-1.4l1.1-.7z"/></svg>Linux</h3>
+        <p class="meta">glibc 2.31+ · x86_64 · ~10 MB</p>
+        <a class="btn primary" href="https://github.com/Akshayan03/akflix/releases/latest/download/Akflix_1.0.0_amd64.AppImage">Download AppImage</a>
+        <p class="alt">or the <a href="https://github.com/Akshayan03/akflix/releases/latest/download/Akflix_1.0.0_amd64.deb">.deb package</a></p>
+      </div>
+    </div>
+    <p style="margin-top:22px;color:var(--faint);font-size:13px">
+      All releases and checksums: <a style="color:var(--muted)" href="https://github.com/Akshayan03/akflix/releases" target="_blank" rel="noreferrer">github.com/Akshayan03/akflix/releases</a>
+    </p>
+  </div>
+</section>
+
+<section id="requirements">
+  <div class="wrap">
+    <h2>System requirements</h2>
+    <p class="lead">Akflix is a thin client — the heavy lifting happens on your Jellyfin server.</p>
+    <table>
+      <tr><th></th><th>Minimum</th><th>Recommended</th></tr>
+      <tr><td>OS</td><td>Win 10 / macOS 10.15 / Ubuntu 20.04</td><td>Win 11 / macOS 14+ / Ubuntu 24.04</td></tr>
+      <tr><td>Memory</td><td>4 GB</td><td>8 GB</td></tr>
+      <tr><td>Disk</td><td>200 MB (app only)</td><td>+ space for downloads</td></tr>
+      <tr><td>Server</td><td>Jellyfin 10.8+</td><td>Jellyfin 10.9+ with hardware transcoding</td></tr>
+      <tr><td>Torrents (optional)</td><td>qBittorrent 4.5+ · Prowlarr</td><td>The bundled Docker stack</td></tr>
+      <tr><td>Network</td><td>10 Mbps to your server</td><td>Gigabit LAN for 4K direct play</td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="releases">
+  <div class="wrap">
+    <h2>Release notes</h2>
+    <p class="lead">Full history on the <a style="color:var(--muted)" href="https://github.com/Akshayan03/akflix/releases" target="_blank" rel="noreferrer">GitHub releases page</a>.</p>
+
+    <div class="release">
+      <div class="ver"><h3>v1.0.0</h3><time>July 2026</time></div>
+      <ul>
+        <li><strong style="color:#ddd">Mini player</strong> — Spotify-style now-playing bar with floating picture-in-picture video; playback survives navigation.</li>
+        <li>Auto-updates via the Tauri updater, system tray with hide-to-tray, magnet-link handling.</li>
+        <li>Loading skeletons, toast notifications, global keyboard shortcuts (Space, F, M, ←/→, Esc).</li>
+        <li>Multi-server Jellyfin login with an upgraded “Who's watching?” profile picker.</li>
+        <li>Torrent search (Prowlarr) + qBittorrent manager with stream-while-downloading.</li>
+        <li>Multi-language UI: English, Español, Français.</li>
+      </ul>
+    </div>
+
+    <div class="release">
+      <div class="ver"><h3>v0.9.0 — beta</h3><time>June 2026</time></div>
+      <ul>
+        <li>First public beta: Netflix-style home, in-app player with subtitles and resume, global search, Docker backend stack.</li>
+      </ul>
+    </div>
+
+    <div class="legal">
+      <strong>⚖️ Legal notice.</strong> Akflix ships with no media, trackers, or indexers.
+      BitTorrent is a legal protocol, but downloading or sharing copyrighted
+      material without authorization is illegal in most jurisdictions. You are
+      solely responsible for the indexers you configure and the content you
+      access — stick to public-domain media, Creative Commons releases, Linux
+      ISOs, and content you're licensed to use.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>
+    AKFLIX — free &amp; open source ·
+    <a href="https://github.com/Akshayan03/akflix" target="_blank" rel="noreferrer">GitHub</a> ·
+    <a href="https://github.com/Akshayan03/akflix/blob/main/LEGAL.md" target="_blank" rel="noreferrer">Legal</a> ·
+    powered by <a href="https://jellyfin.org" target="_blank" rel="noreferrer">Jellyfin</a>
+  </p>
+</footer>
+
+</body>
+</html>

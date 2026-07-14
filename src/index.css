@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Cinematic base ─────────────────────────────────────────────── */
+html,
+body,
+#root {
+  height: 100%;
+  background: #141414;
+  color: #fff;
+}
+
+/* Hide scrollbars on horizontal rows but keep them scrollable */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Thin dark scrollbar everywhere else */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #3f3f3f;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Skeleton shimmer for loading cards */
+.skeleton {
+  @apply animate-shimmer rounded-md;
+  background: linear-gradient(90deg, #1f1f1f 0%, #2a2a2a 40%, #1f1f1f 80%);
+  background-size: 400px 100%;
+}
+
+/* Netflix-style text shadow for hero copy */
+.hero-shadow {
+  text-shadow: 2px 2px 6px rgba(0, 0, 0, 0.7);
+}
+
+/* Native video: fill and letterbox */
+video {
+  background: #000;
+}

@@ -1,0 +1,116 @@
+import { useEffect } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Toaster } from "sonner";
+import { useAuth } from "@/stores/authStore";
+import { initDeepLinks, checkForUpdatesQuietly } from "@/lib/desktop";
+import Navbar from "@/components/Navbar";
+import PlayerHost from "@/components/PlayerHost";
+import Login from "@/pages/Login";
+import Home from "@/pages/Home";
+import Search from "@/pages/Search";
+import Details from "@/pages/Details";
+import Player from "@/pages/Player";
+import Downloads from "@/pages/Downloads";
+import Settings from "@/pages/Settings";
+
+/** Routes that need an active Jellyfin session redirect to /login. */
+function RequireAuth({ children }: { children: JSX.Element }) {
+  const active = useAuth((s) => s.activeProfileId);
+  return active ? children : <Navigate to="/login" replace />;
+}
+
+export default function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isPlayer = location.pathname.startsWith("/play");
+  const isLogin = location.pathname === "/login";
+
+  // Desktop-only integrations (no-ops in the browser).
+  useEffect(() => {
+    initDeepLinks(navigate);
+    checkForUpdatesQuietly();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="min-h-full">
+      {/* The player and login are immersive full-screen pages — no navbar. */}
+      {!isPlayer && !isLogin && <Navbar />}
+
+      {/* Pages animate their own entrances (motion initial/animate).
+          NOTE: deliberately NOT wrapped in <AnimatePresence mode="wait"> —
+          exit-gated routing wedges when the outgoing page re-renders during
+          its exit (e.g. Downloads' 2s torrent polling), leaving the app stuck
+          on the old route. Entrance animations don't have that failure mode. */}
+      <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route
+            path="/"
+            element={
+              <RequireAuth>
+                <Home />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/search"
+            element={
+              <RequireAuth>
+                <Search />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/title/:itemId"
+            element={
+              <RequireAuth>
+                <Details />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/play/:itemId"
+            element={
+              <RequireAuth>
+                <Player />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/downloads"
+            element={
+              <RequireAuth>
+                <Downloads />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <RequireAuth>
+                <Settings />
+              </RequireAuth>
+            }
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+
+      {/* Persistent playback engine: fullscreen player, PiP + mini bar. */}
+      <PlayerHost />
+
+      {/* Toast notifications (Sonner), styled for the dark theme. */}
+      <Toaster
+        theme="dark"
+        position="bottom-right"
+        offset={{ bottom: 96 }} // clear the mini player bar
+        toastOptions={{
+          style: {
+            background: "#1f1f1f",
+            border: "1px solid #333",
+            color: "#fff",
+          },
+        }}
+      />
+    </div>
+  );
+}
