@@ -1,13 +1,18 @@
-# Deploys the /website folder to GitHub Pages on every push to main.
-# Enable in repo Settings → Pages → Source: "GitHub Actions".
-# NOTE: on the GitHub Free plan, Pages only works for PUBLIC repositories.
+# Deploys the /website folder to GitHub Pages, bundling the latest release
+# installers into the site under /downloads/ so download links are served
+# first-party from the site's own origin (no redirect to github.com).
+#
+# Runs on: pushes to main that touch website/, every published release
+# (so new installers appear on the site automatically), and manual dispatch.
 
 name: Deploy website
 
 on:
   push:
     branches: [main]
-    paths: ["website/**"]
+    paths: ["website/**", ".github/workflows/pages.yml"]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -27,6 +32,18 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Bundle latest release installers into the site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p website/downloads
+          gh release download --repo "$GITHUB_REPOSITORY" \
+            --dir website/downloads \
+            --pattern "*.dmg" --pattern "*.exe" --pattern "*.msi" \
+            --pattern "*.AppImage" --pattern "*.deb"
+          ls -lh website/downloads
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

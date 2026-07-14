@@ -4,178 +4,326 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Akflix — Your media. Cinematic.</title>
-<meta name="description" content="Akflix is a beautiful Netflix-style desktop client for Jellyfin with built-in torrent search and streaming. Free and open source for Windows, macOS and Linux." />
+<meta name="description" content="Akflix is a Netflix-style desktop client for Jellyfin with built-in torrent search and streaming. Free and open source for Windows, macOS and Linux." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23e50914'/><text x='50' y='72' font-size='64' font-weight='bold' font-family='Arial' fill='white' text-anchor='middle'>A</text></svg>" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Archivo:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
 <style>
-  /* ── Akflix brand ─────────────────────────────────────────────── */
+  /* ══ Akflix — single committed theme: a dark cinema house ═════════
+     ink/panel are warm near-blacks (red bias, not neutral grey);
+     red is the brand; amber is the marquee-bulb counterpoint,
+     used only for the "now showing" eyebrow and ticket tags.     */
   :root {
-    --brand: #e50914;
-    --brand-light: #f6121d;
-    --bg: #0b0b0b;
-    --surface: #141414;
-    --raised: #1d1d1d;
-    --border: #2c2c2c;
-    --text: #ffffff;
-    --muted: #9b9b9b;
-    --faint: #6b6b6b;
+    --red:   #e50914;
+    --red-2: #ff2c22;
+    --amber: #f0b45c;
+    --ink:   #0b0908;
+    --panel: #161110;
+    --line:  #2b231f;
+    --white: #f7f2eb;
+    --grey:  #a79c93;
+    --dim:   #6e6259;
+    --display: "Bebas Neue", "Arial Narrow", sans-serif;
+    --body: "Archivo", "Helvetica Neue", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
   body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: "Inter", "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    line-height: 1.6;
+    background: var(--ink);
+    color: var(--white);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.65;
     -webkit-font-smoothing: antialiased;
   }
   a { color: inherit; }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 24px; }
 
-  /* ── Nav ──────────────────────────────────────────────────────── */
+  /* ── Top bar ─────────────────────────────────────────────────── */
   nav {
-    position: sticky; top: 0; z-index: 10;
-    display: flex; align-items: center; gap: 28px;
-    padding: 18px 32px;
-    background: rgba(11,11,11,.85); backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--border);
+    position: fixed; inset: 0 0 auto; z-index: 40;
+    display: flex; align-items: baseline; gap: 30px;
+    padding: 16px 30px;
+    background: linear-gradient(rgba(11,9,8,.92), rgba(11,9,8,.75) 70%, transparent);
   }
-  .logo { font-size: 24px; font-weight: 900; letter-spacing: -.5px; color: var(--brand); text-decoration: none; }
-  nav .links { margin-left: auto; display: flex; gap: 24px; }
-  nav .links a { color: var(--muted); text-decoration: none; font-size: 14px; transition: color .15s; }
-  nav .links a:hover { color: #fff; }
+  .logo {
+    font-family: var(--display); font-size: 27px; letter-spacing: .06em;
+    color: var(--red); text-decoration: none; line-height: 1;
+  }
+  nav .links { margin-left: auto; display: flex; gap: 26px; }
+  nav .links a {
+    color: var(--grey); text-decoration: none;
+    font-size: 12px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase;
+    transition: color .15s;
+  }
+  nav .links a:hover { color: var(--white); }
+  @media (max-width: 720px) { nav .links a:not(:last-child) { display: none; } }
 
-  /* ── Hero ─────────────────────────────────────────────────────── */
-  header.hero {
-    position: relative; overflow: hidden;
-    padding: 96px 24px 72px; text-align: center;
+  /* ── Hero: letterboxed house, drifting poster wall ───────────── */
+  .hero {
+    position: relative; min-height: 100svh;
+    display: grid; place-items: center; text-align: center;
+    overflow: hidden;
+    border-bottom: 1px solid var(--line);
   }
-  header.hero::before {
-    content: ""; position: absolute; inset: -40% -20% auto;  height: 130%;
+  .wall {
+    position: absolute; inset: -18% -12%;
+    display: flex; gap: 18px; justify-content: center;
+    transform: rotate(-7deg);
+    opacity: .5;
+  }
+  .wall .col { display: flex; flex-direction: column; gap: 18px; flex: 0 0 150px; }
+  .wall .col:nth-child(odd)  { animation: driftUp 60s linear infinite alternate; }
+  .wall .col:nth-child(even) { animation: driftDn 74s linear infinite alternate; }
+  @keyframes driftUp { from { transform: translateY(0) } to { transform: translateY(-140px) } }
+  @keyframes driftDn { from { transform: translateY(-140px) } to { transform: translateY(0) } }
+  .wall i {
+    display: block; height: 215px; border-radius: 4px;
     background:
-      radial-gradient(60% 55% at 50% 10%, rgba(229,9,20,.28), transparent 70%),
-      radial-gradient(45% 40% at 20% 30%, rgba(120,20,160,.14), transparent 70%);
-    pointer-events: none;
+      linear-gradient(165deg, hsl(var(--h) 38% 24%) 0%, hsl(var(--h) 46% 9%) 78%),
+      var(--panel);
+    box-shadow: inset 0 0 0 1px rgba(247,242,235,.05);
   }
+  .hero .scrim {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(75% 60% at 50% 42%, rgba(11,9,8,.25), rgba(11,9,8,.94) 82%),
+      linear-gradient(rgba(11,9,8,.55), transparent 30% 68%, rgba(11,9,8,.9));
+  }
+  .hero .bill { position: relative; padding: 110px 24px 90px; max-width: 880px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 12px;
+    font-family: var(--mono); font-size: 12px; letter-spacing: .3em;
+    color: var(--amber); text-transform: uppercase;
+  }
+  .eyebrow::before, .eyebrow::after {
+    content: ""; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--amber); box-shadow: 0 0 12px 2px rgba(240,180,92,.55);
+    animation: bulb 2.4s ease-in-out infinite;
+  }
+  .eyebrow::after { animation-delay: 1.2s; }
+  @keyframes bulb { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
   .hero h1 {
-    position: relative;
-    font-size: clamp(40px, 7vw, 72px); font-weight: 900; letter-spacing: -1.5px; line-height: 1.05;
+    font-family: var(--display); font-weight: 400;
+    font-size: clamp(72px, 15vw, 176px);
+    line-height: .88; letter-spacing: .015em;
+    margin: 26px 0 10px; text-wrap: balance;
   }
-  .hero h1 em { font-style: normal; color: var(--brand); }
-  .hero p.tag {
-    position: relative;
-    margin: 20px auto 0; max-width: 640px;
-    color: var(--muted); font-size: clamp(16px, 2.2vw, 19px);
+  .hero h1 em { font-style: normal; color: var(--red); }
+  .hero .tag {
+    margin: 14px auto 0; max-width: 560px;
+    color: var(--grey); font-size: clamp(15px, 2vw, 18px);
   }
-  .cta-row {
-    position: relative;
-    margin-top: 40px; display: flex; flex-wrap: wrap; gap: 14px; justify-content: center;
-  }
+  .hero .tag strong { color: var(--white); font-weight: 600; }
+  .cta-row { margin-top: 38px; display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; }
   .btn {
     display: inline-flex; align-items: center; gap: 10px;
-    padding: 14px 26px; border-radius: 8px; border: 0;
-    font-size: 15px; font-weight: 700; text-decoration: none; cursor: pointer;
-    transition: transform .12s, background .15s;
+    padding: 15px 30px; border: 0; border-radius: 3px;
+    font-family: var(--body); font-size: 14px; font-weight: 600; letter-spacing: .04em;
+    text-decoration: none; cursor: pointer;
+    transition: transform .12s, background .15s, border-color .15s;
   }
   .btn:hover { transform: translateY(-1px); }
-  .btn.primary { background: var(--brand); color: #fff; }
-  .btn.primary:hover { background: var(--brand-light); }
-  .btn.ghost { background: #262626; color: #fff; }
-  .btn.ghost:hover { background: #333; }
-  .btn svg { width: 18px; height: 18px; fill: currentColor; }
-  .hero .fineprint { position: relative; margin-top: 14px; color: var(--faint); font-size: 12px; }
+  .btn.primary { background: var(--red); color: #fff; box-shadow: 0 10px 40px -8px rgba(229,9,20,.5); }
+  .btn.primary:hover { background: var(--red-2); }
+  .btn.primary small { font-family: var(--mono); font-weight: 400; font-size: 11px; opacity: .8; }
+  .btn.ghost { background: transparent; color: var(--white); border: 1px solid var(--line); }
+  .btn.ghost:hover { border-color: var(--grey); }
+  .btn svg { width: 17px; height: 17px; fill: currentColor; flex: none; }
+  .hero .fineprint { margin-top: 16px; font-family: var(--mono); font-size: 11px; color: var(--dim); letter-spacing: .08em; }
 
-  /* ── App mockup (pure CSS/SVG "screenshot") ───────────────────── */
-  .mockup {
-    position: relative; margin: 64px auto 0; max-width: 880px;
-    border-radius: 14px; overflow: hidden;
-    border: 1px solid var(--border);
-    box-shadow: 0 40px 90px -30px rgba(229,9,20,.35), 0 30px 60px -30px rgba(0,0,0,.9);
-    background: var(--surface);
-    text-align: left;
+  /* ── Marquee strip ───────────────────────────────────────────── */
+  .marquee {
+    overflow: hidden; white-space: nowrap;
+    border-bottom: 1px solid var(--line);
+    padding: 17px 0; background: var(--panel);
   }
-  .mock-titlebar { display: flex; gap: 7px; padding: 12px 14px; background: #0e0e0e; border-bottom: 1px solid #222; }
+  .marquee .track { display: inline-block; animation: reel 40s linear infinite; }
+  @keyframes reel { to { transform: translateX(-50%) } }
+  .marquee span {
+    font-family: var(--display); font-size: 21px; letter-spacing: .12em;
+    color: var(--dim); padding: 0 28px;
+  }
+  .marquee span::after { content: "·"; color: var(--red); margin-left: 56px; }
+
+  /* ── Film-sprocket divider ───────────────────────────────────── */
+  .sprocket {
+    height: 34px; border-block: 1px solid var(--line);
+    background:
+      repeating-linear-gradient(90deg,
+        transparent 0 14px, var(--panel) 14px 30px, transparent 30px 44px);
+    background-size: 44px 12px; background-position: center; background-repeat: repeat-x;
+  }
+
+  /* ── Sections ────────────────────────────────────────────────── */
+  section { padding: 100px 0; }
+  section + section { border-top: 1px solid var(--line); }
+  .kicker {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .3em;
+    text-transform: uppercase; color: var(--red);
+  }
+  section h2 {
+    font-family: var(--display); font-weight: 400;
+    font-size: clamp(44px, 6vw, 68px); line-height: .95; letter-spacing: .01em;
+    margin: 10px 0 14px; text-wrap: balance;
+  }
+  .lead { color: var(--grey); max-width: 580px; margin-bottom: 54px; }
+
+  /* Feature billing — a film-programme block, not a card grid */
+  .bill-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    border-top: 1px solid var(--line);
+  }
+  @media (max-width: 860px) { .bill-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .bill-grid { grid-template-columns: 1fr; } }
+  .bill-grid article {
+    padding: 30px 28px 34px 0; border-bottom: 1px solid var(--line);
+  }
+  .bill-grid h3 {
+    font-family: var(--display); font-weight: 400; font-size: 27px;
+    letter-spacing: .03em; line-height: 1;
+  }
+  .bill-grid h3 b { color: var(--red); font-weight: 400; }
+  .bill-grid p { margin-top: 10px; color: var(--grey); font-size: 14.5px; }
+
+  /* App mockup */
+  .mockup {
+    position: relative; margin: 70px auto 0; max-width: 860px;
+    border-radius: 10px; overflow: hidden;
+    border: 1px solid var(--line);
+    box-shadow: 0 60px 120px -40px rgba(229,9,20,.28), 0 40px 80px -40px rgba(0,0,0,.9);
+    background: #100d0c; text-align: left;
+  }
+  .mock-titlebar { display: flex; gap: 7px; padding: 12px 14px; background: #0c0a09; border-bottom: 1px solid #221c18; }
   .mock-titlebar i { width: 11px; height: 11px; border-radius: 50%; display: block; }
   .mock-hero {
-    position: relative; height: 300px;
+    position: relative; height: 300px; padding: 26px;
     background:
-      linear-gradient(to top, var(--surface), transparent 55%),
+      linear-gradient(to top, #100d0c, transparent 55%),
       linear-gradient(to right, rgba(0,0,0,.75), transparent 65%),
       radial-gradient(80% 100% at 75% 25%, #4a1020 0%, #1a0a2e 55%, #0c0c14 100%);
-    padding: 28px;
   }
-  .mock-nav { display: flex; gap: 18px; align-items: center; font-size: 12px; color: #ccc; }
-  .mock-nav b { color: var(--brand); font-size: 16px; letter-spacing: -.5px; }
-  .mock-copy { position: absolute; bottom: 28px; left: 28px; }
-  .mock-copy h3 { font-size: 30px; font-weight: 900; letter-spacing: -.5px; }
-  .mock-copy p { color: #bbb; font-size: 12px; max-width: 380px; margin-top: 6px; }
-  .mock-copy .mock-btns { display: flex; gap: 8px; margin-top: 14px; }
-  .mock-copy .mock-btns span {
-    font-size: 11px; font-weight: 700; padding: 7px 16px; border-radius: 4px;
-  }
+  .mock-nav { display: flex; gap: 18px; align-items: baseline; font-size: 12px; color: #ccc; }
+  .mock-nav b { font-family: var(--display); color: var(--red); font-size: 17px; letter-spacing: .06em; }
+  .mock-copy { position: absolute; bottom: 26px; left: 26px; }
+  .mock-copy h3 { font-family: var(--display); font-weight: 400; font-size: 38px; letter-spacing: .02em; line-height: 1; }
+  .mock-copy p { color: #bbb; font-size: 12px; max-width: 380px; margin-top: 8px; }
+  .mock-btns { display: flex; gap: 8px; margin-top: 14px; }
+  .mock-btns span { font-size: 11px; font-weight: 600; padding: 7px 16px; border-radius: 3px; }
   .mock-btns span:first-child { background: #fff; color: #000; }
-  .mock-btns span:last-child  { background: rgba(109,109,110,.7); color: #fff; }
-  .mock-row { padding: 10px 28px 26px; }
-  .mock-row h4 { font-size: 12px; color: #ddd; margin-bottom: 10px; }
+  .mock-btns span:last-child  { background: rgba(109,109,110,.6); color: #fff; }
+  .mock-row { padding: 8px 26px 24px; }
+  .mock-row h4 { font-size: 12px; color: #ddd; margin-bottom: 10px; font-weight: 600; }
   .mock-cards { display: flex; gap: 8px; }
   .mock-cards i {
-    display: block; flex: 1; aspect-ratio: 2/3; max-width: 96px; border-radius: 5px;
-    background: linear-gradient(160deg, hsl(var(--h) 45% 26%), hsl(var(--h) 55% 12%));
+    display: block; flex: 1; aspect-ratio: 2/3; max-width: 94px; border-radius: 4px;
+    background: linear-gradient(160deg, hsl(var(--h) 42% 26%), hsl(var(--h) 52% 11%));
     position: relative; overflow: hidden;
   }
-  .mock-cards i::after {
-    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: #333;
+  .mock-cards i::after { content: ""; position: absolute; inset: auto 0 0; height: 3px; background: #332a24; }
+  .mock-cards i b { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--red); z-index: 1; }
+
+  /* ── Box office: ticket-stub downloads ───────────────────────── */
+  .tickets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; }
+  @media (max-width: 860px) { .tickets { grid-template-columns: 1fr; max-width: 460px; } }
+  .ticket {
+    position: relative; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 30px 28px 28px;
+    display: flex; flex-direction: column;
   }
-  .mock-cards i b { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--brand); }
-
-  /* ── Sections ─────────────────────────────────────────────────── */
-  section { padding: 88px 0; border-top: 1px solid #1a1a1a; }
-  section h2 { font-size: clamp(26px, 4vw, 36px); font-weight: 900; letter-spacing: -.8px; margin-bottom: 12px; }
-  section > .wrap > p.lead { color: var(--muted); max-width: 620px; margin-bottom: 40px; }
-
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 18px; }
-  .card {
-    background: var(--raised); border: 1px solid var(--border); border-radius: 12px; padding: 24px;
+  /* perforation notches + dashed tear line above the button */
+  .ticket::before, .ticket::after {
+    content: ""; position: absolute; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--ink); border: 1px solid var(--line);
+    top: auto; bottom: 74px; transform: translateY(50%);
   }
-  .card .ico { font-size: 24px; }
-  .card h3 { font-size: 16px; margin: 10px 0 6px; }
-  .card p { color: var(--muted); font-size: 14px; }
+  .ticket::before { left: -12px; }
+  .ticket::after  { right: -12px; }
+  .ticket .tear {
+    border: 0; border-top: 2px dashed var(--line);
+    margin: 22px -10px 20px;
+  }
+  .ticket .admit {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .28em;
+    text-transform: uppercase; color: var(--dim);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .ticket .admit .you {
+    color: var(--ink); background: var(--amber); border-radius: 2px;
+    padding: 2px 8px; letter-spacing: .18em; font-weight: 600; display: none;
+  }
+  .ticket.mine { border-color: rgba(240,180,92,.45); }
+  .ticket.mine .admit .you { display: inline-block; }
+  .ticket h3 {
+    font-family: var(--display); font-weight: 400; font-size: 44px;
+    line-height: 1; letter-spacing: .02em; margin-top: 14px;
+  }
+  .ticket .file {
+    margin-top: 12px; font-family: var(--mono); font-size: 11.5px;
+    color: var(--grey); word-break: break-all; line-height: 1.8;
+  }
+  .ticket .file b { color: var(--dim); font-weight: 400; }
+  .ticket .btn { justify-content: center; margin-top: auto; }
+  .ticket .alt { margin-top: 12px; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  .ticket .alt a { color: var(--grey); text-underline-offset: 3px; }
+  .ticket .alt a:hover { color: var(--white); }
+  .mirror-note { margin-top: 26px; font-family: var(--mono); font-size: 11.5px; color: var(--dim); letter-spacing: .04em; }
+  .mirror-note a { color: var(--grey); text-underline-offset: 3px; }
+  .mirror-note a:hover { color: var(--white); }
 
-  /* Download cards */
-  .dl-card { display: flex; flex-direction: column; gap: 4px; }
-  .dl-card h3 { display: flex; align-items: center; gap: 10px; font-size: 18px; margin: 0 0 4px; }
-  .dl-card h3 svg { width: 22px; height: 22px; fill: #fff; }
-  .dl-card .meta { color: var(--faint); font-size: 12px; margin-bottom: 16px; }
-  .dl-card .btn { justify-content: center; }
-  .dl-card .alt { margin-top: 10px; font-size: 12px; color: var(--muted); }
-  .dl-card .alt a { color: var(--muted); }
-  .dl-card .alt a:hover { color: #fff; }
+  /* ── Projection specs ────────────────────────────────────────── */
+  .specs { border-top: 1px solid var(--line); }
+  .specs dl {
+    display: grid; grid-template-columns: 220px 1fr 1fr; align-items: baseline;
+  }
+  @media (max-width: 720px) { .specs dl { grid-template-columns: 130px 1fr; } .specs dd.rec { display: none; } .specs .heads .rec { display: none; } }
+  .specs .heads { display: contents; }
+  .specs .heads span {
+    padding: 14px 16px 14px 0;
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .24em;
+    text-transform: uppercase; color: var(--dim);
+    border-bottom: 1px solid var(--line);
+  }
+  .specs dt, .specs dd {
+    padding: 15px 16px 15px 0; border-bottom: 1px solid var(--line); font-size: 14px;
+  }
+  .specs dt { color: var(--dim); font-family: var(--mono); font-size: 12px; letter-spacing: .06em; }
+  .specs dd { color: var(--grey); }
+  .specs dd strong { color: var(--white); font-weight: 500; }
 
-  /* Requirements table */
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border); }
-  th { color: var(--faint); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
-  td:first-child { color: var(--muted); white-space: nowrap; }
+  /* ── The reel: release history ───────────────────────────────── */
+  .reel-item { display: grid; grid-template-columns: 150px 1fr; gap: 26px; padding: 34px 0; }
+  .reel-item + .reel-item { border-top: 1px solid var(--line); }
+  @media (max-width: 640px) { .reel-item { grid-template-columns: 1fr; gap: 8px; } }
+  .reel-item .slate { font-family: var(--mono); font-size: 12px; color: var(--dim); line-height: 2; }
+  .reel-item .slate b { display: block; font-family: var(--display); font-weight: 400; font-size: 34px; color: var(--white); letter-spacing: .03em; line-height: 1; margin-bottom: 6px; }
+  .reel-item ul { list-style: none; }
+  .reel-item li { color: var(--grey); font-size: 14.5px; padding: 5px 0 5px 22px; position: relative; }
+  .reel-item li::before { content: "▸"; position: absolute; left: 0; color: var(--red); font-size: 11px; top: 9px; }
+  .reel-item li strong { color: var(--white); font-weight: 600; }
 
-  /* Release notes */
-  .release { border-left: 3px solid var(--brand); padding: 4px 0 4px 22px; margin-bottom: 36px; }
-  .release .ver { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-  .release .ver h3 { font-size: 20px; }
-  .release .ver time { color: var(--faint); font-size: 13px; }
-  .release ul { margin: 12px 0 0 18px; color: var(--muted); font-size: 14px; }
-  .release li { margin-bottom: 6px; }
-
-  /* Legal + footer */
+  /* ── Small print + footer ────────────────────────────────────── */
   .legal {
-    background: var(--raised); border: 1px solid var(--border); border-radius: 12px;
-    padding: 22px 26px; color: var(--muted); font-size: 13px;
+    border: 1px solid var(--line); border-left: 3px solid var(--red);
+    background: var(--panel); padding: 24px 28px; margin-top: 60px;
+    color: var(--grey); font-size: 13px;
   }
-  .legal strong { color: #ddd; }
+  .legal strong { color: var(--white); font-weight: 600; letter-spacing: .04em; }
   footer {
-    border-top: 1px solid #1a1a1a; padding: 40px 24px; text-align: center;
-    color: var(--faint); font-size: 13px;
+    border-top: 1px solid var(--line); padding: 44px 24px 60px; text-align: center;
   }
-  footer a { color: var(--muted); text-decoration: none; }
-  footer a:hover { color: #fff; }
+  footer .logo { font-size: 22px; }
+  footer p { margin-top: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--dim); letter-spacing: .06em; }
+  footer a { color: var(--grey); text-decoration: none; }
+  footer a:hover { color: var(--white); text-decoration: underline; text-underline-offset: 3px; }
 </style>
 </head>
 <body>
@@ -183,164 +331,258 @@
 <nav>
   <a class="logo" href="#">AKFLIX</a>
   <div class="links">
-    <a href="#features">Features</a>
-    <a href="#download">Download</a>
-    <a href="#requirements">Requirements</a>
-    <a href="#releases">Release Notes</a>
+    <a href="#featurette">Featurette</a>
+    <a href="#download">Box Office</a>
+    <a href="#specs">Specs</a>
+    <a href="#reel">The Reel</a>
     <a href="https://github.com/Akshayan03/akflix" target="_blank" rel="noreferrer">GitHub</a>
   </div>
 </nav>
 
 <header class="hero">
-  <h1>Your media.<br /><em>Cinematic.</em></h1>
-  <p class="tag">
-    Akflix is a gorgeous Netflix-style desktop client for your
-    <strong>Jellyfin</strong> server — with built-in torrent search, streaming
-    while downloading, and a player that just feels right.
-  </p>
-  <div class="cta-row">
-    <a class="btn primary" href="#download">
-      <svg viewBox="0 0 24 24"><path d="M12 16l-6-6h4V4h4v6h4l-6 6zm-8 2h16v2H4v-2z"/></svg>
-      Download free
-    </a>
-    <a class="btn ghost" href="https://github.com/Akshayan03/akflix" target="_blank" rel="noreferrer">
-      <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85V21c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg>
-      View source
-    </a>
-  </div>
-  <p class="fineprint">Free &amp; open source · Windows · macOS · Linux</p>
-
-  <!-- Stylized app screenshot (CSS mockup; swap for real PNGs when captured) -->
-  <div class="mockup" role="img" aria-label="Screenshot of the Akflix home screen">
-    <div class="mock-titlebar">
-      <i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
+  <div class="wall" id="wall" aria-hidden="true"></div>
+  <div class="scrim" aria-hidden="true"></div>
+  <div class="bill">
+    <p class="eyebrow">Now showing — v1.0.0</p>
+    <h1>Your media.<br /><em>Cinematic.</em></h1>
+    <p class="tag">
+      Akflix turns your <strong>Jellyfin</strong> server into a private cinema —
+      torrent search built in, streaming while it downloads, and a player that
+      follows you around the app.
+    </p>
+    <div class="cta-row">
+      <a class="btn primary" id="cta" href="#download">
+        <svg viewBox="0 0 24 24"><path d="M12 16l-6-6h4V4h4v6h4l-6 6zm-8 2h16v2H4v-2z"/></svg>
+        <span id="cta-label">Download Akflix</span>
+        <small id="cta-size"></small>
+      </a>
+      <a class="btn ghost" href="https://github.com/Akshayan03/akflix" target="_blank" rel="noreferrer">
+        <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85V21c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg>
+        View source
+      </a>
     </div>
-    <div class="mock-hero">
-      <div class="mock-nav"><b>AKFLIX</b><span>Home</span><span>Downloads</span></div>
-      <div class="mock-copy">
-        <h3>Interstellar Nights</h3>
-        <p>A crew of dreamers crosses the dark between stars in search of a signal that shouldn't exist.</p>
-        <div class="mock-btns"><span>▶ Play</span><span>ⓘ More Info</span></div>
-      </div>
-    </div>
-    <div class="mock-row">
-      <h4>Continue Watching</h4>
-      <div class="mock-cards">
-        <i style="--h:355"><b style="width:70%"></b></i>
-        <i style="--h:215"><b style="width:34%"></b></i>
-        <i style="--h:38"><b style="width:88%"></b></i>
-        <i style="--h:150"><b style="width:12%"></b></i>
-        <i style="--h:275"><b style="width:55%"></b></i>
-        <i style="--h:190"><b style="width:41%"></b></i>
-      </div>
-    </div>
+    <p class="fineprint">FREE &amp; OPEN SOURCE · WINDOWS · MACOS · LINUX</p>
   </div>
 </header>
 
-<section id="features">
+<div class="marquee" aria-hidden="true">
+  <div class="track" id="marquee-track">
+    <span>Jellyfin native</span><span>Torrent search built in</span><span>Stream while downloading</span><span>Persistent mini player</span><span>Auto-updates</span><span>Multi-server profiles</span><span>Subtitles &amp; transcoding</span>
+  </div>
+</div>
+
+<section id="featurette">
   <div class="wrap">
-    <h2>Everything a media app should be</h2>
-    <p class="lead">Jellyfin power underneath, Netflix polish on top.</p>
-    <div class="grid">
-      <div class="card"><div class="ico">🎬</div><h3>Netflix-grade UI</h3><p>Hero banners, buttery rows, hover previews, dark cinematic theme, and smooth animations everywhere.</p></div>
-      <div class="card"><div class="ico">🗄️</div><h3>Jellyfin native</h3><p>Your libraries, users, subtitles, transcoding and watch progress — synced with every other Jellyfin client.</p></div>
-      <div class="card"><div class="ico">🧲</div><h3>Torrent search built in</h3><p>Search all your Prowlarr indexers from inside the app and send results straight to qBittorrent.</p></div>
-      <div class="card"><div class="ico">⚡</div><h3>Stream while downloading</h3><p>Sequential downloads make files playable in minutes, then scan them into your library with one click.</p></div>
-      <div class="card"><div class="ico">🎯</div><h3>Mini player</h3><p>Keep watching in a floating picture-in-picture card with a Spotify-style now-playing bar while you browse.</p></div>
-      <div class="card"><div class="ico">👥</div><h3>Profiles &amp; servers</h3><p>Multiple Jellyfin servers and users with a “Who's watching?” switcher. Auto-updates keep you current.</p></div>
+    <p class="kicker">The feature presentation</p>
+    <h2>Jellyfin underneath.<br />Opening night on top.</h2>
+    <p class="lead">Every capability is wired to your own server and your own
+    torrent stack — Akflix ships with no accounts, no tracking, and no content.</p>
+
+    <div class="bill-grid">
+      <article>
+        <h3>Netflix-grade <b>interface</b></h3>
+        <p>Hero banners, buttery rows, hover previews, loading skeletons and a dark house style that gets out of the film's way.</p>
+      </article>
+      <article>
+        <h3>Jellyfin <b>native</b></h3>
+        <p>Your libraries, users, subtitles, transcoding and watch progress — kept in sync with every other Jellyfin client you own.</p>
+      </article>
+      <article>
+        <h3>Torrent search <b>built in</b></h3>
+        <p>Query every Prowlarr indexer you've configured from inside the app and hand results straight to qBittorrent.</p>
+      </article>
+      <article>
+        <h3>Stream while it <b>downloads</b></h3>
+        <p>Sequential piece order makes files watchable in minutes; one click scans them into your Jellyfin library.</p>
+      </article>
+      <article>
+        <h3>The show <b>follows you</b></h3>
+        <p>Leave the player and playback drops into a floating picture-in-picture card with a now-playing bar. Click to go full screen again.</p>
+      </article>
+      <article>
+        <h3>Profiles &amp; <b>projection booth</b></h3>
+        <p>Multiple servers and users behind a “Who's watching?” switcher, a system tray to hide into, and signed auto-updates.</p>
+      </article>
+    </div>
+
+    <div class="mockup" role="img" aria-label="The Akflix home screen">
+      <div class="mock-titlebar">
+        <i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
+      </div>
+      <div class="mock-hero">
+        <div class="mock-nav"><b>AKFLIX</b><span>Home</span><span>Downloads</span></div>
+        <div class="mock-copy">
+          <h3>INTERSTELLAR NIGHTS</h3>
+          <p>A crew of dreamers crosses the dark between stars in search of a signal that shouldn't exist.</p>
+          <div class="mock-btns"><span>▶ Play</span><span>ⓘ More Info</span></div>
+        </div>
+      </div>
+      <div class="mock-row">
+        <h4>Continue Watching</h4>
+        <div class="mock-cards">
+          <i style="--h:355"><b style="width:70%"></b></i>
+          <i style="--h:215"><b style="width:34%"></b></i>
+          <i style="--h:38"><b style="width:88%"></b></i>
+          <i style="--h:150"><b style="width:12%"></b></i>
+          <i style="--h:275"><b style="width:55%"></b></i>
+          <i style="--h:190"><b style="width:41%"></b></i>
+        </div>
+      </div>
     </div>
   </div>
 </section>
 
+<div class="sprocket" aria-hidden="true"></div>
+
 <section id="download">
   <div class="wrap">
-    <h2>Download Akflix</h2>
-    <p class="lead">Version 1.0.0 · all builds are produced from source by GitHub Actions.</p>
-    <div class="grid">
-      <div class="card dl-card">
-        <h3><svg viewBox="0 0 24 24"><path d="M3 5.5 10.5 4.4v7.1H3V5.5zm0 13 7.5 1.1v-7H3v5.9zM11.5 4.2 21 3v8.5h-9.5V4.2zm0 15.6L21 21v-8.5h-9.5v7.3z"/></svg>Windows</h3>
-        <p class="meta">Windows 10/11 · 64-bit · ~9 MB</p>
-        <a class="btn primary" href="https://github.com/Akshayan03/akflix/releases/latest/download/Akflix_1.0.0_x64-setup.exe">Download .exe installer</a>
-        <p class="alt">or the <a href="https://github.com/Akshayan03/akflix/releases/latest/download/Akflix_1.0.0_x64_en-US.msi">.msi package</a></p>
-      </div>
-      <div class="card dl-card">
-        <h3><svg viewBox="0 0 24 24"><path d="M16.7 12.9c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.9-1.6 0-3.2 1-4 2.4-1.7 3-.4 7.5 1.2 9.9.8 1.2 1.8 2.5 3.1 2.5 1.2-.1 1.7-.8 3.2-.8s1.9.8 3.2.8c1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8-.1 0-2.6-1-2.7-4zM14.4 5.6c.7-.8 1.1-1.9 1-3.1-1 0-2.2.7-2.9 1.5-.6.7-1.2 1.9-1 3 1.1.1 2.2-.6 2.9-1.4z"/></svg>macOS</h3>
-        <p class="meta">macOS 10.15+ · Universal (Intel + Apple Silicon) · ~12 MB</p>
-        <a class="btn primary" href="https://github.com/Akshayan03/akflix/releases/latest/download/Akflix_1.0.0_universal.dmg">Download .dmg</a>
+    <p class="kicker">Box office</p>
+    <h2>Admit one. Any screen.</h2>
+    <p class="lead">Installers are served right here from this site — built from
+    source in public by GitHub Actions, updater signatures included.</p>
+
+    <div class="tickets">
+      <div class="ticket" data-os="mac">
+        <p class="admit"><span>Admit one</span><span class="you">Your screen</span></p>
+        <h3>MACOS</h3>
+        <p class="file">Akflix_1.0.0_universal.dmg<br /><b>universal · intel + apple silicon · 7.9 MB · macOS 10.15+</b></p>
+        <hr class="tear" />
+        <a class="btn primary" href="downloads/Akflix_1.0.0_universal.dmg" download>Download .dmg</a>
         <p class="alt">drag to Applications, done</p>
       </div>
-      <div class="card dl-card">
-        <h3><svg viewBox="0 0 24 24"><path d="M12 2c-1.9 0-3 1.4-3 3.2 0 1.5-.6 2.6-1.3 3.8C6.6 10.8 5 12.6 5 15.4 5 19.1 8 22 12 22s7-2.9 7-6.6c0-2.8-1.6-4.6-2.7-6.4-.7-1.2-1.3-2.3-1.3-3.8C15 3.4 13.9 2 12 2zm-2.5 13a1.3 1.3 0 1 1 0 2.6 1.3 1.3 0 0 1 0-2.6zm5 0a1.3 1.3 0 1 1 0 2.6 1.3 1.3 0 0 1 0-2.6zm-3.6 3.7c.3.5.9.8 1.6.8s1.3-.3 1.6-.8l1.1.7c-.5.9-1.5 1.4-2.7 1.4s-2.2-.5-2.7-1.4l1.1-.7z"/></svg>Linux</h3>
-        <p class="meta">glibc 2.31+ · x86_64 · ~10 MB</p>
-        <a class="btn primary" href="https://github.com/Akshayan03/akflix/releases/latest/download/Akflix_1.0.0_amd64.AppImage">Download AppImage</a>
-        <p class="alt">or the <a href="https://github.com/Akshayan03/akflix/releases/latest/download/Akflix_1.0.0_amd64.deb">.deb package</a></p>
+
+      <div class="ticket" data-os="win">
+        <p class="admit"><span>Admit one</span><span class="you">Your screen</span></p>
+        <h3>WINDOWS</h3>
+        <p class="file">Akflix_1.0.0_x64-setup.exe<br /><b>64-bit · 2.9 MB · Windows 10/11</b></p>
+        <hr class="tear" />
+        <a class="btn primary" href="downloads/Akflix_1.0.0_x64-setup.exe" download>Download .exe</a>
+        <p class="alt">prefer MSI? <a href="downloads/Akflix_1.0.0_x64_en-US.msi" download>Akflix_1.0.0_x64_en-US.msi</a> · 4.1 MB</p>
+      </div>
+
+      <div class="ticket" data-os="linux">
+        <p class="admit"><span>Admit one</span><span class="you">Your screen</span></p>
+        <h3>LINUX</h3>
+        <p class="file">Akflix_1.0.0_amd64.AppImage<br /><b>x86_64 · 78.7 MB · glibc 2.31+</b></p>
+        <hr class="tear" />
+        <a class="btn primary" href="downloads/Akflix_1.0.0_amd64.AppImage" download>Download AppImage</a>
+        <p class="alt">Debian/Ubuntu? <a href="downloads/Akflix_1.0.0_amd64.deb" download>Akflix_1.0.0_amd64.deb</a> · 4.7 MB</p>
       </div>
     </div>
-    <p style="margin-top:22px;color:var(--faint);font-size:13px">
-      All releases and checksums: <a style="color:var(--muted)" href="https://github.com/Akshayan03/akflix/releases" target="_blank" rel="noreferrer">github.com/Akshayan03/akflix/releases</a>
+
+    <p class="mirror-note">Mirror, signatures and past versions:
+      <a href="https://github.com/Akshayan03/akflix/releases" target="_blank" rel="noreferrer">github.com/Akshayan03/akflix/releases</a>
     </p>
   </div>
 </section>
 
-<section id="requirements">
+<section id="specs" class="specs">
   <div class="wrap">
-    <h2>System requirements</h2>
-    <p class="lead">Akflix is a thin client — the heavy lifting happens on your Jellyfin server.</p>
-    <table>
-      <tr><th></th><th>Minimum</th><th>Recommended</th></tr>
-      <tr><td>OS</td><td>Win 10 / macOS 10.15 / Ubuntu 20.04</td><td>Win 11 / macOS 14+ / Ubuntu 24.04</td></tr>
-      <tr><td>Memory</td><td>4 GB</td><td>8 GB</td></tr>
-      <tr><td>Disk</td><td>200 MB (app only)</td><td>+ space for downloads</td></tr>
-      <tr><td>Server</td><td>Jellyfin 10.8+</td><td>Jellyfin 10.9+ with hardware transcoding</td></tr>
-      <tr><td>Torrents (optional)</td><td>qBittorrent 4.5+ · Prowlarr</td><td>The bundled Docker stack</td></tr>
-      <tr><td>Network</td><td>10 Mbps to your server</td><td>Gigabit LAN for 4K direct play</td></tr>
-    </table>
+    <p class="kicker">Projection requirements</p>
+    <h2>A thin client, by design.</h2>
+    <p class="lead">The heavy lifting — transcoding, metadata, storage — happens
+    on your Jellyfin server. Akflix just needs a screen.</p>
+
+    <dl>
+      <div class="heads"><span></span><span>Minimum</span><span class="rec">Recommended</span></div>
+      <dt>OS</dt><dd>Win 10 / macOS 10.15 / Ubuntu 20.04</dd><dd class="rec">Win 11 / macOS 14+ / Ubuntu 24.04</dd>
+      <dt>Memory</dt><dd>4 GB</dd><dd class="rec">8 GB</dd>
+      <dt>Disk</dt><dd>200 MB app footprint</dd><dd class="rec">+ room for downloads</dd>
+      <dt>Server</dt><dd><strong>Jellyfin 10.8+</strong></dd><dd class="rec">Jellyfin 10.9+ with hardware transcoding</dd>
+      <dt>Torrents</dt><dd>qBittorrent 4.5+ · Prowlarr <em>(optional)</em></dd><dd class="rec">the bundled Docker stack</dd>
+      <dt>Network</dt><dd>10 Mbps to your server</dd><dd class="rec">gigabit LAN for 4K direct play</dd>
+    </dl>
   </div>
 </section>
 
-<section id="releases">
+<section id="reel">
   <div class="wrap">
-    <h2>Release notes</h2>
-    <p class="lead">Full history on the <a style="color:var(--muted)" href="https://github.com/Akshayan03/akflix/releases" target="_blank" rel="noreferrer">GitHub releases page</a>.</p>
+    <p class="kicker">The reel</p>
+    <h2>Previously screened.</h2>
+    <p class="lead">Full history and signatures on the
+      <a style="color:var(--grey)" href="https://github.com/Akshayan03/akflix/releases" target="_blank" rel="noreferrer">releases page</a>.</p>
 
-    <div class="release">
-      <div class="ver"><h3>v1.0.0</h3><time>July 2026</time></div>
+    <div class="reel-item">
+      <div class="slate"><b>v1.0.0</b>July 2026<br />premiere</div>
       <ul>
-        <li><strong style="color:#ddd">Mini player</strong> — Spotify-style now-playing bar with floating picture-in-picture video; playback survives navigation.</li>
-        <li>Auto-updates via the Tauri updater, system tray with hide-to-tray, magnet-link handling.</li>
+        <li><strong>Mini player</strong> — floating picture-in-picture video with a now-playing bar; playback survives navigation.</li>
+        <li>Signed auto-updates, system tray with hide-to-tray, magnet-link and .torrent handling.</li>
         <li>Loading skeletons, toast notifications, global keyboard shortcuts (Space, F, M, ←/→, Esc).</li>
-        <li>Multi-server Jellyfin login with an upgraded “Who's watching?” profile picker.</li>
-        <li>Torrent search (Prowlarr) + qBittorrent manager with stream-while-downloading.</li>
-        <li>Multi-language UI: English, Español, Français.</li>
+        <li>Multi-server Jellyfin login behind a “Who's watching?” profile picker.</li>
+        <li>Prowlarr search + qBittorrent manager with stream-while-downloading.</li>
+        <li>English, Español and Français interfaces.</li>
       </ul>
     </div>
 
-    <div class="release">
-      <div class="ver"><h3>v0.9.0 — beta</h3><time>June 2026</time></div>
+    <div class="reel-item">
+      <div class="slate"><b>v0.9.0</b>June 2026<br />test screening</div>
       <ul>
         <li>First public beta: Netflix-style home, in-app player with subtitles and resume, global search, Docker backend stack.</li>
       </ul>
     </div>
 
     <div class="legal">
-      <strong>⚖️ Legal notice.</strong> Akflix ships with no media, trackers, or indexers.
-      BitTorrent is a legal protocol, but downloading or sharing copyrighted
-      material without authorization is illegal in most jurisdictions. You are
-      solely responsible for the indexers you configure and the content you
-      access — stick to public-domain media, Creative Commons releases, Linux
-      ISOs, and content you're licensed to use.
+      <strong>SMALL PRINT.</strong> Akflix ships with no media, no trackers and no
+      indexers. BitTorrent is a legal protocol; downloading or sharing
+      copyrighted material without authorization is illegal in most
+      jurisdictions. You alone are responsible for the indexers you configure
+      and the content you access — stick to public-domain media, Creative
+      Commons releases, Linux ISOs and content you're licensed to use.
     </div>
   </div>
 </section>
 
 <footer>
+  <a class="logo" href="#">AKFLIX</a>
   <p>
-    AKFLIX — free &amp; open source ·
-    <a href="https://github.com/Akshayan03/akflix" target="_blank" rel="noreferrer">GitHub</a> ·
-    <a href="https://github.com/Akshayan03/akflix/blob/main/LEGAL.md" target="_blank" rel="noreferrer">Legal</a> ·
-    powered by <a href="https://jellyfin.org" target="_blank" rel="noreferrer">Jellyfin</a>
+    FREE &amp; OPEN SOURCE ·
+    <a href="https://github.com/Akshayan03/akflix" target="_blank" rel="noreferrer">GITHUB</a> ·
+    <a href="https://github.com/Akshayan03/akflix/blob/main/LEGAL.md" target="_blank" rel="noreferrer">LEGAL</a> ·
+    POWERED BY <a href="https://jellyfin.org" target="_blank" rel="noreferrer">JELLYFIN</a>
   </p>
 </footer>
+
+<script>
+  // ── Poster wall: deterministic gradient posters, drifting columns ──
+  (function () {
+    var wall = document.getElementById("wall");
+    var hues = [355, 215, 38, 150, 275, 190, 8, 320, 95, 240, 25, 170];
+    var cols = 9, rows = 7, k = 0;
+    for (var c = 0; c < cols; c++) {
+      var col = document.createElement("div");
+      col.className = "col";
+      for (var r = 0; r < rows; r++) {
+        var p = document.createElement("i");
+        p.style.setProperty("--h", hues[k++ % hues.length]);
+        col.appendChild(p);
+      }
+      wall.appendChild(col);
+    }
+    // Marquee: duplicate the track once so the loop is seamless.
+    var track = document.getElementById("marquee-track");
+    track.innerHTML += track.innerHTML;
+  })();
+
+  // ── Box office: detect the visitor's OS and sell them the right ticket ──
+  (function () {
+    var ua = navigator.userAgent;
+    var os = /Mac/i.test(ua) ? "mac" : /Win/i.test(ua) ? "win" : /Linux|X11/i.test(ua) ? "linux" : null;
+    var files = {
+      mac:   { label: "Download for macOS",   size: "7.9 MB",  href: "downloads/Akflix_1.0.0_universal.dmg" },
+      win:   { label: "Download for Windows", size: "2.9 MB",  href: "downloads/Akflix_1.0.0_x64-setup.exe" },
+      linux: { label: "Download for Linux",   size: "78.7 MB", href: "downloads/Akflix_1.0.0_amd64.AppImage" },
+    };
+    if (!os) return; // unknown OS: CTA scrolls to the box office
+    var f = files[os];
+    var cta = document.getElementById("cta");
+    cta.href = f.href;
+    cta.setAttribute("download", "");
+    document.getElementById("cta-label").textContent = f.label;
+    document.getElementById("cta-size").textContent = f.size;
+    var ticket = document.querySelector('.ticket[data-os="' + os + '"]');
+    if (ticket) ticket.classList.add("mine");
+  })();
+</script>
 
 </body>
 </html>
