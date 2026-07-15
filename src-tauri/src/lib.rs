@@ -330,6 +330,35 @@ fn stop_hls_process(id: &str) {
     }
 }
 
+#[cfg(unix)]
+fn set_hls_process_paused(id: &str, paused: bool) -> Result<(), String> {
+    let mut processes = hls_processes()
+        .lock()
+        .map_err(|_| "HLS process lock failed")?;
+    let child = processes
+        .get_mut(id)
+        .ok_or("Compatibility stream is not running")?;
+    if child
+        .try_wait()
+        .map_err(|error| error.to_string())?
+        .is_some()
+    {
+        return Err("Compatibility stream already ended".into());
+    }
+    let signal = if paused { libc::SIGSTOP } else { libc::SIGCONT };
+    let result = unsafe { libc::kill(child.id() as i32, signal) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error().to_string())
+    }
+}
+
+#[cfg(not(unix))]
+fn set_hls_process_paused(_id: &str, _paused: bool) -> Result<(), String> {
+    Ok(())
+}
+
 fn audio_language_aliases(value: Option<&str>) -> Vec<String> {
     let requested = value.unwrap_or("eng").trim().to_ascii_lowercase();
     match requested.as_str() {
@@ -407,10 +436,10 @@ fn preferred_audio_map(ffmpeg: &PathBuf, input: &str, language: Option<&str>) ->
     selected
 }
 
-/// Convert containers/codecs WebKit cannot play into a short rolling HLS
-/// window. The platform media encoder keeps this hardware accelerated where
-/// the operating system exposes one (VideoToolbox on macOS, Media Foundation
-/// on Windows).
+/// Convert containers/codecs WebKit cannot play into a rolling HLS window.
+/// Input is paced at its native clock so the encoder cannot delete segments
+/// before the player reaches them. The platform media encoder keeps this
+/// hardware accelerated where the operating system exposes one.
 fn start_hls_input(
     input: String,
     stream_id: String,
@@ -431,7 +460,16 @@ fn start_hls_input(
     let audio_map = preferred_audio_map(&ffmpeg, &input, audio_language.as_deref());
     let mut command = Command::new(ffmpeg);
     command
-        .args(["-hide_banner", "-loglevel", "warning", "-nostdin", "-i"])
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "warning",
+            "-nostdin",
+            "-re",
+            "-fflags",
+            "+genpts",
+            "-i",
+        ])
         .arg(&input)
         .args(["-map", "0:v:0", "-map"])
         .arg(audio_map)
@@ -475,9 +513,9 @@ fn start_hls_input(
             "-hls_time",
             "1",
             "-hls_list_size",
-            "45",
+            "600",
             "-hls_flags",
-            "delete_segments+append_list+omit_endlist+independent_segments+temp_file",
+            "delete_segments+omit_endlist+independent_segments+temp_file",
             "-hls_segment_filename",
         ])
         .arg(&segment_pattern)
@@ -582,6 +620,12 @@ fn stop_hls_stream(stream_id: String) -> Result<(), String> {
         let _ = fs::remove_dir_all(root.join("Streaming Cache/.akflix-hls").join(id));
     }
     Ok(())
+}
+
+#[tauri::command]
+fn set_hls_stream_paused(stream_id: String, paused: bool) -> Result<(), String> {
+    let id = safe_stream_id(&stream_id).ok_or("Invalid stream id")?;
+    set_hls_process_paused(&id, paused)
 }
 
 fn start_stream_gateway() {
@@ -718,6 +762,7 @@ pub fn run() {
             start_hls_stream,
             start_hls_url,
             stop_hls_stream,
+            set_hls_stream_paused,
             embedded_engine_status,
             available_media_storage,
             remove_embedded_media_files
@@ -809,6 +854,28 @@ mod tests {
         assert_eq!(unchanged["torrents"]["1"]["is_paused"], false);
 
         fs::remove_dir_all(state).expect("remove test folder");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pauses_and_resumes_registered_hls_process() {
+        let id = format!("test-hls-{}", std::process::id());
+        let child = Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("start test process");
+        hls_processes()
+            .lock()
+            .expect("HLS process lock")
+            .insert(id.clone(), child);
+
+        set_hls_process_paused(&id, true).expect("pause HLS process");
+        set_hls_process_paused(&id, false).expect("resume HLS process");
+        stop_hls_process(&id);
+        assert!(!hls_processes()
+            .lock()
+            .expect("HLS process lock")
+            .contains_key(&id));
     }
 
     #[test]

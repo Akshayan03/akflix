@@ -39,3 +39,12 @@ export async function stopCompatibilityStream(hash: string): Promise<void> {
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("stop_hls_stream", { streamId: hash });
 }
+
+export async function setCompatibilityStreamPaused(
+  hash: string,
+  paused: boolean
+): Promise<void> {
+  if (!isTauri()) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("set_hls_stream_paused", { streamId: hash, paused });
+}

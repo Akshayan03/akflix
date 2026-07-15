@@ -81,5 +81,5 @@ jobs:
             gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
               --title "Akflix $TAG" \
-              --notes "Mac playback reliability update. Abandoned temporary sessions are cleaned automatically, available storage is checked before streaming, and finished cache files are removed more reliably. Use source features only for content you may lawfully access."
+              --notes "Mac player timeline update. Compatibility streams now follow the movie clock instead of racing ahead, retain a longer safety window, and pause their transcoder when playback is paused. Use source features only for content you may lawfully access."
           fi

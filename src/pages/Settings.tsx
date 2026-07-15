@@ -16,7 +16,7 @@ import { checkForUpdates, installUpdate } from "@/lib/desktop";
 import { useT } from "@/i18n";
 import { isAppleMobile } from "@/lib/platform";
 
-const APP_VERSION = "1.0.3"; // keep in sync with package.json / tauri.conf.json
+const APP_VERSION = "1.0.4"; // keep in sync with package.json / tauri.conf.json
 
 type TestState = "idle" | "busy" | "ok" | "fail";
 

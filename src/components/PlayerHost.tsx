@@ -37,6 +37,7 @@ import type { DirectPlaybackRequest } from "@/stores/playbackStore";
 import { useTorrents } from "@/stores/torrentStore";
 import { useT } from "@/i18n";
 import { formatClock, ticksToSeconds } from "@/lib/utils";
+import { setCompatibilityStreamPaused } from "@/lib/compatStream";
 import MiniPlayer from "@/components/MiniPlayer";
 import type { MediaSource, MediaStream } from "@/types/jellyfin";
 
@@ -472,8 +473,18 @@ export default function PlayerHost() {
         <video
           ref={videoRef}
           className="h-full w-full"
-          onPlay={() => _sync({ isPlaying: true })}
-          onPause={() => _sync({ isPlaying: false })}
+          onPlay={() => {
+            _sync({ isPlaying: true });
+            if (session?.direct && activeStreamHash) {
+              setCompatibilityStreamPaused(activeStreamHash, false).catch(() => {});
+            }
+          }}
+          onPause={() => {
+            _sync({ isPlaying: false });
+            if (session?.direct && activeStreamHash) {
+              setCompatibilityStreamPaused(activeStreamHash, true).catch(() => {});
+            }
+          }}
           onWaiting={() => _sync({ buffering: true })}
           onPlaying={() => _sync({ buffering: false })}
           onTimeUpdate={(e) => _sync({ currentTime: e.currentTarget.currentTime })}
