@@ -31,6 +31,7 @@ jobs:
           update: true
           install: >-
             curl
+            diffutils
             make
             tar
             mingw-w64-x86_64-gcc
@@ -57,7 +58,7 @@ jobs:
             --disable-doc --disable-debug --disable-ffplay --disable-ffprobe \
             --disable-avdevice --disable-autodetect --disable-shared --enable-static \
             --enable-mediafoundation --enable-schannel --disable-x86asm
-          make -j2 ffmpeg
+          make -j2 ffmpeg.exe
           cp ffmpeg.exe ../src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
 
       - name: Verify bundled engines

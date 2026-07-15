@@ -16,6 +16,7 @@ import DiscoverDetails from "@/pages/DiscoverDetails";
 import StreamController from "@/components/StreamController";
 import DirectPlayer from "@/pages/DirectPlayer";
 import Browse from "@/pages/Browse";
+import { isAppleMobile } from "@/lib/platform";
 
 /** Routes that need an active Jellyfin session redirect to /login. */
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -33,7 +34,7 @@ export default function App() {
   useEffect(() => {
     useAuth.getState().ensureLocalProfile();
     initDeepLinks(navigate);
-    checkForUpdatesQuietly();
+    if (!isAppleMobile()) checkForUpdatesQuietly();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

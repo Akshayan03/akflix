@@ -14,6 +14,7 @@ import { JellyfinClient } from "@/api/jellyfin";
 import { isTauri } from "@/lib/http";
 import { checkForUpdates, installUpdate } from "@/lib/desktop";
 import { useT } from "@/i18n";
+import { isAppleMobile } from "@/lib/platform";
 
 const APP_VERSION = "1.0.0"; // keep in sync with package.json / tauri.conf.json
 
@@ -33,6 +34,7 @@ const labelCls = "mb-1 mt-4 block text-xs text-zinc-400";
 
 export default function Settings() {
   const t = useT();
+  const mobileApple = isAppleMobile();
   const settings = useSettings();
   const profiles = useAuth((s) => s.profiles);
   const { qbt, prowlarr, torrentio } = useTorrents();
@@ -168,64 +170,73 @@ export default function Settings() {
           <TestBadge state={qbtTest} />
         </div>
 
-        <label className={labelCls}>Engine</label>
-        <select
-          value={draft.torrentEngine}
-          onChange={(event) => set("torrentEngine", event.target.value as typeof draft.torrentEngine)}
-          className={inputCls}
-        >
-          <option value="embedded">Built into Akflix (recommended)</option>
-          <option value="qbittorrent">External qBittorrent (advanced)</option>
-        </select>
-
-        {draft.torrentEngine === "embedded" ? (
+        {mobileApple ? (
           <p className="mt-3 text-xs leading-relaxed text-zinc-500">
-            Ready automatically. Akflix manages its own temporary streams and offline media on this Mac.
+            iPhone and iPad use hosted/debrid links or a connected Jellyfin library.
+            The private peer engine and offline torrent manager are desktop-only.
           </p>
         ) : (
           <>
-            <label className={labelCls}>URL</label>
-            <input
-              value={draft.qbtUrl}
-              onChange={(e) => set("qbtUrl", e.target.value)}
-              placeholder="http://localhost:8080"
+            <label className={labelCls}>Engine</label>
+            <select
+              value={draft.torrentEngine}
+              onChange={(event) => set("torrentEngine", event.target.value as typeof draft.torrentEngine)}
               className={inputCls}
-            />
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className={labelCls}>{t("login.username")}</label>
+            >
+              <option value="embedded">Built into Akflix (recommended)</option>
+              <option value="qbittorrent">External qBittorrent (advanced)</option>
+            </select>
+
+            {draft.torrentEngine === "embedded" ? (
+              <p className="mt-3 text-xs leading-relaxed text-zinc-500">
+                Ready automatically. Akflix manages its own temporary streams and offline media on this device.
+              </p>
+            ) : (
+              <>
+                <label className={labelCls}>URL</label>
                 <input
-                  value={draft.qbtUsername}
-                  onChange={(e) => set("qbtUsername", e.target.value)}
+                  value={draft.qbtUrl}
+                  onChange={(e) => set("qbtUrl", e.target.value)}
+                  placeholder="http://localhost:8080"
                   className={inputCls}
                 />
-              </div>
-              <div>
-                <label className={labelCls}>{t("login.password")}</label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelCls}>{t("login.username")}</label>
+                    <input
+                      value={draft.qbtUsername}
+                      onChange={(e) => set("qbtUsername", e.target.value)}
+                      className={inputCls}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>{t("login.password")}</label>
+                    <input
+                      type="password"
+                      value={draft.qbtPassword}
+                      onChange={(e) => set("qbtPassword", e.target.value)}
+                      className={inputCls}
+                    />
+                  </div>
+                </div>
+                <label className={labelCls}>{t("settings.downloadPath")}</label>
                 <input
-                  type="password"
-                  value={draft.qbtPassword}
-                  onChange={(e) => set("qbtPassword", e.target.value)}
+                  value={draft.downloadPath}
+                  onChange={(e) => set("downloadPath", e.target.value)}
+                  placeholder="/downloads"
                   className={inputCls}
                 />
-              </div>
-            </div>
-            <label className={labelCls}>{t("settings.downloadPath")}</label>
-            <input
-              value={draft.downloadPath}
-              onChange={(e) => set("downloadPath", e.target.value)}
-              placeholder="/downloads"
-              className={inputCls}
-            />
+              </>
+            )}
+
+            <button
+              onClick={testQbt}
+              className="mt-4 rounded bg-zinc-700 px-4 py-2 text-sm font-medium hover:bg-zinc-600"
+            >
+              {t("settings.test")}
+            </button>
           </>
         )}
-
-        <button
-          onClick={testQbt}
-          className="mt-4 rounded bg-zinc-700 px-4 py-2 text-sm font-medium hover:bg-zinc-600"
-        >
-          {t("settings.test")}
-        </button>
       </section>
 
       {/* ── Torrent metadata source ── */}
@@ -330,7 +341,7 @@ export default function Settings() {
             GitHub
           </a>
         </p>
-        {isTauri() && (
+        {isTauri() && !mobileApple && (
           <button
             onClick={checkUpdates}
             disabled={updateBusy}

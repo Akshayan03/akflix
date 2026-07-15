@@ -9,6 +9,7 @@ import TorrentModal from "@/components/TorrentModal";
 import type { StremioMediaType, StremioMeta, StremioVideo } from "@/types/stremio";
 import { useTorrents } from "@/stores/torrentStore";
 import { usePlayback } from "@/stores/playbackStore";
+import { isAppleMobile } from "@/lib/platform";
 
 export default function DiscoverDetails() {
   const navigate = useNavigate();
@@ -22,6 +23,7 @@ export default function DiscoverDetails() {
   const [selectedSeason, setSelectedSeason] = useState(1);
   const [selectedEpisode, setSelectedEpisode] = useState<StremioVideo | null>(null);
   const [starting, setStarting] = useState(false);
+  const mobileApple = isAppleMobile();
 
   useEffect(() => {
     if (!type || !imdbId) return;
@@ -94,6 +96,11 @@ export default function DiscoverDetails() {
         navigate("/stream");
         toast.success("Playing now", { description: "Using an instant hosted source." });
         return;
+      }
+      if (mobileApple) {
+        throw new Error(
+          "iPhone and iPad playback needs a hosted/debrid source or a connected Jellyfin library. Peer streaming is available in the desktop app."
+        );
       }
       await raceStreamSources(results, media);
       toast.success("Opening the fastest source", {
@@ -174,14 +181,18 @@ export default function DiscoverDetails() {
                 {starting ? <LoaderCircle size={18} className="animate-spin" /> : <Play size={18} fill="currentColor" />}
                 {starting ? "Opening…" : "Watch now"}
               </button>
-              <button
-                onClick={() => setSourceOpen(true)}
-                disabled={!lookup}
-                className="glass-panel flex items-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-semibold transition hover:-translate-y-0.5 hover:bg-white/[0.10] disabled:opacity-40"
-              >
-                <DownloadCloud size={18} /> Download
-              </button>
-              <span className="text-[11px] text-zinc-500">Choose temporary stream or offline copy</span>
+              {!mobileApple && (
+                <button
+                  onClick={() => setSourceOpen(true)}
+                  disabled={!lookup}
+                  className="glass-panel flex items-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-semibold transition hover:-translate-y-0.5 hover:bg-white/[0.10] disabled:opacity-40"
+                >
+                  <DownloadCloud size={18} /> Download
+                </button>
+              )}
+              <span className="text-[11px] text-zinc-500">
+                {mobileApple ? "Hosted or Jellyfin playback" : "Choose temporary stream or offline copy"}
+              </span>
             </div>
           </div>
         </div>

@@ -7,20 +7,21 @@ import { useEffect, useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { Search, Download, Settings, ChevronDown, Home, RadioTower, Film, Tv } from "lucide-react";
 import { useAuth } from "@/stores/authStore";
-import { isTauri } from "@/lib/http";
+import { isAppleMobile, isDesktopMac } from "@/lib/platform";
 import { useT } from "@/i18n";
 import Brand from "@/components/Brand";
 
 // Under Tauri on macOS the window uses an overlay titlebar: the traffic
 // lights float over our navbar, so shift the wordmark right to clear them.
 const macOverlayPad =
-  isTauri() && navigator.userAgent.includes("Mac") ? "!pl-[88px] md:!pl-[92px]" : "";
+  isDesktopMac() ? "!pl-[88px] md:!pl-[92px]" : "";
 
 export default function Navbar() {
   const t = useT();
   const navigate = useNavigate();
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const mobileApple = isAppleMobile();
 
   const profiles = useAuth((s) => s.profiles);
   const activeId = useAuth((s) => s.activeProfileId);
@@ -64,9 +65,11 @@ export default function Navbar() {
         <NavLink to="/shows" className={linkCls}>
           <Tv size={14} /> Shows
         </NavLink>
-        <NavLink to="/downloads" className={linkCls}>
-          <RadioTower size={14} /> Activity
-        </NavLink>
+        {!mobileApple && (
+          <NavLink to="/downloads" className={linkCls}>
+            <RadioTower size={14} /> Activity
+          </NavLink>
+        )}
       </nav>
 
       <div className="ml-auto flex items-center gap-1.5">
@@ -77,13 +80,15 @@ export default function Navbar() {
         >
           <Search size={20} />
         </button>
-        <button
-          aria-label={t("nav.downloads")}
-          onClick={() => navigate("/downloads")}
-          className="rounded-xl p-2.5 text-zinc-400 transition hover:bg-white/[0.07] hover:text-white md:hidden"
-        >
-          <Download size={20} />
-        </button>
+        {!mobileApple && (
+          <button
+            aria-label={t("nav.downloads")}
+            onClick={() => navigate("/downloads")}
+            className="rounded-xl p-2.5 text-zinc-400 transition hover:bg-white/[0.07] hover:text-white md:hidden"
+          >
+            <Download size={20} />
+          </button>
+        )}
         <button
           aria-label={t("nav.settings")}
           onClick={() => navigate("/settings")}
