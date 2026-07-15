@@ -27,13 +27,17 @@ jobs:
 
       - run: npm ci
 
-      - name: Reuse the verified standalone engines from v1.0.0
+      - name: Read app version
+        id: version
+        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Reuse the verified standalone engines from v1.0.1
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p src-tauri/binaries "$RUNNER_TEMP/akflix-old"
-          gh release download v1.0.0 --pattern "Akflix_1.0.0_aarch64.dmg" --dir "$RUNNER_TEMP"
-          hdiutil attach "$RUNNER_TEMP/Akflix_1.0.0_aarch64.dmg" \
+          gh release download v1.0.1 --pattern "Akflix_1.0.1_aarch64.dmg" --dir "$RUNNER_TEMP"
+          hdiutil attach "$RUNNER_TEMP/Akflix_1.0.1_aarch64.dmg" \
             -nobrowse -readonly -mountpoint "$RUNNER_TEMP/akflix-old"
           cp "$RUNNER_TEMP/akflix-old/Akflix.app/Contents/MacOS/rqbit" \
             src-tauri/binaries/rqbit-aarch64-apple-darwin
@@ -57,20 +61,22 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Akflix-1.0.1-macOS
-          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Akflix_1.0.1_aarch64.dmg
+          name: Akflix-${{ steps.version.outputs.version }}-macOS
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Akflix_${{ steps.version.outputs.version }}_aarch64.dmg
           if-no-files-found: error
 
-      - name: Publish Mac-only v1.0.1 update
+      - name: Publish Mac-only update
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          DMG="src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Akflix_1.0.1_aarch64.dmg"
-          if gh release view v1.0.1 >/dev/null 2>&1; then
-            gh release upload v1.0.1 "$DMG" --clobber
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v$VERSION"
+          DMG="src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Akflix_${VERSION}_aarch64.dmg"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$DMG" --clobber
           else
-            gh release create v1.0.1 "$DMG" \
+            gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
-              --title "Akflix v1.0.1" \
-              --notes "Mac playback reliability update: correct episode selection in season packs, English-first source racing, and English audio-track selection for multi-language files. Use source features only for content you may lawfully access."
+              --title "Akflix $TAG" \
+              --notes "Mac UI polish update. Visible em dashes were replaced with cleaner punctuation throughout the app and website. Use source features only for content you may lawfully access."
           fi

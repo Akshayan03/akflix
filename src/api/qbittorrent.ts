@@ -81,7 +81,7 @@ export class QbtClient {
     });
     const text = await res.text();
     if (!res.ok || text.trim() === "Fails.") {
-      throw new Error("qBittorrent login failed — check credentials in Settings.");
+      throw new Error("qBittorrent login failed. Check credentials in Settings.");
     }
     const setCookies =
       (res.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.() ??

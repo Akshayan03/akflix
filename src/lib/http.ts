@@ -48,7 +48,7 @@ export async function httpJson<T>(url: string, opts: HttpOptions = {}): Promise<
   const res = await httpRaw(url, opts);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status} ${res.statusText} — ${url}\n${text.slice(0, 300)}`);
+    throw new Error(`HTTP ${res.status} ${res.statusText}: ${url}\n${text.slice(0, 300)}`);
   }
   // Some endpoints (e.g. Jellyfin session reports) return 204 No Content.
   if (res.status === 204) return undefined as T;

@@ -146,7 +146,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
           isEpisode: media?.isEpisode,
         });
         toast.success("Direct stream ready", {
-          description: "Using the hosted/debrid link—no peer discovery or torrent buffer.",
+          description: "Using the hosted/debrid link. No peer discovery or torrent buffer.",
         });
         onClose();
         navigate("/stream");

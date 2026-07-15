@@ -160,8 +160,8 @@ export default function StreamController() {
           description: compatibility
             ? "Hardware compatibility stream ready."
             : embeddedUrl
-              ? "Playing straight from the source—no opening download required."
-              : "Playing directly from the temporary cache—no Jellyfin scan.",
+              ? "Playing straight from the source. No opening download required."
+              : "Playing directly from the temporary cache. No Jellyfin scan.",
         });
         navigate("/stream");
       } catch (reason) {

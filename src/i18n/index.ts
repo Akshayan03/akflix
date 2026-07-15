@@ -50,7 +50,7 @@ const en = {
   "downloads.import": "Scan into Jellyfin",
   "downloads.importHint":
     "Runs a Jellyfin library scan so completed downloads show up in your library.",
-  "downloads.offline": "qBittorrent is unreachable — check Settings.",
+  "downloads.offline": "qBittorrent is unreachable. Check Settings.",
   "downloads.pause": "Pause",
   "downloads.resume": "Resume",
   "downloads.delete": "Remove",

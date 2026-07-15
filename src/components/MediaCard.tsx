@@ -29,7 +29,7 @@ export default function MediaCard({ item, variant = "poster" }: Props) {
   const progress = item.UserData?.PlayedPercentage ?? 0;
   const title = isEpisode ? item.SeriesName ?? item.Name : item.Name;
   const subtitle = isEpisode
-    ? `S${item.ParentIndexNumber ?? 1}:E${item.IndexNumber ?? 1} — ${item.Name}`
+    ? `S${item.ParentIndexNumber ?? 1}:E${item.IndexNumber ?? 1} · ${item.Name}`
     : [item.ProductionYear, formatRuntime(item.RunTimeTicks)].filter(Boolean).join(" · ");
 
   const goDetails = () =>

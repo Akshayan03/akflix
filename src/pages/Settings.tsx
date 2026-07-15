@@ -16,7 +16,7 @@ import { checkForUpdates, installUpdate } from "@/lib/desktop";
 import { useT } from "@/i18n";
 import { isAppleMobile } from "@/lib/platform";
 
-const APP_VERSION = "1.0.1"; // keep in sync with package.json / tauri.conf.json
+const APP_VERSION = "1.0.2"; // keep in sync with package.json / tauri.conf.json
 
 type TestState = "idle" | "busy" | "ok" | "fail";
 
@@ -139,7 +139,7 @@ export default function Settings() {
       <section className="glass-panel mb-6 rounded-3xl p-6">
         <h2 className="mb-4 font-semibold">{t("settings.jellyfin")}</h2>
         {profiles.filter((profile) => profile.kind !== "local").length === 0 && (
-          <p className="text-sm text-zinc-500">No servers — sign in from the login screen.</p>
+          <p className="text-sm text-zinc-500">No servers. Sign in from the login screen.</p>
         )}
         <ul className="space-y-2">
           {profiles.filter((profile) => profile.kind !== "local").map((p) => (
@@ -341,7 +341,7 @@ export default function Settings() {
       <section className="mb-10 rounded-lg border border-zinc-800 bg-surface-raised p-6">
         <h2 className="mb-2 font-semibold">About</h2>
         <p className="text-sm text-zinc-500">
-          Akflix v{APP_VERSION} —{" "}
+          Akflix v{APP_VERSION} ·{" "}
           <a
             href="https://github.com/Akshayan03/akflix"
             target="_blank"
