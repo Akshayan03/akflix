@@ -81,5 +81,5 @@ jobs:
             gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
               --title "Akflix $TAG" \
-              --notes "Personal viewing update. Akflix now saves profile-specific playback progress, resumes the exact movie or episode, moves finished titles into Watched, and adds five-star personal ratings. Recommended for You adapts to watched genres and positive or negative ratings. Use source features only for content you may lawfully access."
+              --notes "Source picker update. Every result now keeps the movie or series title visible and places quality, release type, codec, container, language, size, seeders, and health underneath. Filter by quality, audio, source type, or speed, then sort by best match, quality, seeders, or size. Use source features only for content you may lawfully access."
           fi

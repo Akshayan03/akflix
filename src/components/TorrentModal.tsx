@@ -41,6 +41,10 @@ interface Props {
 }
 
 type SortMode = "recommended" | "quality" | "seeders" | "smallest";
+type QualityFilter = "all" | "4k" | "1080p" | "720p" | "sd";
+type LanguageFilter = "all" | SourceLanguage;
+type SourceFilter = "all" | "web" | "bluray" | "cam" | "other";
+type SpeedFilter = "all" | "fast" | "direct";
 
 const LANGUAGE_DETAILS: Record<SourceLanguage, { label: string; className: string }> = {
   english: { label: "English", className: "bg-emerald-500/10 text-emerald-300" },
@@ -125,6 +129,14 @@ function sourceFacts(result: TorrentResult) {
                       : result.streamUrl
                         ? "Hosted stream"
                         : "Streaming source";
+  const sourceGroup: Exclude<SourceFilter, "all"> =
+    releaseType.startsWith("WEB") || releaseType === "HDRip" || releaseType === "HDTV"
+      ? "web"
+      : releaseType.startsWith("BluRay") || releaseType === "DVD"
+        ? "bluray"
+        : releaseType === "CAM" || releaseType === "TeleSync"
+          ? "cam"
+          : "other";
   const language = LANGUAGE_DETAILS[sourceLanguage(result)];
   const hosted = !!result.streamUrl;
   const directPlay = !!result.streamUrl || (container === "MP4" && codec === "H.264");
@@ -138,12 +150,11 @@ function sourceFacts(result: TorrentResult) {
         : result.seeders >= 20
           ? { label: "Fair", color: "text-amber-400" }
           : { label: "Slow", color: "text-red-400" };
-  const displayName = quality === "Auto" ? releaseType : `${quality} ${releaseType}`;
   return {
     quality,
     qualityRank,
-    displayName,
     releaseType,
+    sourceGroup,
     codec,
     container,
     picture,
@@ -173,6 +184,10 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
   const [addedGuid, setAddedGuid] = useState<string | null>(null);
   const [actingGuid, setActingGuid] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("recommended");
+  const [qualityFilter, setQualityFilter] = useState<QualityFilter>("all");
+  const [languageFilter, setLanguageFilter] = useState<LanguageFilter>("all");
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [speedFilter, setSpeedFilter] = useState<SpeedFilter>("all");
 
   const runSearch = async (value: string) => {
     if (!value.trim()) return;
@@ -200,27 +215,65 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
     setAddedGuid(null);
     setActingGuid(null);
     setSortMode("recommended");
+    setQualityFilter("all");
+    setLanguageFilter("all");
+    setSourceFilter("all");
+    setSpeedFilter("all");
     runSearch(initialQuery);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialQuery]);
 
-  const sorted = useMemo(() => {
+  const filteredSorted = useMemo(() => {
+    const filtered = results.filter((result) => {
+      const facts = sourceFacts(result);
+      const language = sourceLanguage(result);
+      const matchesQuality =
+        qualityFilter === "all" ||
+        (qualityFilter === "4k" && facts.qualityRank >= 4) ||
+        (qualityFilter === "1080p" && facts.qualityRank === 3) ||
+        (qualityFilter === "720p" && facts.qualityRank === 2) ||
+        (qualityFilter === "sd" && facts.qualityRank <= 1);
+      const matchesLanguage = languageFilter === "all" || language === languageFilter;
+      const matchesSource = sourceFilter === "all" || facts.sourceGroup === sourceFilter;
+      const matchesSpeed =
+        speedFilter === "all" ||
+        (speedFilter === "fast" && (facts.hosted || result.seeders >= 100)) ||
+        (speedFilter === "direct" && facts.directPlay);
+      return matchesQuality && matchesLanguage && matchesSource && matchesSpeed;
+    });
+
     if (sortMode === "quality") {
-      return [...results].sort((a, b) => {
+      return [...filtered].sort((a, b) => {
         const quality = sourceFacts(b).qualityRank - sourceFacts(a).qualityRank;
         return quality || b.seeders - a.seeders;
       });
     }
-    if (sortMode === "seeders") return [...results].sort((a, b) => b.seeders - a.seeders);
+    if (sortMode === "seeders") return [...filtered].sort((a, b) => b.seeders - a.seeders);
     if (sortMode === "smallest") {
-      return [...results].sort((a, b) => {
+      return [...filtered].sort((a, b) => {
         if (!a.size) return 1;
         if (!b.size) return -1;
         return a.size - b.size;
       });
     }
-    return results;
-  }, [results, sortMode]);
+    return filtered;
+  }, [languageFilter, qualityFilter, results, sortMode, sourceFilter, speedFilter]);
+
+  const filtersActive =
+    qualityFilter !== "all" ||
+    languageFilter !== "all" ||
+    sourceFilter !== "all" ||
+    speedFilter !== "all";
+  const clearFilters = () => {
+    setQualityFilter("all");
+    setLanguageFilter("all");
+    setSourceFilter("all");
+    setSpeedFilter("all");
+  };
+  const mediaTitle =
+    media?.title?.trim() ||
+    initialQuery.replace(/\s+\(?\d{4}\)?(?:\s+s\d{1,2}e\d{1,2})?$/i, "").trim() ||
+    initialQuery;
 
   const recommendedGuid = results[0]?.guid;
 
@@ -312,11 +365,13 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                       Manual source
                     </span>
                     {!loading && results.length > 0 && (
-                      <span className="text-[10px] text-zinc-600">{results.length} available</span>
+                      <span className="text-[10px] text-zinc-600">
+                        {filtersActive ? `${filteredSorted.length} of ${results.length} shown` : `${results.length} available`}
+                      </span>
                     )}
                   </div>
                   <h2 className="mt-2 truncate text-xl font-bold tracking-tight">
-                    Choose a stream for {media?.title ?? initialQuery}
+                    Choose a stream for {mediaTitle}
                   </h2>
                   <p className="mt-1 truncate text-xs text-zinc-500">{media?.subtitle ?? initialQuery}</p>
                 </div>
@@ -360,7 +415,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                     [
                       ["recommended", "Best"],
                       ["quality", "Quality"],
-                      ["seeders", "Peers"],
+                      ["seeders", "Seeders"],
                       ["smallest", "Smallest"],
                     ] as [SortMode, string][]
                   ).map(([mode, label]) => (
@@ -379,6 +434,72 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                   ))}
                 </div>
               </form>
+
+              <div className="relative mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
+                <label className="min-w-0">
+                  <span className="sr-only">Filter by quality</span>
+                  <select
+                    value={qualityFilter}
+                    onChange={(event) => setQualityFilter(event.target.value as QualityFilter)}
+                    className="w-full rounded-xl border border-white/10 bg-[#11100e] px-3 py-2.5 text-[11px] font-semibold text-zinc-300 outline-none transition focus:border-brand/60"
+                  >
+                    <option value="all">All quality</option>
+                    <option value="4k">4K and 8K</option>
+                    <option value="1080p">1080p</option>
+                    <option value="720p">720p</option>
+                    <option value="sd">SD and Auto</option>
+                  </select>
+                </label>
+                <label className="min-w-0">
+                  <span className="sr-only">Filter by audio language</span>
+                  <select
+                    value={languageFilter}
+                    onChange={(event) => setLanguageFilter(event.target.value as LanguageFilter)}
+                    className="w-full rounded-xl border border-white/10 bg-[#11100e] px-3 py-2.5 text-[11px] font-semibold text-zinc-300 outline-none transition focus:border-brand/60"
+                  >
+                    <option value="all">All audio</option>
+                    <option value="english">English</option>
+                    <option value="multi">Multi audio</option>
+                    <option value="unknown">Audio unlisted</option>
+                    <option value="non-english">Non English</option>
+                  </select>
+                </label>
+                <label className="min-w-0">
+                  <span className="sr-only">Filter by source type</span>
+                  <select
+                    value={sourceFilter}
+                    onChange={(event) => setSourceFilter(event.target.value as SourceFilter)}
+                    className="w-full rounded-xl border border-white/10 bg-[#11100e] px-3 py-2.5 text-[11px] font-semibold text-zinc-300 outline-none transition focus:border-brand/60"
+                  >
+                    <option value="all">All sources</option>
+                    <option value="web">WEB</option>
+                    <option value="bluray">BluRay</option>
+                    <option value="cam">CAM or TeleSync</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
+                <label className="min-w-0">
+                  <span className="sr-only">Filter by stream speed</span>
+                  <select
+                    value={speedFilter}
+                    onChange={(event) => setSpeedFilter(event.target.value as SpeedFilter)}
+                    className="w-full rounded-xl border border-white/10 bg-[#11100e] px-3 py-2.5 text-[11px] font-semibold text-zinc-300 outline-none transition focus:border-brand/60"
+                  >
+                    <option value="all">Any speed</option>
+                    <option value="fast">Fast peers</option>
+                    <option value="direct">Direct play</option>
+                  </select>
+                </label>
+                {filtersActive && (
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="col-span-2 rounded-xl border border-white/10 px-3 py-2.5 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/[0.06] hover:text-white sm:col-span-4 lg:col-span-1"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
             </header>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-3 md:p-4">
@@ -388,12 +509,24 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                   {error}
                 </div>
               )}
-              {!loading && !error && !sorted.length && (
+              {!loading && !error && !results.length && (
                 <div className="py-16 text-center text-sm text-zinc-500">No playable sources found.</div>
+              )}
+              {!loading && !error && results.length > 0 && !filteredSorted.length && (
+                <div className="flex flex-col items-center gap-3 py-16 text-center text-sm text-zinc-500">
+                  <span>No sources match these filters.</span>
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="rounded-xl border border-white/10 px-4 py-2 text-xs font-semibold text-zinc-300 transition hover:bg-white/[0.06] hover:text-white"
+                  >
+                    Clear filters
+                  </button>
+                </div>
               )}
 
               <div className="space-y-2">
-                {sorted.map((result, index) => {
+                {filteredSorted.map((result, index) => {
                   const facts = sourceFacts(result);
                   const recommended = result.guid === recommendedGuid;
                   const acting = actingGuid === result.guid;
@@ -423,9 +556,18 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                             <span className="normal-case tracking-normal text-zinc-500">{result.indexer}</span>
                           </div>
                           <h3 className="mt-1.5 text-lg font-bold tracking-tight text-zinc-100">
-                            {facts.displayName}
+                            {mediaTitle}
                           </h3>
+                          {media?.isEpisode && media.subtitle && (
+                            <p className="mt-0.5 truncate text-[11px] text-zinc-500">{media.subtitle}</p>
+                          )}
                           <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[10px]">
+                            <span className="rounded-md bg-brand/10 px-2 py-1 font-semibold text-brand-light">
+                              {facts.quality}
+                            </span>
+                            <span className="rounded-md bg-white/[0.05] px-2 py-1 text-zinc-300">
+                              {facts.releaseType}
+                            </span>
                             <span className="rounded-md bg-white/[0.05] px-2 py-1 text-zinc-400">
                               {facts.codec}
                             </span>
