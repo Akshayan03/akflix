@@ -21,7 +21,7 @@ import type {
 } from "@/types/jellyfin";
 
 const CLIENT = "Akflix";
-const VERSION = "1.0.6";
+const VERSION = "1.0.7";
 
 function authHeader(token?: string): string {
   const parts = [
@@ -177,6 +177,17 @@ export class JellyfinClient {
       Filters: "IsFavorite",
       IncludeItemTypes: "Movie,Series",
       SortBy: "DateCreated",
+      SortOrder: "Descending",
+      Limit: String(limit),
+    });
+  }
+
+  /** Recently finished movies and series for the active Jellyfin user. */
+  async watchedItems(limit = 30): Promise<ItemsResult> {
+    return this.items({
+      Filters: "IsPlayed",
+      IncludeItemTypes: "Movie,Series",
+      SortBy: "DatePlayed",
       SortOrder: "Descending",
       Limit: String(limit),
     });

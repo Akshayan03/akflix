@@ -15,6 +15,9 @@ import { HomeSkeleton } from "@/components/Skeletons";
 import { cinemeta } from "@/api/cinemeta";
 import type { BaseItem } from "@/types/jellyfin";
 import type { StremioMeta } from "@/types/stremio";
+import { useHistory, type WatchHistoryEntry } from "@/stores/historyStore";
+import { recommendedTitles } from "@/lib/recommendations";
+import type { DiscoverCardState } from "@/components/DiscoverCard";
 
 const GENRE_ROWS = ["Action", "Comedy", "Drama", "Science Fiction", "Horror", "Animation"];
 
@@ -23,6 +26,7 @@ interface HomeData {
   resume: BaseItem[];
   nextUp: BaseItem[];
   favorites: BaseItem[];
+  watched: BaseItem[];
   latestByLibrary: { name: string; items: BaseItem[] }[];
   genreRows: { genre: string; items: BaseItem[] }[];
 }
@@ -36,6 +40,8 @@ export default function Home() {
   const t = useT();
   const client = useAuth((s) => s.client)();
   const profileId = useAuth((s) => s.activeProfileId);
+  const historyEntries = useHistory((state) => state.entries);
+  const personalRatings = useHistory((state) => state.ratings);
   const [data, setData] = useState<HomeData | null>(null);
   const [discover, setDiscover] = useState<DiscoverData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +54,7 @@ export default function Home() {
         resume: [],
         nextUp: [],
         favorites: [],
+        watched: [],
         latestByLibrary: [],
         genreRows: [],
       });
@@ -63,10 +70,11 @@ export default function Home() {
           ["movies", "tvshows"].includes(v.CollectionType ?? "")
         );
 
-        const [resume, nextUp, favorites, latest, genres] = await Promise.all([
+        const [resume, nextUp, favorites, watched, latest, genres] = await Promise.all([
           client.resumeItems(),
           client.nextUp(),
           client.favorites(),
+          client.watchedItems().catch(() => ({ Items: [], TotalRecordCount: 0 })),
           Promise.all(
             mediaViews.map(async (v) => ({
               name: v.Name,
@@ -92,6 +100,7 @@ export default function Home() {
             resume: resume.Items,
             nextUp: nextUp.Items,
             favorites: favorites.Items,
+            watched: watched.Items,
             latestByLibrary: latest,
             genreRows: genres.filter((g) => g.items.length > 0),
           });
@@ -106,6 +115,7 @@ export default function Home() {
             resume: [],
             nextUp: [],
             favorites: [],
+            watched: [],
             latestByLibrary: [],
             genreRows: [],
           });
@@ -150,15 +160,118 @@ export default function Home() {
     return () => ctrl.abort();
   }, []);
 
+  const profileHistory = useMemo(
+    () => historyEntries.filter((entry) => entry.profileId === profileId),
+    [historyEntries, profileId]
+  );
+  const profileRatings = useMemo(
+    () => personalRatings.filter((rating) => rating.profileId === profileId),
+    [personalRatings, profileId]
+  );
+
+  const personalRows = useMemo(() => {
+    const toMeta = (media: (typeof profileHistory)[number]["media"]): StremioMeta => ({
+      id: media.id,
+      type: media.type,
+      name: media.name,
+      poster: media.poster ?? undefined,
+      background: media.background ?? undefined,
+      description: media.description,
+      releaseInfo: media.releaseInfo,
+      year: media.year,
+      imdbRating: media.imdbRating,
+      genres: media.genres,
+    });
+    const catalogHistory = profileHistory.filter((entry) => entry.media.source === "discover");
+    const continuing = catalogHistory
+      .filter((entry) => !entry.completed && entry.progress > 0)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+    const watched = catalogHistory
+      .filter((entry) => entry.completed)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+    const cardState: Record<string, DiscoverCardState> = {};
+
+    for (const entry of catalogHistory) {
+      const key = `${entry.media.type}:${entry.media.id}`;
+      cardState[key] = {
+        ...cardState[key],
+        progress: entry.progress,
+        watched: entry.completed,
+      };
+    }
+    for (const rating of profileRatings) {
+      if (rating.media.source !== "discover") continue;
+      const key = `${rating.media.type}:${rating.media.id}`;
+      cardState[key] = { ...cardState[key], rating: rating.value };
+    }
+
+    return {
+      continuing: continuing.map((entry) => toMeta(entry.media)),
+      watched: watched.map((entry) => toMeta(entry.media)),
+      cardState,
+    };
+  }, [profileHistory, profileRatings]);
+
   const rows = useMemo(() => {
     if (!data || !discover) return null;
+    const jellyfinHistory: WatchHistoryEntry[] = data.watched.map((item, index) => ({
+      profileId: profileId ?? "akflix-local",
+      media: {
+        source: "jellyfin",
+        id: item.Id,
+        type: item.Type === "Series" ? "series" : "movie",
+        name: item.Name,
+        description: item.Overview,
+        releaseInfo: item.ProductionYear?.toString(),
+        year: item.ProductionYear?.toString(),
+        imdbRating: item.CommunityRating?.toString(),
+        genres: item.Genres,
+      },
+      position: 0,
+      duration: 0,
+      progress: 100,
+      completed: true,
+      updatedAt: Date.now() - index,
+    }));
+    const allHistory = [...profileHistory, ...jellyfinHistory];
+    const recommendations = recommendedTitles(
+      discover.rows.flatMap((row) => row.items),
+      allHistory,
+      profileRatings
+    );
+    const personalized = allHistory.length > 0 || profileRatings.length > 0;
     return (
       <div className="relative z-10 -mt-20">
+        <DiscoverRow
+          title="Continue Watching"
+          tagline="Pick up where you left off"
+          items={personalRows.continuing}
+          cardState={personalRows.cardState}
+          variant="landscape"
+        />
         <MediaRow title={t("row.continueWatching")} items={data.resume} variant="landscape" />
+        <DiscoverRow
+          title="Recommended for You"
+          tagline={personalized ? "Based on your watches and ratings" : "Rate titles to personalize this row"}
+          items={recommendations}
+          cardState={personalRows.cardState}
+        />
+        <DiscoverRow
+          title="Watched"
+          tagline="Finished on Akflix"
+          items={personalRows.watched}
+          cardState={personalRows.cardState}
+        />
+        <MediaRow title="Watched in Jellyfin" items={data.watched} />
         <MediaRow title={t("row.nextUp")} items={data.nextUp} variant="landscape" />
         <MediaRow title={t("row.myList")} items={data.favorites} />
         {discover.rows.map((row) => (
-          <DiscoverRow key={row.title} title={row.title} items={row.items} />
+          <DiscoverRow
+            key={row.title}
+            title={row.title}
+            items={row.items}
+            cardState={personalRows.cardState}
+          />
         ))}
         {data.latestByLibrary.map((l) => (
           <MediaRow
@@ -172,7 +285,7 @@ export default function Home() {
         ))}
       </div>
     );
-  }, [data, discover, t]);
+  }, [data, discover, personalRows, profileHistory, profileId, profileRatings, t]);
 
   if (error)
     return (

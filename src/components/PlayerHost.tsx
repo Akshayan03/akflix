@@ -30,7 +30,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useJellyfinClient } from "@/stores/authStore";
+import { useAuth, useJellyfinClient } from "@/stores/authStore";
 import { useSettings } from "@/stores/settingsStore";
 import { usePlayback } from "@/stores/playbackStore";
 import type { DirectPlaybackRequest } from "@/stores/playbackStore";
@@ -40,8 +40,10 @@ import { formatClock, ticksToSeconds } from "@/lib/utils";
 import { setCompatibilityStreamPaused } from "@/lib/compatStream";
 import MiniPlayer from "@/components/MiniPlayer";
 import type { MediaSource, MediaStream } from "@/types/jellyfin";
+import { useHistory, type HistoryTitle } from "@/stores/historyStore";
 
 const PROGRESS_INTERVAL_MS = 10_000;
+const LOCAL_HISTORY_INTERVAL_MS = 5_000;
 
 interface SubTrack {
   index: number;
@@ -57,6 +59,39 @@ const isTypingTarget = (t: EventTarget | null) => {
     (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable)
   );
 };
+
+function directHistoryTitle(request: DirectPlaybackRequest): HistoryTitle | null {
+  if (!request.catalogId || !request.mediaType) return null;
+  return {
+    source: "discover",
+    id: request.catalogId,
+    type: request.mediaType,
+    name: request.title,
+    poster: request.posterUrl,
+    background: request.backgroundUrl,
+    description: request.description,
+    releaseInfo: request.releaseInfo,
+    year: request.year,
+    imdbRating: request.catalogRating,
+    genres: request.genres,
+  };
+}
+
+function saveDirectProgress(
+  request: DirectPlaybackRequest | null,
+  video: HTMLVideoElement | null,
+  completed = false
+) {
+  if (!request || !video) return;
+  const media = directHistoryTitle(request);
+  if (!media) return;
+  useHistory.getState().recordProgress(media, video.currentTime, video.duration, {
+    subtitle: request.subtitle,
+    season: request.season,
+    episode: request.episode,
+    completed,
+  });
+}
 
 export default function PlayerHost() {
   const t = useT();
@@ -97,6 +132,8 @@ export default function PlayerHost() {
   const directRequestRef = useRef<DirectPlaybackRequest | null>(null);
   const directRetryRef = useRef(0);
   const directRetryTimer = useRef<ReturnType<typeof setTimeout>>();
+  const directResumeAppliedRef = useRef<string | null>(null);
+  const lastLocalHistoryWrite = useRef(0);
   const loadSeq = useRef(0);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>();
 
@@ -121,6 +158,8 @@ export default function PlayerHost() {
   }, [client]);
 
   const teardown = useCallback(() => {
+    saveDirectProgress(directRequestRef.current, videoRef.current);
+    directRequestRef.current = null;
     reportStopped();
     hlsRef.current?.destroy();
     hlsRef.current = null;
@@ -253,6 +292,8 @@ export default function PlayerHost() {
       directIdRef.current = request.id;
       directRequestRef.current = request;
       directRetryRef.current = 0;
+      directResumeAppliedRef.current = null;
+      lastLocalHistoryWrite.current = 0;
       setError(null);
       setSubTracks([]);
       setActiveSub(-1);
@@ -443,6 +484,7 @@ export default function PlayerHost() {
 
   const expanded = mode === "expanded";
   const onEnded = async () => {
+    saveDirectProgress(directRequestRef.current, videoRef.current, true);
     if (session?.direct || !(await playNext())) {
       stop();
       if (usePlayback.getState().mode === "expanded") navigate(-1);
@@ -481,14 +523,49 @@ export default function PlayerHost() {
           }}
           onPause={() => {
             _sync({ isPlaying: false });
+            saveDirectProgress(directRequestRef.current, videoRef.current);
             if (session?.direct && activeStreamHash) {
               setCompatibilityStreamPaused(activeStreamHash, true).catch(() => {});
             }
           }}
           onWaiting={() => _sync({ buffering: true })}
           onPlaying={() => _sync({ buffering: false })}
-          onTimeUpdate={(e) => _sync({ currentTime: e.currentTarget.currentTime })}
+          onTimeUpdate={(e) => {
+            const video = e.currentTarget;
+            _sync({ currentTime: video.currentTime });
+            if (
+              directRequestRef.current &&
+              Date.now() - lastLocalHistoryWrite.current >= LOCAL_HISTORY_INTERVAL_MS
+            ) {
+              lastLocalHistoryWrite.current = Date.now();
+              saveDirectProgress(directRequestRef.current, video);
+            }
+          }}
           onDurationChange={(e) => _sync({ duration: e.currentTarget.duration })}
+          onLoadedMetadata={(e) => {
+            const request = directRequestRef.current;
+            const video = e.currentTarget;
+            const media = request ? directHistoryTitle(request) : null;
+            if (!request || !media || directResumeAppliedRef.current === request.id) return;
+            directResumeAppliedRef.current = request.id;
+            const profileId = useAuth.getState().activeProfileId ?? "akflix-local";
+            const saved = useHistory.getState().entries.find(
+              (entry) =>
+                entry.profileId === profileId &&
+                entry.media.source === media.source &&
+                entry.media.type === media.type &&
+                entry.media.id === media.id &&
+                entry.season === request.season &&
+                entry.episode === request.episode &&
+                !entry.completed
+            );
+            if (saved && saved.position > 10 && saved.position < video.duration - 5) {
+              video.currentTime = saved.position;
+              toast.info("Resuming where you left off", {
+                description: `${formatClock(saved.position)} into ${request.title}`,
+              });
+            }
+          }}
           onError={(e) => {
             const mediaError = e.currentTarget.error;
             const directRequest = directRequestRef.current;

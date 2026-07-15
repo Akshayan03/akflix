@@ -12,12 +12,39 @@ import { useTorrents } from "@/stores/torrentStore";
 import { usePlayback } from "@/stores/playbackStore";
 import { isAppleMobile } from "@/lib/platform";
 import { englishSafeSources } from "@/lib/sourceLanguage";
+import RatingControl from "@/components/RatingControl";
+import { useAuth } from "@/stores/authStore";
+import {
+  historyMediaKey,
+  useHistory,
+  type HistoryTitle,
+} from "@/stores/historyStore";
+
+function discoverHistoryTitle(meta: StremioMeta): HistoryTitle {
+  return {
+    source: "discover",
+    id: meta.id,
+    type: meta.type,
+    name: meta.name,
+    poster: meta.poster,
+    background: meta.background,
+    description: meta.description,
+    releaseInfo: meta.releaseInfo,
+    year: meta.year,
+    imdbRating: meta.imdbRating,
+    genres: meta.genres,
+  };
+}
 
 export default function DiscoverDetails() {
   const navigate = useNavigate();
   const searchSources = useTorrents((state) => state.search);
   const raceStreamSources = useTorrents((state) => state.raceStreamSources);
   const openDirect = usePlayback((state) => state.openDirect);
+  const profileId = useAuth((state) => state.activeProfileId) ?? "akflix-local";
+  const historyEntries = useHistory((state) => state.entries);
+  const ratings = useHistory((state) => state.ratings);
+  const setRating = useHistory((state) => state.setRating);
   const { type, imdbId } = useParams<{ type: StremioMediaType; imdbId: string }>();
   const [meta, setMeta] = useState<StremioMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +61,17 @@ export default function DiscoverDetails() {
       .meta(type, imdbId, ctrl.signal)
       .then((value) => {
         setMeta(value);
-        const first = value.videos?.find((video) => video.season > 0) ?? value.videos?.[0];
+        const saved = useHistory.getState().entries.find(
+          (entry) =>
+            entry.profileId === (useAuth.getState().activeProfileId ?? "akflix-local") &&
+            entry.media.source === "discover" &&
+            entry.media.type === value.type &&
+            entry.media.id === value.id
+        );
+        const first =
+          value.videos?.find(
+            (video) => video.season === saved?.season && video.episode === saved?.episode
+          ) ?? value.videos?.find((video) => video.season > 0) ?? value.videos?.[0];
         if (first) {
           setSelectedSeason(first.season);
           setSelectedEpisode(first);
@@ -69,6 +106,30 @@ export default function DiscoverDetails() {
           }
         : undefined;
   const query = [meta.name, meta.releaseInfo ?? meta.year].filter(Boolean).join(" ");
+  const historyTitle = discoverHistoryTitle(meta);
+  const historyKey = historyMediaKey(historyTitle);
+  const personalRating = ratings.find(
+    (rating) => rating.profileId === profileId && historyMediaKey(rating.media) === historyKey
+  )?.value;
+  const savedProgress = historyEntries.find(
+    (entry) => entry.profileId === profileId && historyMediaKey(entry.media) === historyKey
+  );
+  const canResume =
+    !!savedProgress &&
+    !savedProgress.completed &&
+    (type === "movie" ||
+      (savedProgress.season === selectedEpisode?.season &&
+        savedProgress.episode === selectedEpisode?.episode));
+  const catalogMetadata = {
+    catalogId: meta.id,
+    mediaType: type,
+    backgroundUrl: meta.background,
+    description: meta.description,
+    releaseInfo: meta.releaseInfo,
+    year: meta.year,
+    genres: meta.genres,
+    catalogRating: meta.imdbRating,
+  };
 
   const watchNow = async (episode = selectedEpisode) => {
     if (starting) return;
@@ -89,6 +150,7 @@ export default function DiscoverDetails() {
       isEpisode: type === "series",
       season: type === "series" ? episode?.season : undefined,
       episode: type === "series" ? episode?.episode : undefined,
+      ...catalogMetadata,
     };
     setStarting(true);
     try {
@@ -185,6 +247,12 @@ export default function DiscoverDetails() {
                 {meta.description}
               </p>
             )}
+            <div className="mt-5 max-w-md">
+              <RatingControl
+                value={personalRating}
+                onChange={(value) => setRating(historyTitle, value)}
+              />
+            </div>
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <button
                 onClick={() => void watchNow()}
@@ -192,7 +260,11 @@ export default function DiscoverDetails() {
                 className="prism-border flex items-center gap-2 rounded-2xl bg-gradient-to-r from-brand-light to-brand px-6 py-3.5 text-sm font-bold text-[#090806] shadow-[0_14px_40px_rgba(152,117,47,.24)] transition hover:-translate-y-0.5 hover:brightness-110 disabled:opacity-40"
               >
                 {starting ? <LoaderCircle size={18} className="animate-spin" /> : <Play size={18} fill="currentColor" />}
-                {starting ? "Opening…" : "Watch now"}
+                {starting
+                  ? "Opening…"
+                  : canResume
+                    ? "Resume"
+                    : "Watch now"}
               </button>
               {!mobileApple && (
                 <button
@@ -296,6 +368,7 @@ export default function DiscoverDetails() {
           isEpisode: type === "series",
           season: type === "series" ? selectedEpisode?.season : undefined,
           episode: type === "series" ? selectedEpisode?.episode : undefined,
+          ...catalogMetadata,
         }}
         open={sourceOpen}
         onClose={() => setSourceOpen(false)}

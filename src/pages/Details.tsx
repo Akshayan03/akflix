@@ -14,13 +14,22 @@ import { formatRuntime, ticksToSeconds } from "@/lib/utils";
 import Spinner from "@/components/Spinner";
 import TorrentModal from "@/components/TorrentModal";
 import Artwork from "@/components/Artwork";
+import RatingControl from "@/components/RatingControl";
 import type { BaseItem } from "@/types/jellyfin";
+import {
+  historyMediaKey,
+  useHistory,
+  type HistoryTitle,
+} from "@/stores/historyStore";
 
 export default function Details() {
   const t = useT();
   const navigate = useNavigate();
   const { itemId } = useParams<{ itemId: string }>();
   const client = useAuth((s) => s.client)();
+  const profileId = useAuth((s) => s.activeProfileId) ?? "akflix-local";
+  const ratings = useHistory((state) => state.ratings);
+  const setRating = useHistory((state) => state.setRating);
 
   const [item, setItem] = useState<BaseItem | null>(null);
   const [seasons, setSeasons] = useState<BaseItem[]>([]);
@@ -78,6 +87,23 @@ export default function Details() {
   const backdrop = client.imageUrl(item, "Backdrop", 1920);
   const primary = client.imageUrl(item, "Primary", 900);
   const resumePos = ticksToSeconds(item.UserData?.PlaybackPositionTicks);
+  const ratingMedia: HistoryTitle = {
+    source: "jellyfin",
+    id: item.Id,
+    type: item.Type === "Series" ? "series" : "movie",
+    name: item.Name,
+    poster: client.imageUrl(item, "Primary", 300),
+    background: backdrop,
+    description: item.Overview,
+    releaseInfo: item.ProductionYear?.toString(),
+    year: item.ProductionYear?.toString(),
+    imdbRating: item.CommunityRating?.toString(),
+    genres: item.Genres,
+  };
+  const ratingKey = historyMediaKey(ratingMedia);
+  const personalRating = ratings.find(
+    (rating) => rating.profileId === profileId && historyMediaKey(rating.media) === ratingKey
+  )?.value;
 
   const toggleFavorite = async () => {
     setFavorite((f) => !f); // optimistic
@@ -151,6 +177,13 @@ export default function Details() {
                 {g}
               </span>
             ))}
+          </div>
+
+          <div className="mb-5 max-w-md">
+            <RatingControl
+              value={personalRating}
+              onChange={(value) => setRating(ratingMedia, value)}
+            />
           </div>
 
           <div className="flex flex-wrap items-center gap-3">

@@ -1,10 +1,24 @@
 import { motion } from "framer-motion";
-import { Play, Star } from "lucide-react";
+import { Check, Play, Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { StremioMeta } from "@/types/stremio";
 import Artwork from "@/components/Artwork";
 
-export default function DiscoverCard({ item }: { item: StremioMeta }) {
+export interface DiscoverCardState {
+  progress?: number;
+  watched?: boolean;
+  rating?: number;
+}
+
+export default function DiscoverCard({
+  item,
+  state,
+  variant = "poster",
+}: {
+  item: StremioMeta;
+  state?: DiscoverCardState;
+  variant?: "poster" | "landscape";
+}) {
   const navigate = useNavigate();
   const open = () => navigate(`/discover/${item.type}/${item.id}`);
 
@@ -13,18 +27,34 @@ export default function DiscoverCard({ item }: { item: StremioMeta }) {
       whileHover={{ y: -7, scale: 1.018, zIndex: 10 }}
       transition={{ type: "spring", stiffness: 320, damping: 24 }}
       onClick={open}
-      className="group relative aspect-[2/3] w-40 shrink-0 overflow-hidden rounded-[20px] border border-white/[0.08] bg-surface-raised text-left shadow-[0_14px_35px_rgba(0,0,0,.18)] md:w-48"
+      className={`group relative shrink-0 overflow-hidden rounded-[20px] border border-white/[0.08] bg-surface-raised text-left shadow-[0_14px_35px_rgba(0,0,0,.18)] ${
+        variant === "landscape" ? "aspect-video w-72 md:w-80" : "aspect-[2/3] w-40 md:w-48"
+      }`}
     >
       <Artwork
-        src={item.poster}
+        src={variant === "landscape" ? item.background ?? item.poster : item.poster}
         title={item.name}
-        variant="poster"
+        variant={variant}
         alt={item.name}
         loading="lazy"
         className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.045] group-hover:saturate-[1.12]"
         draggable={false}
       />
       <div className="absolute inset-0 bg-gradient-to-t from-[#090806] via-black/5 to-transparent opacity-90" />
+      {(state?.watched || state?.rating) && (
+        <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
+          {state.watched && (
+            <span className="flex items-center gap-1 rounded-lg border border-emerald-400/20 bg-emerald-500/90 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-black shadow-lg backdrop-blur-xl">
+              <Check size={10} strokeWidth={3} /> Watched
+            </span>
+          )}
+          {state.rating && (
+            <span className="flex items-center gap-1 rounded-lg border border-accent/20 bg-[#17130b]/90 px-2 py-1 text-[10px] font-bold text-accent shadow-lg backdrop-blur-xl">
+              <Star size={10} fill="currentColor" /> {state.rating}/5
+            </span>
+          )}
+        </div>
+      )}
       <div className="absolute inset-x-0 bottom-0 p-4">
         <p className="truncate text-sm font-bold tracking-tight">{item.name}</p>
         <div className="mt-1.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-zinc-400">
@@ -36,6 +66,14 @@ export default function DiscoverCard({ item }: { item: StremioMeta }) {
         <Play size={14} fill="currentColor" />
       </span>
       <div className="absolute inset-0 rounded-[20px] ring-1 ring-inset ring-transparent transition group-hover:ring-brand-light/50" />
+      {state?.progress !== undefined && state.progress > 0 && state.progress < 100 && (
+        <div className="absolute inset-x-0 bottom-0 z-10 h-1.5 bg-black/60">
+          <div
+            className="h-full bg-gradient-to-r from-brand-light to-accent"
+            style={{ width: `${Math.max(2, Math.min(100, state.progress))}%` }}
+          />
+        </div>
+      )}
     </motion.button>
   );
 }

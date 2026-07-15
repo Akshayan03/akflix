@@ -146,6 +146,7 @@ export default function StreamController() {
             ? await startCompatibilityStream(pendingStreamFileName, torrent.hash, audioLanguage)
             : gatewayUrl(pendingStreamFileName);
         openDirect({
+          ...pendingStreamMedia,
           id: `torrent:${torrent.hash}`,
           url,
           title: pendingStreamMedia?.title ?? friendlyName(pendingStreamFileName),

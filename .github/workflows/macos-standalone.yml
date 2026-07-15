@@ -81,5 +81,5 @@ jobs:
             gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
               --title "Akflix $TAG" \
-              --notes "Cleaner stream choices and reliable artwork update. Torrent filenames are replaced by readable labels such as 1080p WEB-DL or 4K BluRay, while codec, language, size, seeders, health, picture, and audio details stay easy to compare. Missing or broken posters and thumbnails now use a designed Akflix fallback across the app. Use source features only for content you may lawfully access."
+              --notes "Personal viewing update. Akflix now saves profile-specific playback progress, resumes the exact movie or episode, moves finished titles into Watched, and adds five-star personal ratings. Recommended for You adapts to watched genres and positive or negative ratings. Use source features only for content you may lawfully access."
           fi

@@ -32,6 +32,15 @@ export interface DirectPlaybackMetadata {
   /** Structured episode identity used to select the right file in season packs. */
   season?: number;
   episode?: number;
+  /** Catalog identity and metadata used for persistent progress and recommendations. */
+  catalogId?: string;
+  mediaType?: "movie" | "series";
+  backgroundUrl?: string | null;
+  description?: string;
+  releaseInfo?: string;
+  year?: string;
+  genres?: string[];
+  catalogRating?: string;
 }
 
 export interface DirectPlaybackRequest extends DirectPlaybackMetadata {

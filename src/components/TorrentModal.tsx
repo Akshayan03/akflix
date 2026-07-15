@@ -230,6 +230,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
     try {
       if (mode === "stream" && result.streamUrl) {
         openDirect({
+          ...media,
           id: result.guid,
           url: result.streamUrl,
           title: media?.title ?? shortTitle(result),
