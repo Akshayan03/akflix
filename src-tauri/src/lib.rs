@@ -28,6 +28,9 @@ use tauri::{
 };
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 
+#[cfg(unix)]
+use std::{ffi::CString, os::unix::ffi::OsStrExt};
+
 const RQBIT_API: &str = "127.0.0.1:3031";
 static APP_MEDIA_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static RQBIT_PROCESS: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
@@ -64,6 +67,66 @@ fn downloads_root() -> Option<PathBuf> {
         .parent()?
         .to_path_buf();
     Some(project.join("docker/downloads"))
+}
+
+#[cfg(unix)]
+fn available_bytes(path: &std::path::Path) -> Result<u64, String> {
+    let encoded = CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| "Invalid media storage path".to_string())?;
+    let mut stats = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    let result = unsafe { libc::statvfs(encoded.as_ptr(), stats.as_mut_ptr()) };
+    if result != 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    let stats = unsafe { stats.assume_init() };
+    Ok((stats.f_bavail as u64).saturating_mul(stats.f_frsize as u64))
+}
+
+#[cfg(not(unix))]
+fn available_bytes(_path: &std::path::Path) -> Result<u64, String> {
+    Ok(u64::MAX)
+}
+
+#[tauri::command]
+fn available_media_storage() -> Result<u64, String> {
+    let root = downloads_root().ok_or("Could not locate media storage")?;
+    fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+    available_bytes(&root)
+}
+
+#[tauri::command]
+fn remove_embedded_media_files(relative_paths: Vec<String>) -> Result<(), String> {
+    let root = downloads_root().ok_or("Could not locate media storage")?;
+    for value in relative_paths {
+        let relative = PathBuf::from(value);
+        if relative.as_os_str().is_empty()
+            || relative
+                .components()
+                .any(|part| !matches!(part, Component::Normal(_)))
+        {
+            continue;
+        }
+        let target = root.join(&relative);
+        if let Ok(metadata) = fs::symlink_metadata(&target) {
+            if metadata.is_dir() {
+                fs::remove_dir_all(&target).map_err(|error| error.to_string())?;
+            } else {
+                fs::remove_file(&target).map_err(|error| error.to_string())?;
+            }
+        }
+
+        let mut parent = target.parent();
+        while let Some(folder) = parent {
+            if folder == root || !folder.starts_with(&root) {
+                break;
+            }
+            if fs::remove_dir(folder).is_err() {
+                break;
+            }
+            parent = folder.parent();
+        }
+    }
+    Ok(())
 }
 
 fn target_binary_name(name: &str) -> String {
@@ -109,6 +172,40 @@ fn rqbit_ready() -> bool {
         .is_some()
 }
 
+fn pause_persisted_torrents_once(state: &std::path::Path) -> Result<(), String> {
+    let marker = state.join("cleanup-v1.0.3");
+    if marker.exists() {
+        return Ok(());
+    }
+
+    let session_path = state.join("session.json");
+    if session_path.is_file() {
+        let contents = fs::read_to_string(&session_path).map_err(|error| error.to_string())?;
+        let mut session: serde_json::Value =
+            serde_json::from_str(&contents).map_err(|error| error.to_string())?;
+        if let Some(torrents) = session
+            .get_mut("torrents")
+            .and_then(|value| value.as_object_mut())
+        {
+            for torrent in torrents.values_mut() {
+                if let Some(object) = torrent.as_object_mut() {
+                    object.insert("is_paused".into(), serde_json::Value::Bool(true));
+                }
+            }
+        }
+        let temporary = state.join("session.cleanup.json");
+        fs::write(
+            &temporary,
+            serde_json::to_vec(&session).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        fs::rename(temporary, session_path).map_err(|error| error.to_string())?;
+    }
+
+    fs::write(marker, b"Old sessions paused for Akflix cleanup\n")
+        .map_err(|error| error.to_string())
+}
+
 fn start_embedded_torrent_engine(app: &tauri::AppHandle) -> Result<(), String> {
     let app_data = app
         .path()
@@ -118,6 +215,12 @@ fn start_embedded_torrent_engine(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app_data.join("Engine");
     fs::create_dir_all(&media).map_err(|error| error.to_string())?;
     fs::create_dir_all(&state).map_err(|error| error.to_string())?;
+    // rqbit normally resumes persisted sessions before the frontend can
+    // classify them. Pause them once during this migration, then the frontend
+    // removes temporary sessions and explicitly resumes real offline jobs.
+    if let Err(error) = pause_persisted_torrents_once(&state) {
+        eprintln!("Akflix session cleanup warning: {error}");
+    }
     let _ = APP_MEDIA_ROOT.set(media.clone());
 
     if rqbit_ready() {
@@ -615,7 +718,9 @@ pub fn run() {
             start_hls_stream,
             start_hls_url,
             stop_hls_stream,
-            embedded_engine_status
+            embedded_engine_status,
+            available_media_storage,
+            remove_embedded_media_files
         ])
         .setup(|app| {
             if let Err(error) = start_embedded_torrent_engine(app.handle()) {
@@ -660,4 +765,66 @@ pub fn run() {
             stop_embedded_torrent_engine();
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unique_test_folder(name: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        std::env::temp_dir().join(format!("akflix-{name}-{}-{nonce}", std::process::id()))
+    }
+
+    #[test]
+    fn pauses_persisted_torrents_only_once() {
+        let state = unique_test_folder("session-migration");
+        fs::create_dir_all(&state).expect("create state folder");
+        let session_path = state.join("session.json");
+        fs::write(
+            &session_path,
+            br#"{"torrents":{"1":{"info_hash":"abc","is_paused":false}}}"#,
+        )
+        .expect("write session");
+
+        pause_persisted_torrents_once(&state).expect("pause session");
+        let migrated: serde_json::Value =
+            serde_json::from_slice(&fs::read(&session_path).expect("read migrated session"))
+                .expect("parse migrated session");
+        assert_eq!(migrated["torrents"]["1"]["is_paused"], true);
+        assert!(state.join("cleanup-v1.0.3").is_file());
+
+        fs::write(
+            &session_path,
+            br#"{"torrents":{"1":{"info_hash":"abc","is_paused":false}}}"#,
+        )
+        .expect("restore session");
+        pause_persisted_torrents_once(&state).expect("skip completed migration");
+        let unchanged: serde_json::Value =
+            serde_json::from_slice(&fs::read(&session_path).expect("read unchanged session"))
+                .expect("parse unchanged session");
+        assert_eq!(unchanged["torrents"]["1"]["is_paused"], false);
+
+        fs::remove_dir_all(state).expect("remove test folder");
+    }
+
+    #[test]
+    fn reports_storage_and_removes_only_scoped_media() {
+        let root = downloads_root().expect("media root");
+        let relative = PathBuf::from(".akflix-cleanup-test/nested/test.bin");
+        let target = root.join(&relative);
+        fs::create_dir_all(target.parent().expect("test parent")).expect("create test folder");
+        fs::write(&target, b"temporary").expect("write test file");
+
+        assert!(available_bytes(&root).expect("available bytes") > 0);
+        remove_embedded_media_files(vec![relative.to_string_lossy().into_owned()])
+            .expect("remove temporary media");
+        assert!(!target.exists());
+        assert!(root.exists());
+
+        remove_embedded_media_files(vec!["../outside".into()]).expect("unsafe paths are ignored");
+    }
 }

@@ -7,7 +7,7 @@
  * qBittorrent installation.
  */
 
-import { httpRaw } from "@/lib/http";
+import { httpRaw, isTauri } from "@/lib/http";
 import { addFastTrackers } from "@/lib/torrentTrackers";
 import type { QbtFile, QbtTorrent, TorrentAddMode } from "@/types/torrent";
 import { selectVideoFile, type EpisodeFileHint } from "@/lib/mediaSelection";
@@ -79,6 +79,7 @@ function mapEta(value: number | { secs?: number } | null | undefined): number {
 export class RqbitClient {
   readonly instantStreaming = true;
   readonly configured = true;
+  private startupCleanupComplete = false;
 
   constructor(private baseUrl = DEFAULT_URL) {
     this.baseUrl = this.baseUrl.replace(/\/+$/, "");
@@ -140,7 +141,10 @@ export class RqbitClient {
     const total = stats.total_bytes ?? details.files?.reduce((sum, file) => sum + file.length, 0) ?? 0;
     const progressBytes = stats.progress_bytes ?? 0;
     const state = stats.finished ? "uploading" : stats.state === "paused" ? "pausedDL" : "downloading";
-    const mode = modes[details.info_hash.toLowerCase()] ?? "download";
+    // An entry without an Akflix mode marker is an abandoned rqbit session,
+    // not an offline download. Treat it as temporary until startup cleanup
+    // removes it so stale sessions can never silently consume the disk again.
+    const mode = modes[details.info_hash.toLowerCase()] ?? "stream";
     return {
       hash: details.info_hash.toLowerCase(),
       name: details.name ?? details.info_hash,
@@ -220,7 +224,28 @@ export class RqbitClient {
   }
 
   async delete(hash: string, deleteFiles: boolean): Promise<void> {
+    let mediaPaths: string[] = [];
+    if (deleteFiles && isTauri()) {
+      try {
+        const { details } = await this.details(hash);
+        const candidates = new Set(
+          (details.files ?? []).map((file) => file.name).filter(Boolean)
+        );
+        if (details.name) candidates.add(details.name);
+        const outputParts = details.output_folder.split(/[\\/]/).filter(Boolean);
+        const outputFolderName = outputParts[outputParts.length - 1];
+        if (outputFolderName) candidates.add(outputFolderName);
+        mediaPaths = [...candidates];
+      } catch {
+        // rqbit may already have forgotten the metadata. Its own delete call
+        // remains the primary cleanup path in that case.
+      }
+    }
     await this.action(hash, deleteFiles ? "delete" : "forget");
+    if (mediaPaths.length) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("remove_embedded_media_files", { relativePaths: mediaPaths }).catch(() => {});
+    }
     writeMode(hash, null);
   }
 
@@ -231,7 +256,32 @@ export class RqbitClient {
 
   async setSequential(_hash: string): Promise<void> {}
   async refreshStreamPriority(_hash: string): Promise<void> {}
-  async optimizeForStreaming(): Promise<void> {}
+
+  async optimizeForStreaming(): Promise<void> {
+    if (this.startupCleanupComplete) return;
+
+    const response = await this.request("/torrents?with_stats=true");
+    if (!response.ok) {
+      throw new Error(`Embedded torrent engine unavailable (HTTP ${response.status})`);
+    }
+    const payload = (await response.json()) as { torrents?: RqbitDetails[] };
+    const modes = readModes();
+
+    for (const details of payload.torrents ?? []) {
+      const hash = details.info_hash.toLowerCase();
+      const mode = modes[hash];
+      if (mode === "download") {
+        if (details.stats?.state === "paused") await this.resume(hash);
+        continue;
+      }
+      // Streams are temporary by design. A stream still present at process
+      // startup has no player attached to it, and an entry with no mode marker
+      // belongs to an older build that could leak its files. Remove both.
+      await this.delete(hash, true);
+    }
+
+    this.startupCleanupComplete = true;
+  }
 
   async test(): Promise<boolean> {
     try {

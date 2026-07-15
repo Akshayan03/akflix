@@ -52,6 +52,7 @@ jobs:
       - name: Validate frontend and Rust backend
         run: |
           npm run build
+          cargo test --manifest-path src-tauri/Cargo.toml --lib
           cargo check --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin
 
       - name: Build Apple Silicon app and DMG
@@ -80,5 +81,5 @@ jobs:
             gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
               --title "Akflix $TAG" \
-              --notes "Mac UI polish update. Visible em dashes were replaced with cleaner punctuation throughout the app and website. Use source features only for content you may lawfully access."
+              --notes "Mac playback reliability update. Abandoned temporary sessions are cleaned automatically, available storage is checked before streaming, and finished cache files are removed more reliably. Use source features only for content you may lawfully access."
           fi

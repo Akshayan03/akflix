@@ -19,8 +19,9 @@ dependencies = [
 
 [[package]]
 name = "akflix"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
+ "libc",
  "percent-encoding",
  "serde",
  "serde_json",

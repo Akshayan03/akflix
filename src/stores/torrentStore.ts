@@ -18,6 +18,8 @@ import type { QbtTorrent, TorrentAddMode, TorrentResult } from "@/types/torrent"
 import type { DirectPlaybackMetadata } from "@/stores/playbackStore";
 import { stopCompatibilityStream } from "@/lib/compatStream";
 import { englishSafeSources } from "@/lib/sourceLanguage";
+import { availableMediaStorage } from "@/lib/mediaStorage";
+import { formatBytes } from "@/lib/utils";
 
 interface TorrentState {
   torrents: QbtTorrent[];
@@ -96,6 +98,39 @@ function magnetInfoHash(magnet: string): string | null {
   return magnet.match(/(?:\?|&)xt=urn%3Abtih%3A([a-f\d]{40})/i)?.[1]?.toLowerCase() ??
     magnet.match(/(?:\?|&)xt=urn:btih:([a-f\d]{40})/i)?.[1]?.toLowerCase() ??
     null;
+}
+
+const STREAM_STORAGE_RESERVE = 512 * 1024 * 1024;
+const MINIMUM_STREAM_STORAGE = 1024 * 1024 * 1024;
+
+async function sourcesThatFitStorage(results: TorrentResult[]): Promise<TorrentResult[]> {
+  if (useSettings.getState().torrentEngine !== "embedded") return results;
+  const available = await availableMediaStorage();
+  if (available === null) return results;
+  const usable = Math.max(0, available - STREAM_STORAGE_RESERVE);
+  const fitting = results.filter((result) => result.size <= 0 || result.size <= usable);
+  if (fitting.length) return fitting;
+
+  const smallest = results
+    .map((result) => result.size)
+    .filter((size) => size > 0)
+    .sort((a, b) => a - b)[0];
+  const needed = smallest ? Math.max(0, smallest + STREAM_STORAGE_RESERVE - available) : 0;
+  throw new Error(
+    needed
+      ? `Not enough free space for this stream. Free at least ${formatBytes(needed)} or choose a smaller source.`
+      : `Not enough free space for streaming. ${formatBytes(available)} is currently available.`
+  );
+}
+
+async function requireMinimumStreamStorage(): Promise<void> {
+  if (useSettings.getState().torrentEngine !== "embedded") return;
+  const available = await availableMediaStorage();
+  if (available !== null && available < MINIMUM_STREAM_STORAGE) {
+    throw new Error(
+      `Not enough free space for streaming. ${formatBytes(available)} is available; free at least 1 GB and try again.`
+    );
+  }
 }
 
 // Keep the authenticated qBittorrent client alive between two-second polls.
@@ -181,7 +216,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
   },
 
   raceStreamSources: async (results, media) => {
-    const eligibleResults = englishSafeSources(results);
+    const eligibleResults = await sourcesThatFitStorage(englishSafeSources(results));
     const unique = new Map<string, TorrentResult>();
     for (const result of eligibleResults) {
       const link = result.magnetUrl ?? result.downloadUrl;
@@ -288,6 +323,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     const qbt = get().qbt();
     const existing = hash ? (await qbt.list()).find((torrent) => torrent.hash === hash) : undefined;
     const streamMode = mode === "stream";
+    if (streamMode) await requireMinimumStreamStorage();
     const basePath = (s.downloadPath || "/downloads").replace(/\/$/, "");
     const savePath = streamMode ? `${basePath}/Streaming Cache` : basePath;
     await qbt.add(magnet, mode, savePath);
@@ -451,10 +487,14 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
 
   startPolling: () => {
     if (pollTimer) return;
-    get().qbt().optimizeForStreaming().catch(() => {});
     const tick = async () => {
       try {
-        const torrents = await get().qbt().list();
+        const client = get().qbt();
+        // Complete one-time cleanup before listing sessions. Otherwise an old
+        // temporary session can be adopted by the UI while it is still filling
+        // the disk in the background.
+        await client.optimizeForStreaming();
+        const torrents = await client.list();
         const {
           pendingStreamHash: pending,
           pendingStreamFileIndex: fileIndex,
@@ -469,8 +509,8 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
             : torrents.find((torrent) => torrent.category === "akflix-stream")?.hash ?? null;
         const streamHash = pending ?? adopted;
         const headBytes =
-          pending && fileIndex !== null && !get().qbt().instantStreaming
-            ? await get().qbt().contiguousFileHeadBytes(pending, fileIndex).catch(() => 0)
+          pending && fileIndex !== null && !client.instantStreaming
+            ? await client.contiguousFileHeadBytes(pending, fileIndex).catch(() => 0)
             : 0;
         set({
           torrents,
