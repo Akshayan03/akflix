@@ -1,14 +1,19 @@
 import { ArrowRight, Info, Play, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { StremioMeta } from "@/types/stremio";
+import Artwork from "@/components/Artwork";
 
 export default function DiscoverHero({ item }: { item: StremioMeta }) {
   const navigate = useNavigate();
   return (
     <section className="relative h-[82vh] min-h-[610px] overflow-hidden">
-      {item.background && (
-        <img src={item.background} alt="" className="absolute inset-0 h-full w-full scale-[1.015] object-cover" />
-      )}
+      <Artwork
+        src={item.background ?? item.poster}
+        title={item.name}
+        variant="backdrop"
+        className="absolute inset-0 h-full w-full scale-[1.015] object-cover"
+        draggable={false}
+      />
       <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/15 to-black/10" />
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(9,8,6,.96)_0%,rgba(9,8,6,.66)_38%,rgba(9,8,6,.08)_75%)]" />
       <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-surface to-transparent" />

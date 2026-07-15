@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { Play, Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { StremioMeta } from "@/types/stremio";
+import Artwork from "@/components/Artwork";
 
 export default function DiscoverCard({ item }: { item: StremioMeta }) {
   const navigate = useNavigate();
@@ -14,19 +15,15 @@ export default function DiscoverCard({ item }: { item: StremioMeta }) {
       onClick={open}
       className="group relative aspect-[2/3] w-40 shrink-0 overflow-hidden rounded-[20px] border border-white/[0.08] bg-surface-raised text-left shadow-[0_14px_35px_rgba(0,0,0,.18)] md:w-48"
     >
-      {item.poster ? (
-        <img
-          src={item.poster}
-          alt={item.name}
-          loading="lazy"
-          className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.045] group-hover:saturate-[1.12]"
-          draggable={false}
-        />
-      ) : (
-        <div className="flex h-full items-center justify-center p-3 text-center text-sm text-zinc-400">
-          {item.name}
-        </div>
-      )}
+      <Artwork
+        src={item.poster}
+        title={item.name}
+        variant="poster"
+        alt={item.name}
+        loading="lazy"
+        className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.045] group-hover:saturate-[1.12]"
+        draggable={false}
+      />
       <div className="absolute inset-0 bg-gradient-to-t from-[#090806] via-black/5 to-transparent opacity-90" />
       <div className="absolute inset-x-0 bottom-0 p-4">
         <p className="truncate text-sm font-bold tracking-tight">{item.name}</p>

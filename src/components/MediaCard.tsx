@@ -8,6 +8,7 @@ import { Play } from "lucide-react";
 import { useAuth } from "@/stores/authStore";
 import { formatRuntime } from "@/lib/utils";
 import type { BaseItem } from "@/types/jellyfin";
+import Artwork from "@/components/Artwork";
 
 interface Props {
   item: BaseItem;
@@ -48,19 +49,15 @@ export default function MediaCard({ item, variant = "poster" }: Props) {
         variant === "landscape" ? "aspect-video w-72" : "aspect-[2/3] w-40 md:w-48"
       }`}
     >
-      {img ? (
-        <img
-          src={img}
-          alt={title}
-          loading="lazy"
-          className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.045]"
-          draggable={false}
-        />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center p-3 text-center text-sm text-zinc-400">
-          {title}
-        </div>
-      )}
+      <Artwork
+        src={img}
+        title={title}
+        variant={variant}
+        alt={title}
+        loading="lazy"
+        className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.045]"
+        draggable={false}
+      />
 
       {/* Hover overlay */}
       <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100">

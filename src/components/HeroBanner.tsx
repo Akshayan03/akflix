@@ -10,6 +10,7 @@ import { useAuth } from "@/stores/authStore";
 import { useT } from "@/i18n";
 import { formatRuntime } from "@/lib/utils";
 import type { BaseItem } from "@/types/jellyfin";
+import Artwork from "@/components/Artwork";
 
 export default function HeroBanner({ item }: { item: BaseItem }) {
   const t = useT();
@@ -18,19 +19,19 @@ export default function HeroBanner({ item }: { item: BaseItem }) {
   if (!client) return null;
 
   const backdrop = client.imageUrl(item, "Backdrop", 1920);
+  const primary = client.imageUrl(item, "Primary", 900);
   const inProgress = (item.UserData?.PlaybackPositionTicks ?? 0) > 0;
 
   return (
     <div className="relative h-[82vh] min-h-[610px] w-full overflow-hidden">
       {/* Backdrop */}
-      {backdrop && (
-        <img
-          src={backdrop}
-          alt=""
-          className="absolute inset-0 h-full w-full scale-[1.015] object-cover"
-          draggable={false}
-        />
-      )}
+      <Artwork
+        src={backdrop ?? primary}
+        title={item.Name}
+        variant="backdrop"
+        className="absolute inset-0 h-full w-full scale-[1.015] object-cover"
+        draggable={false}
+      />
       {/* Cinematic gradients: bottom fade into the page, left wash for text */}
       <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/15 to-transparent" />
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(9,8,6,.96)_0%,rgba(9,8,6,.6)_40%,rgba(9,8,6,.05)_76%)]" />

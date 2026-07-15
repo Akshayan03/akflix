@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { usePlayback } from "@/stores/playbackStore";
 import { formatClock } from "@/lib/utils";
+import Artwork from "@/components/Artwork";
 
 export default function MiniPlayer() {
   const navigate = useNavigate();
@@ -73,18 +74,13 @@ export default function MiniPlayer() {
           onClick={openFull}
           className="flex min-w-0 flex-1 items-center gap-3 text-left md:flex-initial md:basis-1/3"
         >
-          {session.posterUrl ? (
-            <img
-              src={session.posterUrl}
-              alt=""
-              className="h-14 w-10 shrink-0 rounded-lg object-cover shadow-lg ring-1 ring-white/10"
-              draggable={false}
-            />
-          ) : (
-            <div className="flex h-14 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-xs font-bold text-zinc-500">
-              {session.title.slice(0, 1).toUpperCase()}
-            </div>
-          )}
+          <Artwork
+            src={session.posterUrl}
+            title={session.title}
+            variant="compact"
+            className="h-14 w-10 shrink-0 rounded-lg object-cover shadow-lg ring-1 ring-white/10"
+            draggable={false}
+          />
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{session.title}</p>
             <p className="truncate text-xs text-zinc-400">

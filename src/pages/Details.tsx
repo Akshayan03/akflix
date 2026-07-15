@@ -13,6 +13,7 @@ import { useT } from "@/i18n";
 import { formatRuntime, ticksToSeconds } from "@/lib/utils";
 import Spinner from "@/components/Spinner";
 import TorrentModal from "@/components/TorrentModal";
+import Artwork from "@/components/Artwork";
 import type { BaseItem } from "@/types/jellyfin";
 
 export default function Details() {
@@ -75,6 +76,7 @@ export default function Details() {
     return <div className="pt-40"><Spinner label={t("common.loading")} /></div>;
 
   const backdrop = client.imageUrl(item, "Backdrop", 1920);
+  const primary = client.imageUrl(item, "Primary", 900);
   const resumePos = ticksToSeconds(item.UserData?.PlaybackPositionTicks);
 
   const toggleFavorite = async () => {
@@ -121,9 +123,13 @@ export default function Details() {
     >
       {/* Hero */}
       <div className="relative h-[60vh] min-h-[380px]">
-        {backdrop && (
-          <img src={backdrop} alt="" className="absolute inset-0 h-full w-full object-cover" />
-        )}
+        <Artwork
+          src={backdrop ?? primary}
+          title={item.Name}
+          variant="backdrop"
+          className="absolute inset-0 h-full w-full object-cover"
+          draggable={false}
+        />
         <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/30 to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-r from-black/70 to-transparent" />
 
@@ -215,11 +221,13 @@ export default function Details() {
                     {ep.IndexNumber}
                   </span>
                   <div className="relative w-40 shrink-0 overflow-hidden rounded">
-                    {thumb ? (
-                      <img src={thumb} alt="" className="aspect-video w-full object-cover" />
-                    ) : (
-                      <div className="aspect-video w-full bg-surface-raised" />
-                    )}
+                    <Artwork
+                      src={thumb}
+                      title={ep.Name}
+                      variant="landscape"
+                      className="aspect-video w-full object-cover"
+                      draggable={false}
+                    />
                     {pct > 0 && (
                       <div className="absolute inset-x-0 bottom-0 h-1 bg-zinc-700">
                         <div className="h-full bg-brand" style={{ width: `${pct}%` }} />

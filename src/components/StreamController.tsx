@@ -11,7 +11,7 @@
 
 import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { Gauge, Wifi, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useTorrents } from "@/stores/torrentStore";
@@ -19,6 +19,7 @@ import { usePlayback } from "@/stores/playbackStore";
 import { formatBytes, formatSpeed } from "@/lib/utils";
 import { startCompatibilityStream, startCompatibilityStreamUrl } from "@/lib/compatStream";
 import { useSettings } from "@/stores/settingsStore";
+import Artwork from "@/components/Artwork";
 
 const MIB = 1024 * 1024;
 const STREAM_GATEWAY = "http://127.0.0.1:8097";
@@ -196,17 +197,12 @@ export default function StreamController() {
       <div className="relative p-5">
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand to-transparent" />
         <div className="flex items-start gap-3">
-          {pendingStreamMedia?.posterUrl ? (
-            <img
-              src={pendingStreamMedia.posterUrl}
-              alt=""
-              className="h-14 w-10 shrink-0 rounded-lg object-cover ring-1 ring-white/10"
-            />
-          ) : (
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-brand/25 to-accent/10 text-brand-light ring-1 ring-brand/30">
-              {waitingForPeers ? <Wifi size={20} /> : <Gauge size={20} className="animate-pulse" />}
-            </div>
-          )}
+          <Artwork
+            src={pendingStreamMedia?.posterUrl}
+            title={pendingStreamMedia?.title ?? torrent?.name ?? "Akflix stream"}
+            variant="compact"
+            className="h-14 w-10 shrink-0 rounded-lg object-cover ring-1 ring-white/10"
+          />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <p className="text-sm font-semibold">

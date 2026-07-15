@@ -18,7 +18,6 @@ import {
   Users,
   Wifi,
   X,
-  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTorrents } from "@/stores/torrentStore";
@@ -28,6 +27,7 @@ import type { DirectPlaybackMetadata } from "@/stores/playbackStore";
 import { useT } from "@/i18n";
 import { formatBytes } from "@/lib/utils";
 import Spinner from "@/components/Spinner";
+import Artwork from "@/components/Artwork";
 import type { TorrentAddMode, TorrentResult } from "@/types/torrent";
 import type { TorrentioLookup } from "@/api/torrentio";
 import { sourceLanguage, type SourceLanguage } from "@/lib/sourceLanguage";
@@ -63,7 +63,7 @@ function sourceFacts(result: TorrentResult) {
       ? "8K"
       : resolution === "2160p" || (!resolution && text.includes("4k"))
         ? "4K"
-        : resolution?.toUpperCase() ?? "Auto";
+        : resolution ?? "Auto";
   const qualityRank =
     resolution === "4320p"
       ? 5
@@ -102,6 +102,29 @@ function sourceFacts(result: TorrentResult) {
       : /\b5[ .]1\b/i.test(text)
         ? "5.1 audio"
         : null;
+  const releaseType = /remux/i.test(text)
+    ? "BluRay Remux"
+    : /\b(bluray|blu[ ._-]*ray|bdrip|brrip)\b/i.test(text)
+      ? "BluRay"
+      : /\bweb[ ._-]*dl(?:rip)?\b/i.test(text)
+        ? "WEB-DL"
+        : /\bweb[ ._-]*rip\b/i.test(text)
+          ? "WEBRip"
+          : /\bhdrip\b/i.test(text)
+            ? "HDRip"
+            : /\bweb\b/i.test(text)
+              ? "WEB"
+              : /\bhdtv\b/i.test(text)
+                ? "HDTV"
+                : /\b(dvdrip|dvd)\b/i.test(text)
+                  ? "DVD"
+                  : /\b(telesync|hdts|tsrip)\b/i.test(text)
+                    ? "TeleSync"
+                    : /\b(camrip|hdcam|cam)\b/i.test(text)
+                      ? "CAM"
+                      : result.streamUrl
+                        ? "Hosted stream"
+                        : "Streaming source";
   const language = LANGUAGE_DETAILS[sourceLanguage(result)];
   const hosted = !!result.streamUrl;
   const directPlay = !!result.streamUrl || (container === "MP4" && codec === "H.264");
@@ -115,9 +138,12 @@ function sourceFacts(result: TorrentResult) {
         : result.seeders >= 20
           ? { label: "Fair", color: "text-amber-400" }
           : { label: "Slow", color: "text-red-400" };
+  const displayName = quality === "Auto" ? releaseType : `${quality} ${releaseType}`;
   return {
     quality,
     qualityRank,
+    displayName,
+    releaseType,
     codec,
     container,
     picture,
@@ -273,17 +299,12 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
             <header className="relative shrink-0 overflow-hidden border-b border-white/[0.07] px-5 pb-4 pt-5 md:px-6">
               <div className="pointer-events-none absolute -right-20 -top-28 h-64 w-64 rounded-full bg-brand/10 blur-[90px]" />
               <div className="relative flex items-start gap-4">
-                {media?.posterUrl ? (
-                  <img
-                    src={media.posterUrl}
-                    alt=""
-                    className="h-[76px] w-[52px] shrink-0 rounded-xl object-cover shadow-xl ring-1 ring-white/10"
-                  />
-                ) : (
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand/15 text-brand-light ring-1 ring-brand/25">
-                    <Zap size={19} />
-                  </span>
-                )}
+                <Artwork
+                  src={media?.posterUrl}
+                  title={media?.title ?? initialQuery}
+                  variant="poster"
+                  className="h-[76px] w-[52px] shrink-0 rounded-xl object-cover shadow-xl ring-1 ring-white/10"
+                />
                 <div className="min-w-0 flex-1 pt-0.5">
                   <div className="flex items-center gap-2">
                     <span className="rounded-full bg-brand/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.18em] text-brand-light ring-1 ring-brand/20">
@@ -380,6 +401,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                   return (
                     <motion.article
                       key={result.guid}
+                      title={shortTitle(result)}
                       className={`relative overflow-hidden rounded-2xl border p-4 transition ${
                         recommended
                           ? "border-brand/30 bg-gradient-to-r from-brand/[0.08] to-white/[0.025]"
@@ -393,20 +415,16 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                       )}
 
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-                        <div className="hidden h-14 w-14 shrink-0 flex-col items-center justify-center rounded-2xl border border-white/[0.07] bg-black/20 lg:flex">
-                          <span className="text-[8px] font-bold uppercase tracking-[0.18em] text-zinc-600">
-                            {String(index + 1).padStart(2, "0")}
-                          </span>
-                          <span className="mt-0.5 text-sm font-black text-zinc-200">{facts.quality}</span>
-                        </div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate pr-24 text-sm font-semibold" title={result.title}>
-                            {shortTitle(result)}
-                          </p>
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px]">
-                            <span className="rounded-md bg-white/[0.07] px-2 py-1 font-bold text-zinc-200">
-                              {facts.quality}
-                            </span>
+                          <div className="flex flex-wrap items-center gap-2 pr-24 text-[9px] font-bold uppercase tracking-[0.18em] text-zinc-600">
+                            <span>Source {String(index + 1).padStart(2, "0")}</span>
+                            <span className="h-1 w-1 rounded-full bg-zinc-700" />
+                            <span className="normal-case tracking-normal text-zinc-500">{result.indexer}</span>
+                          </div>
+                          <h3 className="mt-1.5 text-lg font-bold tracking-tight text-zinc-100">
+                            {facts.displayName}
+                          </h3>
+                          <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[10px]">
                             <span className="rounded-md bg-white/[0.05] px-2 py-1 text-zinc-400">
                               {facts.codec}
                             </span>
@@ -432,13 +450,22 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                               </span>
                             )}
                           </div>
-                          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-zinc-500">
-                            <span className="flex items-center gap-1"><HardDrive size={12} /> {result.size ? formatBytes(result.size) : "Hosted"}</span>
+                          <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+                            <span className="flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-black/20 px-2.5 py-1.5 text-zinc-400">
+                              <HardDrive size={12} className="text-zinc-600" />
+                              <strong className="font-semibold text-zinc-200">{result.size ? formatBytes(result.size) : "Hosted"}</strong>
+                              <span>size</span>
+                            </span>
                             {!facts.hosted && (
-                              <span className="flex items-center gap-1"><Users size={12} /> {result.seeders.toLocaleString()} seeders</span>
+                              <span className="flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-black/20 px-2.5 py-1.5 text-zinc-400">
+                                <Users size={12} className="text-zinc-600" />
+                                <strong className="font-semibold text-zinc-200">{result.seeders.toLocaleString()}</strong>
+                                <span>seeders</span>
+                              </span>
                             )}
-                            <span className={`flex items-center gap-1 ${facts.health.color}`}><Gauge size={12} /> {facts.health.label}</span>
-                            <span>{result.indexer}</span>
+                            <span className={`flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-black/20 px-2.5 py-1.5 ${facts.health.color}`}>
+                              <Gauge size={12} /> {facts.health.label} health
+                            </span>
                           </div>
                         </div>
 

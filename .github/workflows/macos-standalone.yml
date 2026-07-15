@@ -81,5 +81,5 @@ jobs:
             gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
               --title "Akflix $TAG" \
-              --notes "Manual stream picker update. Keep one-click Watch Now or choose an exact source by quality, language, size, seeders, picture format, and audio format. Duplicate sources are removed and mixed-language releases are labeled more accurately. Use source features only for content you may lawfully access."
+              --notes "Cleaner stream choices and reliable artwork update. Torrent filenames are replaced by readable labels such as 1080p WEB-DL or 4K BluRay, while codec, language, size, seeders, health, picture, and audio details stay easy to compare. Missing or broken posters and thumbnails now use a designed Akflix fallback across the app. Use source features only for content you may lawfully access."
           fi

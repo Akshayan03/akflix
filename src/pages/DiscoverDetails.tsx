@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { cinemeta } from "@/api/cinemeta";
 import Spinner from "@/components/Spinner";
 import TorrentModal from "@/components/TorrentModal";
+import Artwork from "@/components/Artwork";
 import type { StremioMediaType, StremioMeta, StremioVideo } from "@/types/stremio";
 import { useTorrents } from "@/stores/torrentStore";
 import { usePlayback } from "@/stores/playbackStore";
@@ -122,32 +123,40 @@ export default function DiscoverDetails() {
   return (
     <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen bg-surface pb-20">
       <section className="relative h-[82vh] min-h-[620px] overflow-hidden">
-        {meta.background && (
-          <motion.img
+        <motion.div
             initial={{ scale: 1.04, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ duration: 0.8 }}
-            src={meta.background}
-            alt=""
             className="absolute inset-0 h-full w-full object-cover"
+        >
+          <Artwork
+            src={meta.background ?? meta.poster}
+            title={meta.name}
+            variant="backdrop"
+            className="h-full w-full object-cover"
+            draggable={false}
           />
-        )}
+        </motion.div>
         <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/20 to-black/25" />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(9,8,6,.97)_0%,rgba(9,8,6,.7)_44%,rgba(9,8,6,.08)_82%)]" />
         <div className="absolute left-[58%] top-[26%] h-80 w-80 rounded-full bg-brand/15 blur-[120px]" />
         <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/70 to-transparent" />
 
         <div className="absolute bottom-12 left-6 right-6 flex max-w-6xl items-end gap-8 md:left-12">
-          {meta.poster && (
-            <motion.img
+          <motion.div
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
+              className="hidden aspect-[2/3] w-44 shrink-0 overflow-hidden rounded-2xl shadow-[0_24px_70px_rgba(0,0,0,.65)] ring-1 ring-white/10 lg:block"
+          >
+            <Artwork
               src={meta.poster}
-              alt=""
-              className="hidden aspect-[2/3] w-44 rounded-2xl object-cover shadow-[0_24px_70px_rgba(0,0,0,.65)] ring-1 ring-white/10 lg:block"
+              title={meta.name}
+              variant="poster"
+              className="h-full w-full object-cover"
+              draggable={false}
             />
-          )}
+          </motion.div>
           <div className="max-w-2xl pb-1">
             <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.26em] text-accent">
               Selected for tonight
@@ -240,11 +249,13 @@ export default function DiscoverDetails() {
                   className="flex min-w-0 flex-1 items-center gap-4 p-3 text-left disabled:opacity-50"
                 >
                   <span className="w-7 text-center text-zinc-500">{episode.episode}</span>
-                  {episode.thumbnail ? (
-                    <img src={episode.thumbnail} alt="" className="aspect-video w-40 rounded-xl object-cover" />
-                  ) : (
-                    <div className="aspect-video w-40 rounded-xl bg-zinc-800" />
-                  )}
+                  <Artwork
+                    src={episode.thumbnail}
+                    title={episode.name ?? episode.title ?? `Episode ${episode.episode}`}
+                    variant="landscape"
+                    className="aspect-video w-40 shrink-0 rounded-xl object-cover"
+                    draggable={false}
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">
                       {episode.name ?? episode.title ?? `Episode ${episode.episode}`}

@@ -21,7 +21,7 @@ import type {
 } from "@/types/jellyfin";
 
 const CLIENT = "Akflix";
-const VERSION = "1.0.5";
+const VERSION = "1.0.6";
 
 function authHeader(token?: string): string {
   const parts = [
