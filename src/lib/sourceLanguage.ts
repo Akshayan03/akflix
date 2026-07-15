@@ -14,9 +14,11 @@ const NON_ENGLISH = new RegExp(
 /** Classify only explicit release language tags; unlabelled releases stay neutral. */
 export function classifySourceLanguage(text: string): SourceLanguage {
   const normalized = text.replace(/[._]+/g, " ");
-  if (ENGLISH.test(normalized)) return "english";
-  if (MULTI.test(normalized)) return "multi";
-  if (NON_ENGLISH.test(normalized)) return "non-english";
+  const hasEnglish = ENGLISH.test(normalized);
+  const hasNonEnglish = NON_ENGLISH.test(normalized);
+  if (MULTI.test(normalized) || (hasEnglish && hasNonEnglish)) return "multi";
+  if (hasEnglish) return "english";
+  if (hasNonEnglish) return "non-english";
   return "unknown";
 }
 

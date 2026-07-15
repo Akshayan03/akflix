@@ -197,6 +197,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
   },
 
   addTorrent: async (result, mode, fallbacks = [], media) => {
+    if (mode === "stream") await sourcesThatFitStorage([result]);
     const link = result.magnetUrl ?? result.downloadUrl;
     if (!link) throw new Error("Result has no magnet or download link.");
     const hash = await get().addMagnet(

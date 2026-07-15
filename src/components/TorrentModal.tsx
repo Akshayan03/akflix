@@ -4,12 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  ArrowDownUp,
   Check,
   Copy,
   Download,
   Gauge,
   HardDrive,
+  Languages,
+  LoaderCircle,
   Radio,
   Search,
   ShieldCheck,
@@ -29,6 +30,7 @@ import { formatBytes } from "@/lib/utils";
 import Spinner from "@/components/Spinner";
 import type { TorrentAddMode, TorrentResult } from "@/types/torrent";
 import type { TorrentioLookup } from "@/api/torrentio";
+import { sourceLanguage, type SourceLanguage } from "@/lib/sourceLanguage";
 
 interface Props {
   initialQuery: string;
@@ -38,7 +40,14 @@ interface Props {
   media?: DirectPlaybackMetadata;
 }
 
-type SortMode = "recommended" | "seeders" | "smallest";
+type SortMode = "recommended" | "quality" | "seeders" | "smallest";
+
+const LANGUAGE_DETAILS: Record<SourceLanguage, { label: string; className: string }> = {
+  english: { label: "English", className: "bg-emerald-500/10 text-emerald-300" },
+  multi: { label: "Multi audio", className: "bg-amber-500/10 text-amber-200" },
+  unknown: { label: "Audio unlisted", className: "bg-white/[0.05] text-zinc-400" },
+  "non-english": { label: "Non English", className: "bg-red-500/10 text-red-300" },
+};
 
 function sourceFacts(result: TorrentResult) {
   let linkDetails = result.magnetUrl ?? result.downloadUrl ?? "";
@@ -48,9 +57,25 @@ function sourceFacts(result: TorrentResult) {
     // A malformed display name should never stop the source picker rendering.
   }
   const text = `${result.title} ${linkDetails}`.toLowerCase();
+  const resolution = text.match(/\b(4320p|2160p|1080p|720p|480p)\b/i)?.[1]?.toLowerCase();
   const quality =
-    text.match(/\b(4320p|2160p|1080p|720p|480p)\b/i)?.[1]?.toUpperCase() ??
-    (text.includes("4k") ? "4K" : "Auto");
+    resolution === "4320p"
+      ? "8K"
+      : resolution === "2160p" || (!resolution && text.includes("4k"))
+        ? "4K"
+        : resolution?.toUpperCase() ?? "Auto";
+  const qualityRank =
+    resolution === "4320p"
+      ? 5
+      : resolution === "2160p" || (!resolution && text.includes("4k"))
+        ? 4
+        : resolution === "1080p"
+          ? 3
+          : resolution === "720p"
+            ? 2
+            : resolution === "480p"
+              ? 1
+              : 0;
   const codec = /\b(h\.?264|x264|avc)\b/i.test(text)
     ? "H.264"
     : /\b(h\.?265|x265|hevc)\b/i.test(text)
@@ -63,16 +88,45 @@ function sourceFacts(result: TorrentResult) {
     : /\.mkv\b/i.test(text)
       ? "MKV"
       : "File";
+  const picture = /\b(dolby[ ._-]*vision|dovi|dv)\b/i.test(text)
+    ? "Dolby Vision"
+    : /\bhdr10\+?\b/i.test(text)
+      ? "HDR10"
+      : /\bhdr\b/i.test(text)
+        ? "HDR"
+        : null;
+  const audio = /\batmos\b/i.test(text)
+    ? "Atmos"
+    : /\b7[ .]1\b/i.test(text)
+      ? "7.1 audio"
+      : /\b5[ .]1\b/i.test(text)
+        ? "5.1 audio"
+        : null;
+  const language = LANGUAGE_DETAILS[sourceLanguage(result)];
+  const hosted = !!result.streamUrl;
   const directPlay = !!result.streamUrl || (container === "MP4" && codec === "H.264");
   const health =
-    result.seeders >= 500
+    hosted
+      ? { label: "Instant", color: "text-emerald-400" }
+      : result.seeders >= 500
       ? { label: "Excellent", color: "text-emerald-400" }
       : result.seeders >= 100
         ? { label: "Healthy", color: "text-lime-400" }
         : result.seeders >= 20
           ? { label: "Fair", color: "text-amber-400" }
           : { label: "Slow", color: "text-red-400" };
-  return { quality, codec, container, directPlay, health };
+  return {
+    quality,
+    qualityRank,
+    codec,
+    container,
+    picture,
+    audio,
+    language,
+    hosted,
+    directPlay,
+    health,
+  };
 }
 
 function shortTitle(result: TorrentResult): string {
@@ -83,7 +137,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
   const t = useT();
   const navigate = useNavigate();
   const openDirect = usePlayback((state) => state.openDirect);
-  const { search, addTorrent, raceStreamSources } = useTorrents();
+  const { search, addTorrent } = useTorrents();
   const torrentSource = useSettings((state) => state.torrentSource);
 
   const [query, setQuery] = useState(initialQuery);
@@ -125,8 +179,20 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
   }, [open, initialQuery]);
 
   const sorted = useMemo(() => {
+    if (sortMode === "quality") {
+      return [...results].sort((a, b) => {
+        const quality = sourceFacts(b).qualityRank - sourceFacts(a).qualityRank;
+        return quality || b.seeders - a.seeders;
+      });
+    }
     if (sortMode === "seeders") return [...results].sort((a, b) => b.seeders - a.seeders);
-    if (sortMode === "smallest") return [...results].sort((a, b) => a.size - b.size);
+    if (sortMode === "smallest") {
+      return [...results].sort((a, b) => {
+        if (!a.size) return 1;
+        if (!b.size) return -1;
+        return a.size - b.size;
+      });
+    }
     return results;
   }, [results, sortMode]);
 
@@ -144,6 +210,8 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
           subtitle: media?.subtitle,
           posterUrl: media?.posterUrl,
           isEpisode: media?.isEpisode,
+          season: media?.season,
+          episode: media?.episode,
         });
         toast.success("Direct stream ready", {
           description: "Using the hosted/debrid link. No peer discovery or torrent buffer.",
@@ -153,15 +221,15 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
         return;
       }
       if (mode === "stream") {
-        const ordered = [result, ...results.filter((candidate) => candidate.guid !== result.guid)];
-        await raceStreamSources(ordered, media);
+        await addTorrent(result, "stream", [], media);
       } else {
         await addTorrent(result, mode);
       }
       setAddedGuid(result.guid);
       if (mode === "stream") {
-        toast.success("Instant stream started", {
-          description: "Fastest of three sources selected; opening automatically.",
+        const facts = sourceFacts(result);
+        toast.success("Selected stream started", {
+          description: `${facts.quality} · ${facts.language.label} · ${result.size ? formatBytes(result.size) : "Hosted link"}`,
         });
         onClose();
       } else {
@@ -200,20 +268,35 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
             exit={{ opacity: 0, scale: 0.98, y: 12 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
             onClick={(event) => event.stopPropagation()}
-            className="glass-panel flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-[30px] shadow-[0_30px_120px_rgba(0,0,0,.8)]"
+            className="glass-panel flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-[30px] shadow-[0_30px_120px_rgba(0,0,0,.8)]"
           >
-            <header className="border-b border-white/[0.07] px-5 pb-4 pt-5 md:px-6">
-              <div className="flex items-start gap-4">
-                <div className="min-w-0 flex-1">
+            <header className="relative shrink-0 overflow-hidden border-b border-white/[0.07] px-5 pb-4 pt-5 md:px-6">
+              <div className="pointer-events-none absolute -right-20 -top-28 h-64 w-64 rounded-full bg-brand/10 blur-[90px]" />
+              <div className="relative flex items-start gap-4">
+                {media?.posterUrl ? (
+                  <img
+                    src={media.posterUrl}
+                    alt=""
+                    className="h-[76px] w-[52px] shrink-0 rounded-xl object-cover shadow-xl ring-1 ring-white/10"
+                  />
+                ) : (
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand/15 text-brand-light ring-1 ring-brand/25">
+                    <Zap size={19} />
+                  </span>
+                )}
+                <div className="min-w-0 flex-1 pt-0.5">
                   <div className="flex items-center gap-2">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand/15 text-brand-light ring-1 ring-brand/25">
-                      <Zap size={16} />
+                    <span className="rounded-full bg-brand/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.18em] text-brand-light ring-1 ring-brand/20">
+                      Manual source
                     </span>
-                    <div>
-                      <h2 className="text-lg font-bold tracking-tight">Choose how to watch</h2>
-                      <p className="text-xs text-zinc-500">Torrentio sources for {initialQuery}</p>
-                    </div>
+                    {!loading && results.length > 0 && (
+                      <span className="text-[10px] text-zinc-600">{results.length} available</span>
+                    )}
                   </div>
+                  <h2 className="mt-2 truncate text-xl font-bold tracking-tight">
+                    Choose a stream for {media?.title ?? initialQuery}
+                  </h2>
+                  <p className="mt-1 truncate text-xs text-zinc-500">{media?.subtitle ?? initialQuery}</p>
                 </div>
                 <button
                   onClick={onClose}
@@ -224,27 +307,18 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                 </button>
               </div>
 
-              <div className="mt-5 grid gap-3 md:grid-cols-2">
-                <div className="rounded-2xl border border-brand/20 bg-brand/[0.06] p-3.5">
-                  <div className="flex items-center gap-2 text-sm font-semibold">
-                    <Radio size={16} className="text-brand-light" /> Stream now
-                  </div>
-                  <p className="mt-1 text-[11px] leading-relaxed text-zinc-400">
-                    Opens the selected file directly while Akflix receives it. Temporary data clears when playback closes.
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3.5">
-                  <div className="flex items-center gap-2 text-sm font-semibold">
-                    <HardDrive size={16} className="text-brand-light" /> Keep offline
-                  </div>
-                  <p className="mt-1 text-[11px] leading-relaxed text-zinc-400">
-                    Downloads the complete title and keeps it on this Mac for later.
+              <div className="relative mt-4 flex items-start gap-3 rounded-2xl border border-brand/20 bg-brand/[0.055] px-4 py-3">
+                <ShieldCheck size={17} className="mt-0.5 shrink-0 text-brand-light" />
+                <div>
+                  <p className="text-xs font-semibold text-zinc-100">Your choice stays selected</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                    Unlike Watch Now, manual mode does not race or replace your source. Compare audio, picture, size and peer health below.
                   </p>
                 </div>
               </div>
 
               <form
-                className="mt-4 flex gap-2"
+                className="relative mt-4 flex flex-col gap-2 md:flex-row"
                 onSubmit={(event) => {
                   event.preventDefault();
                   runSearch(query);
@@ -259,10 +333,11 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                     className="w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-zinc-700"
                   />
                 </label>
-                <div className="flex rounded-xl border border-white/10 bg-black/25 p-1">
+                <div className="flex overflow-x-auto rounded-xl border border-white/10 bg-black/25 p-1">
                   {(
                     [
                       ["recommended", "Best"],
+                      ["quality", "Quality"],
                       ["seeders", "Peers"],
                       ["smallest", "Smallest"],
                     ] as [SortMode, string][]
@@ -296,7 +371,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
               )}
 
               <div className="space-y-2">
-                {sorted.map((result) => {
+                {sorted.map((result, index) => {
                   const facts = sourceFacts(result);
                   const recommended = result.guid === recommendedGuid;
                   const acting = actingGuid === result.guid;
@@ -304,7 +379,6 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
 
                   return (
                     <motion.article
-                      layout
                       key={result.guid}
                       className={`relative overflow-hidden rounded-2xl border p-4 transition ${
                         recommended
@@ -314,13 +388,19 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                     >
                       {recommended && (
                         <div className="absolute right-0 top-0 rounded-bl-xl bg-brand px-3 py-1 text-[9px] font-bold uppercase tracking-[0.16em] text-white">
-                          <span className="flex items-center gap-1"><Sparkles size={10} /> Best to stream</span>
+                          <span className="flex items-center gap-1"><Sparkles size={10} /> Auto pick</span>
                         </div>
                       )}
 
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+                        <div className="hidden h-14 w-14 shrink-0 flex-col items-center justify-center rounded-2xl border border-white/[0.07] bg-black/20 lg:flex">
+                          <span className="text-[8px] font-bold uppercase tracking-[0.18em] text-zinc-600">
+                            {String(index + 1).padStart(2, "0")}
+                          </span>
+                          <span className="mt-0.5 text-sm font-black text-zinc-200">{facts.quality}</span>
+                        </div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate pr-28 text-sm font-semibold" title={result.title}>
+                          <p className="truncate pr-24 text-sm font-semibold" title={result.title}>
                             {shortTitle(result)}
                           </p>
                           <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px]">
@@ -333,15 +413,30 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                             <span className="rounded-md bg-white/[0.05] px-2 py-1 text-zinc-400">
                               {facts.container}
                             </span>
+                            <span className={`flex items-center gap-1 rounded-md px-2 py-1 font-medium ${facts.language.className}`}>
+                              <Languages size={11} /> {facts.language.label}
+                            </span>
+                            {facts.picture && (
+                              <span className="rounded-md bg-white/[0.05] px-2 py-1 text-zinc-400">
+                                {facts.picture}
+                              </span>
+                            )}
+                            {facts.audio && (
+                              <span className="rounded-md bg-white/[0.05] px-2 py-1 text-zinc-400">
+                                {facts.audio}
+                              </span>
+                            )}
                             {facts.directPlay && (
                               <span className="flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 font-semibold text-emerald-400">
-                                <ShieldCheck size={11} /> Direct play
+                                <ShieldCheck size={11} /> {facts.hosted ? "Hosted link" : "Direct play"}
                               </span>
                             )}
                           </div>
                           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-zinc-500">
-                            <span className="flex items-center gap-1"><HardDrive size={12} /> {formatBytes(result.size)}</span>
-                            <span className="flex items-center gap-1"><Users size={12} /> {result.seeders.toLocaleString()} peers</span>
+                            <span className="flex items-center gap-1"><HardDrive size={12} /> {result.size ? formatBytes(result.size) : "Hosted"}</span>
+                            {!facts.hosted && (
+                              <span className="flex items-center gap-1"><Users size={12} /> {result.seeders.toLocaleString()} seeders</span>
+                            )}
                             <span className={`flex items-center gap-1 ${facts.health.color}`}><Gauge size={12} /> {facts.health.label}</span>
                             <span>{result.indexer}</span>
                           </div>
@@ -357,10 +452,10 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                               <button
                                 onClick={() => act(result, "stream")}
                                 disabled={!!actingGuid}
-                                className="group/stream flex min-w-32 items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-xs font-bold text-black transition hover:scale-[1.02] hover:bg-zinc-200 disabled:opacity-50"
+                                className="group/stream flex min-w-32 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-light to-brand px-4 py-2.5 text-xs font-bold text-[#090806] shadow-[0_10px_28px_rgba(152,117,47,.16)] transition hover:scale-[1.02] hover:brightness-110 disabled:opacity-50"
                               >
-                                {acting ? <ArrowDownUp size={15} className="animate-spin" /> : <Wifi size={15} />}
-                                {acting ? "Starting…" : "Stream now"}
+                                {acting ? <LoaderCircle size={15} className="animate-spin" /> : <Wifi size={15} />}
+                                {acting ? "Starting…" : "Watch this"}
                               </button>
                               {!result.streamUrl && (
                                 <button
@@ -369,7 +464,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                                   title="Download and keep offline"
                                   className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-2.5 text-xs font-semibold transition hover:bg-white/10 disabled:opacity-50"
                                 >
-                                  <Download size={15} /> Offline
+                                  <Download size={15} /> Save
                                 </button>
                               )}
                             </>
@@ -391,7 +486,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
               </div>
             </div>
 
-            <footer className="flex items-center justify-between gap-4 border-t border-white/[0.07] bg-black/20 px-5 py-3 text-[10px] text-zinc-600">
+            <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-white/[0.07] bg-black/20 px-5 py-3 text-[10px] text-zinc-600">
               <span>⚖️ {t("torrent.disclaimer")}</span>
               <span className="hidden items-center gap-1 md:flex"><Radio size={11} /> Powered by Torrentio + your local stream engine</span>
             </footer>

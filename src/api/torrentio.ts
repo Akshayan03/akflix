@@ -132,7 +132,7 @@ export class TorrentioClient {
       { signal }
     );
 
-    return (response.streams ?? [])
+    const results = (response.streams ?? [])
       .filter((stream) => !!stream.infoHash || !!stream.url)
       .map<TorrentResult>((stream) => {
         const infoHash = stream.infoHash?.toLowerCase();
@@ -158,14 +158,23 @@ export class TorrentioClient {
           fileIndex: stream.fileIdx,
           sourceLanguage,
         };
-      })
-      .sort((a, b) => {
-        const rank = streamRank(b) - streamRank(a);
-        if (rank) return rank;
-        const seeds = b.seeders - a.seeders;
-        if (seeds) return seeds;
-        return a.size - b.size;
       });
+
+    // Torrentio can return the same hash and file more than once through
+    // different provider rows. A picker needs one stable row per playable
+    // source so React identity, sorting and exact manual selection stay sound.
+    const unique = new Map<string, TorrentResult>();
+    for (const result of results) {
+      if (!unique.has(result.guid)) unique.set(result.guid, result);
+    }
+
+    return [...unique.values()].sort((a, b) => {
+      const rank = streamRank(b) - streamRank(a);
+      if (rank) return rank;
+      const seeds = b.seeders - a.seeders;
+      if (seeds) return seeds;
+      return a.size - b.size;
+    });
   }
 
   async test(): Promise<boolean> {

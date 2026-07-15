@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { ChevronRight, Clock3, DownloadCloud, LoaderCircle, Play, Star } from "lucide-react";
+import { ChevronRight, Clock3, ListFilter, LoaderCircle, Play, Star } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { cinemeta } from "@/api/cinemeta";
@@ -191,11 +191,11 @@ export default function DiscoverDetails() {
                   disabled={!lookup}
                   className="glass-panel flex items-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-semibold transition hover:-translate-y-0.5 hover:bg-white/[0.10] disabled:opacity-40"
                 >
-                  <DownloadCloud size={18} /> Download
+                  <ListFilter size={18} /> Choose stream
                 </button>
               )}
               <span className="text-[11px] text-zinc-500">
-                {mobileApple ? "Hosted or Jellyfin playback" : "Choose temporary stream or offline copy"}
+                {mobileApple ? "Hosted or Jellyfin playback" : "Auto pick or choose quality, language and size"}
               </span>
             </div>
           </div>
@@ -223,35 +223,50 @@ export default function DiscoverDetails() {
           </div>
           <div className="grid gap-3">
             {episodes.map((episode) => (
-              <button
+              <div
                 key={episode.id}
-                onClick={() => {
-                  setSelectedEpisode(episode);
-                  void watchNow(episode);
-                }}
-                disabled={starting}
-                className={`group flex w-full items-center gap-4 rounded-2xl border p-3 text-left transition ${
+                className={`group flex w-full items-center rounded-2xl border text-left transition ${
                   selectedEpisode?.id === episode.id
                     ? "border-brand/30 bg-brand/[0.06]"
                     : "border-white/[0.07] bg-white/[0.03] hover:border-white/15 hover:bg-white/[0.05]"
                 }`}
               >
-                <span className="w-7 text-center text-zinc-500">{episode.episode}</span>
-                {episode.thumbnail ? (
-                  <img src={episode.thumbnail} alt="" className="aspect-video w-40 rounded-xl object-cover" />
-                ) : (
-                  <div className="aspect-video w-40 rounded-xl bg-zinc-800" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">
-                    {episode.name ?? episode.title ?? `Episode ${episode.episode}`}
-                  </p>
-                  {episode.overview && (
-                    <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{episode.overview}</p>
+                <button
+                  onClick={() => {
+                    setSelectedEpisode(episode);
+                    void watchNow(episode);
+                  }}
+                  disabled={starting}
+                  className="flex min-w-0 flex-1 items-center gap-4 p-3 text-left disabled:opacity-50"
+                >
+                  <span className="w-7 text-center text-zinc-500">{episode.episode}</span>
+                  {episode.thumbnail ? (
+                    <img src={episode.thumbnail} alt="" className="aspect-video w-40 rounded-xl object-cover" />
+                  ) : (
+                    <div className="aspect-video w-40 rounded-xl bg-zinc-800" />
                   )}
-                </div>
-                <ChevronRight size={18} className="mr-3 shrink-0 text-zinc-600 transition group-hover:translate-x-0.5 group-hover:text-white" />
-              </button>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">
+                      {episode.name ?? episode.title ?? `Episode ${episode.episode}`}
+                    </p>
+                    {episode.overview && (
+                      <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{episode.overview}</p>
+                    )}
+                  </div>
+                  <ChevronRight size={18} className="shrink-0 text-zinc-600 transition group-hover:translate-x-0.5 group-hover:text-white" />
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedEpisode(episode);
+                    setSourceOpen(true);
+                  }}
+                  disabled={starting}
+                  title={`Choose a stream for episode ${episode.episode}`}
+                  className="mr-3 flex shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[11px] font-semibold text-zinc-400 transition hover:border-brand/30 hover:bg-brand/[0.08] hover:text-brand-light disabled:opacity-50"
+                >
+                  <ListFilter size={14} /> Sources
+                </button>
+              </div>
             ))}
           </div>
         </section>

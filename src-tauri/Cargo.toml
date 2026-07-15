@@ -1,6 +1,6 @@
 [package]
 name = "akflix"
-version = "1.0.4"
+version = "1.0.5"
 description = "Standalone movie and series streaming app"
 authors = ["Akshayan"]
 edition = "2021"

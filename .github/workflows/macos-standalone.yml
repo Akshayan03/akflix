@@ -81,5 +81,5 @@ jobs:
             gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
               --title "Akflix $TAG" \
-              --notes "Mac player timeline update. Compatibility streams now follow the movie clock instead of racing ahead, retain a longer safety window, and pause their transcoder when playback is paused. Use source features only for content you may lawfully access."
+              --notes "Manual stream picker update. Keep one-click Watch Now or choose an exact source by quality, language, size, seeders, picture format, and audio format. Duplicate sources are removed and mixed-language releases are labeled more accurately. Use source features only for content you may lawfully access."
           fi

@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Check, Magnet, Play, Plus } from "lucide-react";
+import { Check, ListFilter, Play, Plus } from "lucide-react";
 import { useAuth } from "@/stores/authStore";
 import { useT } from "@/i18n";
 import { formatRuntime, ticksToSeconds } from "@/lib/utils";
@@ -166,11 +166,11 @@ export default function Details() {
 
             <button
               onClick={() => setTorrentOpen(true)}
-              title={t("torrent.findSources")}
+              title="Choose stream"
               className="flex items-center gap-2 rounded border border-zinc-600 px-5 py-2.5 text-sm text-zinc-300 hover:border-white hover:text-white"
             >
-              <Magnet size={16} />
-              {t("torrent.findSources")}
+              <ListFilter size={16} />
+              Choose stream
             </button>
           </div>
         </div>
