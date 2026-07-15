@@ -26,6 +26,8 @@ export interface Settings {
   language: "en" | "es" | "fr";
   /** Prefer subtitles in this language when available. */
   subtitleLanguage: string;
+  /** Prefer this audio track in multi-language video files. */
+  audioLanguage: string;
 }
 
 interface SettingsState extends Settings {
@@ -46,6 +48,7 @@ const defaults: Settings = {
   downloadPath: "/downloads",
   language: "en",
   subtitleLanguage: "eng",
+  audioLanguage: "eng",
 };
 
 export const useSettings = create<SettingsState>()(

@@ -29,6 +29,9 @@ export interface DirectPlaybackMetadata {
   subtitle?: string;
   posterUrl?: string | null;
   isEpisode?: boolean;
+  /** Structured episode identity used to select the right file in season packs. */
+  season?: number;
+  episode?: number;
 }
 
 export interface DirectPlaybackRequest extends DirectPlaybackMetadata {

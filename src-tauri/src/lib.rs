@@ -184,9 +184,14 @@ fn safe_media_path(url: &str) -> Option<PathBuf> {
 }
 
 static HLS_PROCESSES: OnceLock<Mutex<HashMap<String, Child>>> = OnceLock::new();
+static AUDIO_STREAM_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
 
 fn hls_processes() -> &'static Mutex<HashMap<String, Child>> {
     HLS_PROCESSES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn audio_stream_cache() -> &'static Mutex<HashMap<String, String>> {
+    AUDIO_STREAM_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn safe_stream_id(value: &str) -> Option<String> {
@@ -222,11 +227,92 @@ fn stop_hls_process(id: &str) {
     }
 }
 
+fn audio_language_aliases(value: Option<&str>) -> Vec<String> {
+    let requested = value.unwrap_or("eng").trim().to_ascii_lowercase();
+    match requested.as_str() {
+        "en" | "eng" | "english" => vec!["eng".into(), "en".into()],
+        "es" | "spa" | "spanish" => vec!["spa".into(), "es".into()],
+        "fr" | "fra" | "fre" | "french" => {
+            vec!["fra".into(), "fre".into(), "fr".into()]
+        }
+        _ if !requested.is_empty()
+            && requested.len() <= 12
+            && requested
+                .chars()
+                .all(|character| character.is_ascii_alphabetic()) =>
+        {
+            vec![requested]
+        }
+        _ => vec!["eng".into(), "en".into()],
+    }
+}
+
+/// Ask the bundled ffmpeg to inspect only the container header, then map the
+/// preferred language by its absolute stream index. This avoids assuming that
+/// audio track zero is English in MULTI releases. If tags are absent, retain
+/// ffmpeg's safe first-audio fallback.
+fn preferred_audio_map(ffmpeg: &PathBuf, input: &str, language: Option<&str>) -> String {
+    let aliases = audio_language_aliases(language);
+    let cache_key = format!("{}\0{}", aliases.join(","), input);
+    if let Ok(cache) = audio_stream_cache().lock() {
+        if let Some(found) = cache.get(&cache_key) {
+            return found.clone();
+        }
+    }
+
+    let mut probe = Command::new(ffmpeg);
+    probe.args(["-hide_banner", "-loglevel", "info", "-nostdin"]);
+    if input.starts_with("http://") || input.starts_with("https://") {
+        // A stalled peer must not make language inspection block forever.
+        probe.args(["-rw_timeout", "4000000"]);
+    }
+    let output = probe.arg("-i").arg(input).output();
+    let mut selected = "0:a:0?".to_string();
+    let mut found_audio = false;
+
+    if let Ok(output) = output {
+        let report = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
+        for line in report.lines().filter(|line| line.contains("audio:")) {
+            found_audio = true;
+            if !aliases
+                .iter()
+                .any(|alias| line.contains(&format!("({alias})")))
+            {
+                continue;
+            }
+            let Some(after_marker) = line.split("stream #0:").nth(1) else {
+                continue;
+            };
+            let index = after_marker
+                .chars()
+                .take_while(|character| character.is_ascii_digit())
+                .collect::<String>();
+            if !index.is_empty() {
+                selected = format!("0:{index}");
+                break;
+            }
+        }
+    }
+
+    // Do not cache an inconclusive network probe; the next playback retry may
+    // have enough torrent header bytes to expose the language tags.
+    if found_audio {
+        if let Ok(mut cache) = audio_stream_cache().lock() {
+            cache.insert(cache_key, selected.clone());
+        }
+    }
+    selected
+}
+
 /// Convert containers/codecs WebKit cannot play into a short rolling HLS
 /// window. The platform media encoder keeps this hardware accelerated where
 /// the operating system exposes one (VideoToolbox on macOS, Media Foundation
 /// on Windows).
-fn start_hls_input(input: String, stream_id: String) -> Result<String, String> {
+fn start_hls_input(
+    input: String,
+    stream_id: String,
+    audio_language: Option<String>,
+) -> Result<String, String> {
     let id = safe_stream_id(&stream_id).ok_or("Invalid stream id")?;
     let root = downloads_root().ok_or("Could not locate downloads")?;
     let ffmpeg =
@@ -239,11 +325,14 @@ fn start_hls_input(input: String, stream_id: String) -> Result<String, String> {
     let playlist = output.join("index.m3u8");
     let segment_pattern = output.join("segment-%06d.ts");
 
+    let audio_map = preferred_audio_map(&ffmpeg, &input, audio_language.as_deref());
     let mut command = Command::new(ffmpeg);
     command
         .args(["-hide_banner", "-loglevel", "warning", "-nostdin", "-i"])
         .arg(&input)
-        .args(["-map", "0:v:0", "-map", "0:a:0?", "-c:v"]);
+        .args(["-map", "0:v:0", "-map"])
+        .arg(audio_map)
+        .arg("-c:v");
 
     if cfg!(target_os = "macos") {
         command.args([
@@ -329,7 +418,11 @@ fn start_hls_input(input: String, stream_id: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn start_hls_stream(relative_path: String, stream_id: String) -> Result<String, String> {
+fn start_hls_stream(
+    relative_path: String,
+    stream_id: String,
+    audio_language: Option<String>,
+) -> Result<String, String> {
     let root = downloads_root().ok_or("Could not locate downloads")?;
     let relative = PathBuf::from(&relative_path);
     if relative
@@ -342,15 +435,23 @@ fn start_hls_stream(relative_path: String, stream_id: String) -> Result<String, 
     if !input.is_file() {
         return Err("The selected video is not ready on disk".into());
     }
-    start_hls_input(input.to_string_lossy().into_owned(), stream_id)
+    start_hls_input(
+        input.to_string_lossy().into_owned(),
+        stream_id,
+        audio_language,
+    )
 }
 
 #[tauri::command]
-fn start_hls_url(input_url: String, stream_id: String) -> Result<String, String> {
+fn start_hls_url(
+    input_url: String,
+    stream_id: String,
+    audio_language: Option<String>,
+) -> Result<String, String> {
     if !input_url.starts_with("http://127.0.0.1:3031/torrents/") {
         return Err("Only the embedded local stream can be transcoded".into());
     }
-    start_hls_input(input_url, stream_id)
+    start_hls_input(input_url, stream_id, audio_language)
 }
 
 #[derive(serde::Serialize)]

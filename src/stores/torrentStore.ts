@@ -17,6 +17,7 @@ import { useAuth } from "@/stores/authStore";
 import type { QbtTorrent, TorrentAddMode, TorrentResult } from "@/types/torrent";
 import type { DirectPlaybackMetadata } from "@/stores/playbackStore";
 import { stopCompatibilityStream } from "@/lib/compatStream";
+import { englishSafeSources } from "@/lib/sourceLanguage";
 
 interface TorrentState {
   torrents: QbtTorrent[];
@@ -59,7 +60,12 @@ interface TorrentState {
     results: TorrentResult[],
     media?: DirectPlaybackMetadata
   ) => Promise<string | null>;
-  addMagnet: (magnet: string, mode: TorrentAddMode, fileIndex?: number) => Promise<string | null>;
+  addMagnet: (
+    magnet: string,
+    mode: TorrentAddMode,
+    fileIndex?: number,
+    media?: DirectPlaybackMetadata | null
+  ) => Promise<string | null>;
   prepareStreamFile: () => Promise<boolean>;
   setPendingStreamHash: (hash: string | null) => void;
   markStreamReady: (hash: string) => void;
@@ -158,7 +164,12 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
   addTorrent: async (result, mode, fallbacks = [], media) => {
     const link = result.magnetUrl ?? result.downloadUrl;
     if (!link) throw new Error("Result has no magnet or download link.");
-    const hash = await get().addMagnet(link, mode, result.fileIndex);
+    const hash = await get().addMagnet(
+      link,
+      mode,
+      result.fileIndex,
+      mode === "stream" ? media ?? null : undefined
+    );
     if (mode === "stream") {
       set({
         pendingStreamFallbacks: fallbacks.filter((candidate) => !!candidate.magnetUrl),
@@ -170,8 +181,9 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
   },
 
   raceStreamSources: async (results, media) => {
+    const eligibleResults = englishSafeSources(results);
     const unique = new Map<string, TorrentResult>();
-    for (const result of results) {
+    for (const result of eligibleResults) {
       const link = result.magnetUrl ?? result.downloadUrl;
       const hash = link ? magnetInfoHash(link) : null;
       if (hash && !unique.has(hash)) unique.set(hash, result);
@@ -180,7 +192,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     const candidates = [...unique.entries()].map(([hash, result]) => ({ hash, result }));
     if (!candidates.length) throw new Error("No torrent sources are available to race.");
     if (candidates.length === 1) {
-      return get().addTorrent(candidates[0].result, "stream", results.slice(1), media);
+      return get().addTorrent(candidates[0].result, "stream", eligibleResults.slice(1), media);
     }
 
     const settings = useSettings.getState();
@@ -246,7 +258,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
         .map((candidate) => qbt.delete(candidate.hash, true).catch(() => {}))
     );
 
-    const fallbacks = results.filter((result) => {
+    const fallbacks = eligibleResults.filter((result) => {
       const link = result.magnetUrl ?? result.downloadUrl;
       return !!link && magnetInfoHash(link) !== winnerCandidate.hash;
     });
@@ -270,7 +282,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     return winnerCandidate.hash;
   },
 
-  addMagnet: async (magnet, mode, fileIndex) => {
+  addMagnet: async (magnet, mode, fileIndex, media) => {
     const s = useSettings.getState();
     const hash = magnetInfoHash(magnet);
     const qbt = get().qbt();
@@ -291,15 +303,23 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
         pendingStreamHeadBytes: 0,
         pendingStreamFallbacks: [],
         pendingStreamStartedAt: Date.now(),
+        ...(media !== undefined ? { pendingStreamMedia: media } : {}),
       });
     }
     return hash;
   },
 
   prepareStreamFile: async () => {
-    const { pendingStreamHash: hash, pendingStreamFileIndex: index } = get();
+    const {
+      pendingStreamHash: hash,
+      pendingStreamFileIndex: index,
+      pendingStreamMedia: media,
+    } = get();
     if (!hash) return false;
-    const selected = await get().qbt().prioritizeVideoFile(hash, index ?? undefined);
+    const selected = await get().qbt().prioritizeVideoFile(hash, index ?? undefined, {
+      season: media?.season,
+      episode: media?.episode,
+    });
     if (!selected) return false;
     await get().qbt().refreshStreamPriority(hash).catch(() => {});
     set({

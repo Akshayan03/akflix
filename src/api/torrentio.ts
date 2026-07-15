@@ -3,6 +3,7 @@
 import { httpJson, normalizeUrl } from "@/lib/http";
 import type { TorrentResult } from "@/types/torrent";
 import { FAST_TRACKERS } from "@/lib/torrentTrackers";
+import { classifySourceLanguage } from "@/lib/sourceLanguage";
 
 export interface TorrentioLookup {
   imdbId: string;
@@ -56,6 +57,12 @@ function streamRank(result: TorrentResult): number {
   }
   const text = `${result.title} ${magnet}`.toLowerCase();
   let score = 0;
+
+  // Language correctness outranks a marginal peer-speed advantage. Untagged
+  // releases remain neutral because most English releases omit a language tag.
+  if (result.sourceLanguage === "english") score += 600;
+  else if (result.sourceLanguage === "multi") score += 80;
+  else if (result.sourceLanguage === "non-english") score -= 800;
 
   // 1080p is the fast-start sweet spot; 4K is kept available but ranked down
   // because its opening bitrate and frequent HEVC transcode delay playback.
@@ -131,6 +138,9 @@ export class TorrentioClient {
         const infoHash = stream.infoHash?.toLowerCase();
         const title = stream.title?.trim() || stream.behaviorHints?.filename || infoHash || "Direct stream";
         const filename = stream.behaviorHints?.filename || title.split("\n")[0];
+        const sourceLanguage = classifySourceLanguage(
+          `${title} ${stream.name ?? ""} ${stream.behaviorHints?.filename ?? ""}`
+        );
         const magnet = infoHash
           ? new URLSearchParams({ xt: `urn:btih:${infoHash}`, dn: filename })
           : null;
@@ -146,6 +156,7 @@ export class TorrentioClient {
           streamUrl: stream.url,
           category: stream.name?.replace(/\n/g, " · "),
           fileIndex: stream.fileIdx,
+          sourceLanguage,
         };
       })
       .sort((a, b) => {

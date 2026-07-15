@@ -10,6 +10,7 @@
 import { httpRaw } from "@/lib/http";
 import { addFastTrackers } from "@/lib/torrentTrackers";
 import type { QbtFile, QbtTorrent, TorrentAddMode } from "@/types/torrent";
+import { selectVideoFile, type EpisodeFileHint } from "@/lib/mediaSelection";
 
 const DEFAULT_URL = "http://127.0.0.1:3031";
 const MODE_KEY = "akflix.embedded-torrent-modes";
@@ -183,14 +184,14 @@ export class RqbitClient {
     }));
   }
 
-  async prioritizeVideoFile(hash: string, preferredIndex?: number): Promise<QbtFile | null> {
+  async prioritizeVideoFile(
+    hash: string,
+    preferredIndex?: number,
+    episodeHint?: Omit<EpisodeFileHint, "preferredIndex">
+  ): Promise<QbtFile | null> {
     const files = await this.files(hash);
     if (!files.length) return null;
-    const videos = files.filter((file) => /\.(mp4|m4v|mkv|webm|avi|mov|ts|m2ts)$/i.test(file.name));
-    const selected =
-      files.find((file) => file.index === preferredIndex) ??
-      videos.sort((a, b) => b.size - a.size)[0] ??
-      [...files].sort((a, b) => b.size - a.size)[0];
+    const selected = selectVideoFile(files, { preferredIndex, ...episodeHint });
     if (!selected) return null;
     const response = await this.request(`/torrents/${hash}/update_only_files`, {
       method: "POST",

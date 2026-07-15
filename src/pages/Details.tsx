@@ -251,6 +251,9 @@ export default function Details() {
               : item.ProductionYear?.toString(),
           posterUrl: client.imageUrl(item, "Primary", 300),
           isEpisode: torrentTarget?.Type === "Episode",
+          season:
+            torrentTarget?.Type === "Episode" ? torrentTarget.ParentIndexNumber ?? 1 : undefined,
+          episode: torrentTarget?.Type === "Episode" ? torrentTarget.IndexNumber ?? 1 : undefined,
         }}
         open={torrentOpen}
         onClose={() => setTorrentOpen(false)}

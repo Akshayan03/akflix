@@ -14,6 +14,8 @@ export interface TorrentResult {
   category?: string;
   /** Selected file inside a multi-file torrent (Torrentio fileIdx). */
   fileIndex?: number;
+  /** Language inferred only from explicit release tags; untagged stays neutral. */
+  sourceLanguage?: "english" | "multi" | "unknown" | "non-english";
 }
 
 export type TorrentAddMode = "stream" | "download";

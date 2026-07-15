@@ -19,6 +19,7 @@
 
 import { httpRaw, normalizeUrl } from "@/lib/http";
 import type { QbtFile, QbtTorrent, TorrentAddMode } from "@/types/torrent";
+import { selectVideoFile, type EpisodeFileHint } from "@/lib/mediaSelection";
 import { addFastTrackers } from "@/lib/torrentTrackers";
 
 function magnetHash(value: string): string | null {
@@ -173,15 +174,14 @@ export class QbtClient {
    * Torrentio supplies fileIdx for season packs; without applying it,
    * qBittorrent may spend the opening buffer on unrelated episodes/extras.
    */
-  async prioritizeVideoFile(hash: string, preferredIndex?: number): Promise<QbtFile | null> {
+  async prioritizeVideoFile(
+    hash: string,
+    preferredIndex?: number,
+    episodeHint?: Omit<EpisodeFileHint, "preferredIndex">
+  ): Promise<QbtFile | null> {
     const files = await this.files(hash);
     if (!files.length) return null; // Magnet metadata is still arriving.
-
-    const playable = files.filter((file) => /\.(mp4|m4v|mkv|webm|avi|mov|ts|m2ts)$/i.test(file.name));
-    const selected =
-      files.find((file) => file.index === preferredIndex) ??
-      playable.sort((a, b) => b.size - a.size)[0] ??
-      [...files].sort((a, b) => b.size - a.size)[0];
+    const selected = selectVideoFile(files, { preferredIndex, ...episodeHint });
     if (!selected) return null;
 
     const skippedIds = files

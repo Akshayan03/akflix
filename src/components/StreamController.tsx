@@ -18,6 +18,7 @@ import { useTorrents } from "@/stores/torrentStore";
 import { usePlayback } from "@/stores/playbackStore";
 import { formatBytes, formatSpeed } from "@/lib/utils";
 import { startCompatibilityStream, startCompatibilityStreamUrl } from "@/lib/compatStream";
+import { useSettings } from "@/stores/settingsStore";
 
 const MIB = 1024 * 1024;
 const STREAM_GATEWAY = "http://127.0.0.1:8097";
@@ -50,6 +51,7 @@ function friendlyName(name: string): string {
 export default function StreamController() {
   const navigate = useNavigate();
   const openDirect = usePlayback((state) => state.openDirect);
+  const audioLanguage = useSettings((state) => state.audioLanguage);
   const {
     torrents,
     pendingStreamHash,
@@ -137,10 +139,10 @@ export default function StreamController() {
       try {
         const url = embeddedUrl
           ? compatibility
-            ? await startCompatibilityStreamUrl(embeddedUrl, torrent.hash)
+            ? await startCompatibilityStreamUrl(embeddedUrl, torrent.hash, audioLanguage)
             : embeddedUrl
           : compatibility
-            ? await startCompatibilityStream(pendingStreamFileName, torrent.hash)
+            ? await startCompatibilityStream(pendingStreamFileName, torrent.hash, audioLanguage)
             : gatewayUrl(pendingStreamFileName);
         openDirect({
           id: `torrent:${torrent.hash}`,
@@ -172,7 +174,7 @@ export default function StreamController() {
       }
     };
     void handoff();
-  }, [embeddedUrl, markStreamReady, navigate, openDirect, pendingStreamFileName, pendingStreamFileSize, pendingStreamHash, pendingStreamHeadBytes, pendingStreamMedia, torrent]);
+  }, [audioLanguage, embeddedUrl, markStreamReady, navigate, openDirect, pendingStreamFileName, pendingStreamFileSize, pendingStreamHash, pendingStreamHeadBytes, pendingStreamMedia, torrent]);
 
   if (!pendingStreamHash) return null;
 

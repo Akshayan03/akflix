@@ -1,0 +1,76 @@
+name: Build standalone macOS update
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Reuse the verified standalone engines from v1.0.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src-tauri/binaries "$RUNNER_TEMP/akflix-old"
+          gh release download v1.0.0 --pattern "Akflix_1.0.0_aarch64.dmg" --dir "$RUNNER_TEMP"
+          hdiutil attach "$RUNNER_TEMP/Akflix_1.0.0_aarch64.dmg" \
+            -nobrowse -readonly -mountpoint "$RUNNER_TEMP/akflix-old"
+          cp "$RUNNER_TEMP/akflix-old/Akflix.app/Contents/MacOS/rqbit" \
+            src-tauri/binaries/rqbit-aarch64-apple-darwin
+          cp "$RUNNER_TEMP/akflix-old/Akflix.app/Contents/MacOS/ffmpeg" \
+            src-tauri/binaries/ffmpeg-aarch64-apple-darwin
+          hdiutil detach "$RUNNER_TEMP/akflix-old"
+          chmod +x src-tauri/binaries/*-aarch64-apple-darwin
+          file src-tauri/binaries/*-aarch64-apple-darwin
+
+      - name: Validate frontend and Rust backend
+        run: |
+          npm run build
+          cargo check --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin
+
+      - name: Build Apple Silicon app and DMG
+        run: >-
+          npx tauri build
+          --config src-tauri/tauri.local.conf.json
+          --target aarch64-apple-darwin
+          --bundles app,dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Akflix-1.0.1-macOS
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Akflix_1.0.1_aarch64.dmg
+          if-no-files-found: error
+
+      - name: Publish Mac-only v1.0.1 update
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DMG="src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Akflix_1.0.1_aarch64.dmg"
+          if gh release view v1.0.1 >/dev/null 2>&1; then
+            gh release upload v1.0.1 "$DMG" --clobber
+          else
+            gh release create v1.0.1 "$DMG" \
+              --target "$GITHUB_SHA" \
+              --title "Akflix v1.0.1" \
+              --notes "Mac playback reliability update: correct episode selection in season packs, English-first source racing, and English audio-track selection for multi-language files. Use source features only for content you may lawfully access."
+          fi

@@ -16,7 +16,7 @@ import { checkForUpdates, installUpdate } from "@/lib/desktop";
 import { useT } from "@/i18n";
 import { isAppleMobile } from "@/lib/platform";
 
-const APP_VERSION = "1.0.0"; // keep in sync with package.json / tauri.conf.json
+const APP_VERSION = "1.0.1"; // keep in sync with package.json / tauri.conf.json
 
 type TestState = "idle" | "busy" | "ok" | "fail";
 
@@ -52,6 +52,7 @@ export default function Settings() {
     downloadPath: settings.downloadPath,
     language: settings.language,
     subtitleLanguage: settings.subtitleLanguage,
+    audioLanguage: settings.audioLanguage,
   });
   const [saved, setSaved] = useState(false);
   const [qbtTest, setQbtTest] = useState<TestState>("idle");
@@ -302,7 +303,7 @@ export default function Settings() {
       {/* ── Language ── */}
       <section className="mb-10 rounded-lg border border-zinc-800 bg-surface-raised p-6">
         <h2 className="font-semibold">{t("settings.language")}</h2>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid gap-4 md:grid-cols-3">
           <div>
             <label className={labelCls}>{t("settings.language")}</label>
             <select
@@ -321,6 +322,15 @@ export default function Settings() {
               value={draft.subtitleLanguage}
               onChange={(e) => set("subtitleLanguage", e.target.value)}
               placeholder="eng / spa / fra (ISO 639-2)"
+              className={inputCls}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>{t("settings.audioLang")}</label>
+            <input
+              value={draft.audioLanguage}
+              onChange={(e) => set("audioLanguage", e.target.value)}
+              placeholder="eng (ISO 639-2)"
               className={inputCls}
             />
           </div>

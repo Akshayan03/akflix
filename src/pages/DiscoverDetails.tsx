@@ -10,6 +10,7 @@ import type { StremioMediaType, StremioMeta, StremioVideo } from "@/types/stremi
 import { useTorrents } from "@/stores/torrentStore";
 import { usePlayback } from "@/stores/playbackStore";
 import { isAppleMobile } from "@/lib/platform";
+import { englishSafeSources } from "@/lib/sourceLanguage";
 
 export default function DiscoverDetails() {
   const navigate = useNavigate();
@@ -85,12 +86,15 @@ export default function DiscoverDetails() {
           : meta.releaseInfo ?? meta.year,
       posterUrl: meta.poster,
       isEpisode: type === "series",
+      season: type === "series" ? episode?.season : undefined,
+      episode: type === "series" ? episode?.episode : undefined,
     };
     setStarting(true);
     try {
       const results = await searchSources(query, undefined, targetLookup);
       if (!results.length) throw new Error("No playable sources were found for this title.");
-      const hosted = results.find((result) => result.streamUrl);
+      const preferredResults = englishSafeSources(results);
+      const hosted = preferredResults.find((result) => result.streamUrl);
       if (hosted?.streamUrl) {
         openDirect({ id: hosted.guid, url: hosted.streamUrl, ...media });
         navigate("/stream");
@@ -102,7 +106,7 @@ export default function DiscoverDetails() {
           "iPhone and iPad playback needs a hosted/debrid source or a connected Jellyfin library. Peer streaming is available in the desktop app."
         );
       }
-      await raceStreamSources(results, media);
+      await raceStreamSources(preferredResults, media);
       toast.success("Opening the fastest source", {
         description: "Akflix will switch sources automatically if this one stalls.",
       });
@@ -264,6 +268,8 @@ export default function DiscoverDetails() {
               : meta.releaseInfo ?? meta.year,
           posterUrl: meta.poster,
           isEpisode: type === "series",
+          season: type === "series" ? selectedEpisode?.season : undefined,
+          episode: type === "series" ? selectedEpisode?.episode : undefined,
         }}
         open={sourceOpen}
         onClose={() => setSourceOpen(false)}
