@@ -38,10 +38,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p website/downloads
+          # A website-only push may happen before the first release exists.
+          # Keep that deployment healthy; the page links users to Releases
+          # until installers have been published and copied here.
           gh release download --repo "$GITHUB_REPOSITORY" \
             --dir website/downloads \
             --pattern "*.dmg" --pattern "*.exe" --pattern "*.msi" \
-            --pattern "*.AppImage" --pattern "*.deb"
+            --pattern "*.AppImage" --pattern "*.deb" || \
+            echo "No published installers yet; deploying the website without bundled downloads."
           ls -lh website/downloads
 
       - uses: actions/configure-pages@v5
