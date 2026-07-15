@@ -26,13 +26,25 @@ interface AuthState {
   switchProfile: (id: string) => void;
   removeProfile: (id: string) => void;
   logout: () => void;
+  ensureLocalProfile: () => void;
 }
+
+export const LOCAL_PROFILE_ID = "akflix-local";
+const LOCAL_PROFILE: ServerProfile = {
+  id: LOCAL_PROFILE_ID,
+  kind: "local",
+  serverUrl: "local://akflix",
+  serverName: "On this Mac",
+  userId: "local",
+  userName: "Akflix",
+  accessToken: "",
+};
 
 export const useAuth = create<AuthState>()(
   persist(
     (set, get) => ({
-      profiles: [],
-      activeProfileId: null,
+      profiles: [LOCAL_PROFILE],
+      activeProfileId: LOCAL_PROFILE_ID,
 
       activeProfile: () => {
         const { profiles, activeProfileId } = get();
@@ -41,7 +53,9 @@ export const useAuth = create<AuthState>()(
 
       client: () => {
         const p = get().activeProfile();
-        return p ? JellyfinClient.fromProfile(p) : null;
+        return p && p.kind !== "local" && p.serverUrl !== LOCAL_PROFILE.serverUrl
+          ? JellyfinClient.fromProfile(p)
+          : null;
       },
 
       login: async (serverUrl, username, password) => {
@@ -50,6 +64,7 @@ export const useAuth = create<AuthState>()(
 
         const profile: ServerProfile = {
           id: uuid(),
+          kind: "jellyfin",
           serverUrl: serverUrl.trim().replace(/\/+$/, ""),
           serverName: info.ServerName,
           userId: auth.User.Id,
@@ -72,13 +87,37 @@ export const useAuth = create<AuthState>()(
 
       removeProfile: (id) =>
         set((s) => ({
-          profiles: s.profiles.filter((p) => p.id !== id),
-          activeProfileId: s.activeProfileId === id ? null : s.activeProfileId,
+          profiles: s.profiles.filter((p) => p.id !== id || id === LOCAL_PROFILE_ID),
+          activeProfileId: s.activeProfileId === id ? LOCAL_PROFILE_ID : s.activeProfileId,
         })),
 
-      logout: () => set({ activeProfileId: null }),
+      logout: () => set({ activeProfileId: LOCAL_PROFILE_ID }),
+
+      ensureLocalProfile: () =>
+        set((state) => ({
+          profiles: state.profiles.some((profile) => profile.id === LOCAL_PROFILE_ID)
+            ? state.profiles
+            : [LOCAL_PROFILE, ...state.profiles],
+          activeProfileId: state.activeProfileId ?? LOCAL_PROFILE_ID,
+        })),
     }),
-    { name: "akflix.auth" }
+    {
+      name: "akflix.auth",
+      version: 2,
+      migrate: (persisted, version) => {
+        const state = persisted as Partial<AuthState>;
+        const profiles = state.profiles?.some((profile) => profile.id === LOCAL_PROFILE_ID)
+          ? state.profiles
+          : [LOCAL_PROFILE, ...(state.profiles ?? [])];
+        return {
+          ...state,
+          profiles,
+          // Version 2 is the standalone release. Existing installs enter the
+          // local catalog once instead of failing on an old localhost server.
+          activeProfileId: version < 2 ? LOCAL_PROFILE_ID : state.activeProfileId ?? LOCAL_PROFILE_ID,
+        } as AuthState;
+      },
+    }
   )
 );
 

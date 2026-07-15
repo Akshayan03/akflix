@@ -19,6 +19,21 @@ export interface PlaybackSession {
   subtitle?: string; // "S1:E4 Episode Name" for episodes
   posterUrl: string | null;
   isEpisode: boolean;
+  direct?: boolean;
+}
+
+export interface DirectPlaybackMetadata {
+  /** Clean catalog title, never the torrent release filename. */
+  title: string;
+  /** Year for movies or S/E + episode title for series. */
+  subtitle?: string;
+  posterUrl?: string | null;
+  isEpisode?: boolean;
+}
+
+export interface DirectPlaybackRequest extends DirectPlaybackMetadata {
+  id: string;
+  url: string;
 }
 
 /** Imperative surface registered by PlayerHost. */
@@ -34,6 +49,7 @@ export interface PlayerControls {
 interface PlaybackState {
   /** Item PlayerHost should be playing (set via open()). */
   requestedItemId: string | null;
+  requestedDirect: DirectPlaybackRequest | null;
   session: PlaybackSession | null;
   mode: "expanded" | "mini";
 
@@ -48,6 +64,7 @@ interface PlaybackState {
   controls: PlayerControls | null;
 
   open: (itemId: string) => void;
+  openDirect: (request: DirectPlaybackRequest) => void;
   expand: () => void;
   minimize: () => void;
   stop: () => void;
@@ -61,6 +78,7 @@ interface PlaybackState {
 
 export const usePlayback = create<PlaybackState>()((set): PlaybackState => ({
   requestedItemId: null,
+  requestedDirect: null,
   session: null,
   mode: "mini",
 
@@ -73,12 +91,15 @@ export const usePlayback = create<PlaybackState>()((set): PlaybackState => ({
 
   controls: null,
 
-  open: (itemId) => set({ requestedItemId: itemId, mode: "expanded" }),
+  open: (itemId) => set({ requestedItemId: itemId, requestedDirect: null, mode: "expanded" }),
+  openDirect: (requestedDirect) =>
+    set({ requestedDirect, requestedItemId: null, mode: "expanded" }),
   expand: () => set({ mode: "expanded" }),
   minimize: () => set({ mode: "mini" }),
   stop: () =>
     set({
       requestedItemId: null,
+      requestedDirect: null,
       session: null,
       isPlaying: false,
       currentTime: 0,

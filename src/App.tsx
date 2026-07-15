@@ -12,6 +12,10 @@ import Details from "@/pages/Details";
 import Player from "@/pages/Player";
 import Downloads from "@/pages/Downloads";
 import Settings from "@/pages/Settings";
+import DiscoverDetails from "@/pages/DiscoverDetails";
+import StreamController from "@/components/StreamController";
+import DirectPlayer from "@/pages/DirectPlayer";
+import Browse from "@/pages/Browse";
 
 /** Routes that need an active Jellyfin session redirect to /login. */
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -22,11 +26,12 @@ function RequireAuth({ children }: { children: JSX.Element }) {
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const isPlayer = location.pathname.startsWith("/play");
+  const isPlayer = location.pathname.startsWith("/play") || location.pathname === "/stream";
   const isLogin = location.pathname === "/login";
 
   // Desktop-only integrations (no-ops in the browser).
   useEffect(() => {
+    useAuth.getState().ensureLocalProfile();
     initDeepLinks(navigate);
     checkForUpdatesQuietly();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -53,6 +58,22 @@ export default function App() {
             }
           />
           <Route
+            path="/movies"
+            element={
+              <RequireAuth>
+                <Browse type="movie" />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/shows"
+            element={
+              <RequireAuth>
+                <Browse type="series" />
+              </RequireAuth>
+            }
+          />
+          <Route
             path="/search"
             element={
               <RequireAuth>
@@ -69,10 +90,26 @@ export default function App() {
             }
           />
           <Route
+            path="/discover/:type/:imdbId"
+            element={
+              <RequireAuth>
+                <DiscoverDetails />
+              </RequireAuth>
+            }
+          />
+          <Route
             path="/play/:itemId"
             element={
               <RequireAuth>
                 <Player />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/stream"
+            element={
+              <RequireAuth>
+                <DirectPlayer />
               </RequireAuth>
             }
           />
@@ -98,6 +135,9 @@ export default function App() {
       {/* Persistent playback engine: fullscreen player, PiP + mini bar. */}
       <PlayerHost />
 
+      {/* Global Torrentio temporary-cache handoff and buffering status. */}
+      {!isLogin && <StreamController />}
+
       {/* Toast notifications (Sonner), styled for the dark theme. */}
       <Toaster
         theme="dark"
@@ -105,9 +145,11 @@ export default function App() {
         offset={{ bottom: 96 }} // clear the mini player bar
         toastOptions={{
           style: {
-            background: "#1f1f1f",
-            border: "1px solid #333",
+            background: "rgba(21,19,15,.96)",
+            border: "1px solid rgba(255,255,255,.1)",
             color: "#fff",
+            borderRadius: "16px",
+            backdropFilter: "blur(20px)",
           },
         }}
       />

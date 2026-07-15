@@ -28,22 +28,25 @@ function TestBadge({ state }: { state: TestState }) {
 }
 
 const inputCls =
-  "w-full rounded bg-zinc-800 px-4 py-2.5 text-sm outline-none ring-1 ring-transparent focus:ring-brand";
+  "w-full rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-sm outline-none transition focus:border-brand/60";
 const labelCls = "mb-1 mt-4 block text-xs text-zinc-400";
 
 export default function Settings() {
   const t = useT();
   const settings = useSettings();
   const profiles = useAuth((s) => s.profiles);
-  const { qbt, prowlarr } = useTorrents();
+  const { qbt, prowlarr, torrentio } = useTorrents();
 
   // Local draft so typing doesn't thrash the persisted store.
   const [draft, setDraft] = useState({
+    torrentEngine: settings.torrentEngine,
     qbtUrl: settings.qbtUrl,
     qbtUsername: settings.qbtUsername,
     qbtPassword: settings.qbtPassword,
     prowlarrUrl: settings.prowlarrUrl,
     prowlarrApiKey: settings.prowlarrApiKey,
+    torrentSource: settings.torrentSource,
+    torrentioManifestUrl: settings.torrentioManifestUrl,
     downloadPath: settings.downloadPath,
     language: settings.language,
     subtitleLanguage: settings.subtitleLanguage,
@@ -99,10 +102,14 @@ export default function Settings() {
     setQbtTest((await qbt().test()) ? "ok" : "fail");
   };
 
-  const testProwlarr = async () => {
+  const testIndexer = async () => {
     save();
     setProwlarrTest("busy");
-    setProwlarrTest((await prowlarr().test()) ? "ok" : "fail");
+    const ok =
+      draft.torrentSource === "torrentio"
+        ? await torrentio().test()
+        : await prowlarr().test();
+    setProwlarrTest(ok ? "ok" : "fail");
   };
 
   const testJellyfin = async (id: string, url: string) => {
@@ -120,18 +127,19 @@ export default function Settings() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="mx-auto min-h-screen max-w-2xl px-6 pb-24 pt-24"
+      className="mx-auto min-h-screen max-w-3xl px-6 pb-24 pt-28"
     >
-      <h1 className="mb-8 text-2xl font-bold">{t("settings.title")}</h1>
+      <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-accent">Tune your space</p>
+      <h1 className="mb-9 text-4xl font-black tracking-[-0.04em]">{t("settings.title")}</h1>
 
       {/* ── Jellyfin servers (read-only list; add/remove via login screen) ── */}
-      <section className="mb-10 rounded-lg border border-zinc-800 bg-surface-raised p-6">
+      <section className="glass-panel mb-6 rounded-3xl p-6">
         <h2 className="mb-4 font-semibold">{t("settings.jellyfin")}</h2>
-        {profiles.length === 0 && (
+        {profiles.filter((profile) => profile.kind !== "local").length === 0 && (
           <p className="text-sm text-zinc-500">No servers — sign in from the login screen.</p>
         )}
         <ul className="space-y-2">
-          {profiles.map((p) => (
+          {profiles.filter((profile) => profile.kind !== "local").map((p) => (
             <li
               key={p.id}
               className="flex items-center gap-3 rounded bg-black/30 px-4 py-2.5 text-sm"
@@ -153,51 +161,64 @@ export default function Settings() {
         </ul>
       </section>
 
-      {/* ── qBittorrent ── */}
-      <section className="mb-10 rounded-lg border border-zinc-800 bg-surface-raised p-6">
+      {/* ── Playback engine ── */}
+      <section className="glass-panel mb-6 rounded-3xl p-6">
         <div className="flex items-center gap-2">
           <h2 className="font-semibold">{t("settings.torrentClient")}</h2>
           <TestBadge state={qbtTest} />
         </div>
 
-        <label className={labelCls}>URL</label>
-        <input
-          value={draft.qbtUrl}
-          onChange={(e) => set("qbtUrl", e.target.value)}
-          placeholder="http://localhost:8080"
+        <label className={labelCls}>Engine</label>
+        <select
+          value={draft.torrentEngine}
+          onChange={(event) => set("torrentEngine", event.target.value as typeof draft.torrentEngine)}
           className={inputCls}
-        />
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={labelCls}>{t("login.username")}</label>
-            <input
-              value={draft.qbtUsername}
-              onChange={(e) => set("qbtUsername", e.target.value)}
-              className={inputCls}
-            />
-          </div>
-          <div>
-            <label className={labelCls}>{t("login.password")}</label>
-            <input
-              type="password"
-              value={draft.qbtPassword}
-              onChange={(e) => set("qbtPassword", e.target.value)}
-              className={inputCls}
-            />
-          </div>
-        </div>
+        >
+          <option value="embedded">Built into Akflix (recommended)</option>
+          <option value="qbittorrent">External qBittorrent (advanced)</option>
+        </select>
 
-        <label className={labelCls}>{t("settings.downloadPath")}</label>
-        <input
-          value={draft.downloadPath}
-          onChange={(e) => set("downloadPath", e.target.value)}
-          placeholder="/downloads"
-          className={inputCls}
-        />
-        <p className="mt-1 text-[11px] text-zinc-600">
-          Must match the folder Jellyfin watches as its “Downloads” library so
-          streamed torrents become playable.
-        </p>
+        {draft.torrentEngine === "embedded" ? (
+          <p className="mt-3 text-xs leading-relaxed text-zinc-500">
+            Ready automatically. Akflix manages its own temporary streams and offline media on this Mac.
+          </p>
+        ) : (
+          <>
+            <label className={labelCls}>URL</label>
+            <input
+              value={draft.qbtUrl}
+              onChange={(e) => set("qbtUrl", e.target.value)}
+              placeholder="http://localhost:8080"
+              className={inputCls}
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>{t("login.username")}</label>
+                <input
+                  value={draft.qbtUsername}
+                  onChange={(e) => set("qbtUsername", e.target.value)}
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>{t("login.password")}</label>
+                <input
+                  type="password"
+                  value={draft.qbtPassword}
+                  onChange={(e) => set("qbtPassword", e.target.value)}
+                  className={inputCls}
+                />
+              </div>
+            </div>
+            <label className={labelCls}>{t("settings.downloadPath")}</label>
+            <input
+              value={draft.downloadPath}
+              onChange={(e) => set("downloadPath", e.target.value)}
+              placeholder="/downloads"
+              className={inputCls}
+            />
+          </>
+        )}
 
         <button
           onClick={testQbt}
@@ -207,30 +228,60 @@ export default function Settings() {
         </button>
       </section>
 
-      {/* ── Prowlarr ── */}
-      <section className="mb-10 rounded-lg border border-zinc-800 bg-surface-raised p-6">
+      {/* ── Torrent metadata source ── */}
+      <section className="glass-panel mb-6 rounded-3xl p-6">
         <div className="flex items-center gap-2">
           <h2 className="font-semibold">{t("settings.indexer")}</h2>
           <TestBadge state={prowlarrTest} />
         </div>
 
-        <label className={labelCls}>URL</label>
-        <input
-          value={draft.prowlarrUrl}
-          onChange={(e) => set("prowlarrUrl", e.target.value)}
-          placeholder="http://localhost:9696"
+        <label className={labelCls}>Provider</label>
+        <select
+          value={draft.torrentSource}
+          onChange={(e) =>
+            set("torrentSource", e.target.value as typeof draft.torrentSource)
+          }
           className={inputCls}
-        />
-        <label className={labelCls}>API Key</label>
-        <input
-          value={draft.prowlarrApiKey}
-          onChange={(e) => set("prowlarrApiKey", e.target.value)}
-          placeholder="Prowlarr → Settings → General → API Key"
-          className={inputCls}
-        />
+        >
+          <option value="torrentio">Torrentio</option>
+          <option value="prowlarr">Prowlarr</option>
+        </select>
+
+        {draft.torrentSource === "torrentio" ? (
+          <>
+            <label className={labelCls}>Configured manifest URL</label>
+            <input
+              value={draft.torrentioManifestUrl}
+              onChange={(e) => set("torrentioManifestUrl", e.target.value)}
+              placeholder="https://torrentio.strem.fun/manifest.json"
+              className={inputCls}
+            />
+            <p className="mt-2 text-[11px] leading-relaxed text-zinc-600">
+              Paste Torrentio’s configured manifest link here. A debrid provider is
+              optional, but cached hosted links give the closest thing to instant playback.
+            </p>
+          </>
+        ) : (
+          <>
+            <label className={labelCls}>URL</label>
+            <input
+              value={draft.prowlarrUrl}
+              onChange={(e) => set("prowlarrUrl", e.target.value)}
+              placeholder="http://localhost:9696"
+              className={inputCls}
+            />
+            <label className={labelCls}>API Key</label>
+            <input
+              value={draft.prowlarrApiKey}
+              onChange={(e) => set("prowlarrApiKey", e.target.value)}
+              placeholder="Prowlarr → Settings → General → API Key"
+              className={inputCls}
+            />
+          </>
+        )}
 
         <button
-          onClick={testProwlarr}
+          onClick={testIndexer}
           className="mt-4 rounded bg-zinc-700 px-4 py-2 text-sm font-medium hover:bg-zinc-600"
         >
           {t("settings.test")}

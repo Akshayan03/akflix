@@ -1,0 +1,27 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="126" y1="84" x2="900" y2="940" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#211D16"/>
+      <stop offset="1" stop-color="#090806"/>
+    </linearGradient>
+    <linearGradient id="prism" x1="286" y1="216" x2="760" y2="812" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF0C7"/>
+      <stop offset="0.48" stop-color="#D6B25E"/>
+      <stop offset="1" stop-color="#98752F"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(756 242) rotate(135) scale(530)">
+      <stop stop-color="#D6B25E" stop-opacity=".24"/>
+      <stop offset="1" stop-color="#D6B25E" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="170" y="136" width="684" height="750" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="30" stdDeviation="34" flood-color="#000" flood-opacity=".55"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="228" fill="url(#glow)"/>
+  <rect x="22" y="22" width="980" height="980" rx="208" stroke="white" stroke-opacity=".09" stroke-width="10"/>
+  <g filter="url(#shadow)">
+    <path d="M260 776 453 276c20-52 94-52 114 0l194 500H613l-39-113H417l-38 113H260Z" fill="url(#prism)"/>
+    <path d="m438 430 174 110-174 110V430Z" fill="#090806"/>
+  </g>
+</svg>

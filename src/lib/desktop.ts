@@ -11,7 +11,7 @@ import { useTorrents } from "@/stores/torrentStore";
 
 /**
  * Handle magnet links / files the OS hands us. Adds the magnet to
- * qBittorrent in stream mode and routes the user to Downloads.
+ * qBittorrent as an offline download and routes the user to Downloads.
  */
 export async function initDeepLinks(navigate: (path: string) => void): Promise<void> {
   if (!isTauri()) return;
@@ -22,7 +22,7 @@ export async function initDeepLinks(navigate: (path: string) => void): Promise<v
       for (const url of urls ?? []) {
         if (url.startsWith("magnet:")) {
           try {
-            await useTorrents.getState().addMagnet(url, true);
+            await useTorrents.getState().addMagnet(url, "download");
             toast.success("Magnet added to downloads");
             navigate("/downloads");
           } catch (e) {

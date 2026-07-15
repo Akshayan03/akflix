@@ -204,7 +204,7 @@ export class JellyfinClient {
       searchTerm: term,
       Recursive: "true",
       IncludeItemTypes: "Movie,Series,Episode",
-      Fields: "Overview,Genres",
+      Fields: "Overview,Genres,Path,MediaSources,DateCreated",
       Limit: String(limit),
       EnableImageTypes: "Primary,Backdrop,Thumb",
     });

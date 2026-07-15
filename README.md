@@ -1,12 +1,14 @@
 # AKFLIX
 
-A Netflix-style desktop app for your **Jellyfin** server, with built-in
-**torrent search & progressive streaming** via Prowlarr + qBittorrent.
+A standalone desktop streaming app with movie/series discovery, one-click
+playback, temporary streaming and offline downloads. Jellyfin, Prowlarr and
+qBittorrent remain available as optional integrations for advanced setups.
 
 - **Frontend:** React + TypeScript + Vite + TailwindCSS + Framer Motion
 - **Desktop shell:** Tauri 2 (Rust)
-- **Backend:** Jellyfin (library, auth, metadata, transcoding, playback)
-- **Torrents:** Prowlarr (search) + qBittorrent (download/stream)
+- **Catalog:** Cinemeta metadata + the configured Stremio/Torrentio source
+- **Playback engine:** bundled rqbit + bundled static FFmpeg
+- **Optional integrations:** Jellyfin, Prowlarr and external qBittorrent
 
 > ⚖️ **Legal disclaimer** — see [LEGAL.md](LEGAL.md). BitTorrent is a legal
 > protocol, but downloading or sharing copyrighted material without
@@ -25,11 +27,11 @@ A Netflix-style desktop app for your **Jellyfin** server, with built-in
 - 🎯 **Persistent mini player** — navigate anywhere while watching: floating
   picture-in-picture video + Spotify-style now-playing bar with
   play/pause, ±10s, next-episode, seek and close; click to expand back
-- 🔑 Login with Jellyfin credentials, **multiple servers/users** with a
+- 🔑 No login or local server required; optional Jellyfin **multiple servers/users** with a
   "Who's watching?" profile picker (Jellyfin avatars, per-user colors)
 - 🔍 Global search across **your Jellyfin library and torrent indexers** at once
-- 🧲 Torrent manager: search → add magnet → live progress/speed/ETA →
-  **stream while downloading** (sequential pieces) → scan into Jellyfin
+- 🧲 Bundled torrent manager: source race → seekable range stream → live
+  progress/speed/ETA, with no Docker or separate daemon to configure
 - ▶️ In-app player: direct-play or HLS transcode (hls.js), subtitles,
   global keyboard shortcuts (Space/K, ←/→, F, M, Esc), auto-hiding
   controls, resume, progress sync back to Jellyfin
@@ -37,8 +39,7 @@ A Netflix-style desktop app for your **Jellyfin** server, with built-in
   tray (hide-to-tray on close), single instance, magnet-link handler,
   .torrent file association, **auto-updates** from GitHub releases
 - 🌍 Multi-language UI (en/es/fr) + preferred subtitle language
-- 🐳 One-command Docker stack: Jellyfin + qBittorrent + Prowlarr
-  (+ optional Radarr/Sonarr/FlareSolverr)
+- 🐳 Optional Docker stack for Jellyfin + qBittorrent + Prowlarr power users
 
 ## Project structure
 
@@ -68,7 +69,23 @@ akflix/
 
 ## Getting started
 
-### 1. Backend services (Docker)
+### Install the app
+
+Download and drag `Akflix.app` to Applications. On first launch Akflix creates
+its private media and engine folders, launches the bundled playback engine,
+and opens directly to the catalog. No Docker, Jellyfin, Homebrew or command
+line setup is required.
+
+Use **Watch now** for temporary playback or **Download** to keep a complete
+offline copy. Settings → Source provider accepts a configured Torrentio
+manifest. Hosted/debrid sources are preferred automatically because they have
+no peer-discovery delay.
+
+### Optional Jellyfin / external services
+
+Jellyfin is useful if you already have a personal media library and want
+cross-device watch progress. External qBittorrent and Prowlarr are advanced
+alternatives; the normal app does not require them.
 
 ```bash
 cd docker
@@ -86,7 +103,7 @@ Then do the one-time setup (details in comments inside
    `docker logs qbittorrent`, set a permanent one, keep save path `/downloads`.
 3. **Prowlarr** (http://localhost:9696): add indexers; copy the API key.
 
-### 2. Run the app
+### Run from source
 
 ```bash
 npm install
@@ -99,8 +116,8 @@ npx tauri icon assets/icon.png   # one-time: generate platform icons
 npm run tauri:dev
 ```
 
-Sign in with your Jellyfin URL + credentials, then open **Settings** and fill
-in the qBittorrent credentials and Prowlarr API key.
+The desktop development build uses the same bundled executables under
+`src-tauri/binaries`. A plain browser build cannot launch the native engine.
 
 ### 3. Production build & distribution
 
@@ -110,11 +127,15 @@ npm run updater:keygen
 # → paste the PUBLIC key into src-tauri/tauri.conf.json > plugins.updater.pubkey
 # → set the endpoint URL to your GitHub repo's releases
 
-# Build for the current platform:
+# Build unsigned/local installers for the current platform. These use
+# src-tauri/tauri.local.conf.json to skip updater signatures:
 npm run build:mac            # .app + .dmg          (run on macOS)
 npm run build:mac:universal  # universal Intel+ARM  (run on macOS)
 npm run build:win            # .msi + NSIS .exe     (run on Windows)
 npm run build:linux          # .deb + .AppImage     (run on Linux)
+
+# Signed updater-capable build (requires TAURI_SIGNING_PRIVATE_KEY):
+npm run tauri:build:signed
 ```
 
 Installers land in `src-tauri/target/release/bundle/`.
@@ -135,20 +156,18 @@ download buttons wired to GitHub release URLs, system requirements, and
 release notes. Host it anywhere static (GitHub Pages: point Pages at the
 `/website` folder). Preview locally with `npm run website:dev`.
 
-## How torrent streaming works
+## How streaming works
 
-1. Search in the **TorrentModal** (Details page → "Find torrent sources") or
-   the global **Search** page — results come from every indexer you added to
-   Prowlarr, sorted by seeders.
-2. **Stream** adds the magnet to qBittorrent with *sequential download* +
-   *first/last piece priority*, so the file becomes playable long before it
-   finishes.
-3. qBittorrent saves into `/downloads`, which is also a Jellyfin library.
-   Hit **"Scan into Jellyfin"** on the Downloads page (or wait for Jellyfin's
-   scheduled scan) and the item appears in your library — playable through
-   the normal player with transcoding, subtitles and resume support.
-4. Optional: enable the `arr` profile and let Radarr/Sonarr rename and move
-   finished downloads into your permanent `/media` library automatically.
+1. **Watch now** asks the configured source for the selected movie or episode.
+2. A hosted/debrid URL plays immediately when available. Otherwise Akflix
+   briefly races healthy sources and gives the winner to its embedded engine.
+3. The player reads the selected file through a seekable local HTTP stream;
+   rqbit prioritizes the ranges playback requests, so there is no separate
+   opening-download gate.
+4. Containers/codecs WebKit cannot play are converted by the bundled FFmpeg
+   into one-second hardware-accelerated HLS segments.
+5. Temporary stream data is removed when playback closes. Offline downloads
+   are retained until the user deletes them.
 
 ## Notes & troubleshooting
 
@@ -156,10 +175,10 @@ release notes. Host it anywhere static (GitHub Pages: point Pages at the
   (tauri-plugin-http), so no CORS setup is needed anywhere. Plain-browser dev
   (`npm run dev`) reaches qBittorrent/Prowlarr through Vite proxies
   (see [vite.config.ts](vite.config.ts)) at their default local ports.
-- **qBittorrent auth:** for a zero-config localhost setup you can enable
-  *Options → Web UI → Bypass authentication for clients on localhost*.
+- **External qBittorrent:** only needed if selected in Settings. Its URL and
+  credentials are not part of the default first-run experience.
 - **Playback:** Akflix negotiates via `/Items/{id}/PlaybackInfo`; files the
   webview can't direct-play fall back to an h264/aac HLS transcode
   automatically (requires no extra config).
-- **Multiple servers:** just sign in again from the login screen — every
+- **Jellyfin:** add a server from the profile screen if desired. Every
   session is saved as a profile you can switch between instantly.

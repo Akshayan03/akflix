@@ -93,6 +93,24 @@ export default function Details() {
       : item.Id;
 
   const torrentQuery = [item.Name, item.ProductionYear].filter(Boolean).join(" ");
+  const torrentTarget =
+    item.Type === "Series"
+      ? episodes.find((e) => !e.UserData?.Played) ?? episodes[0]
+      : item;
+  // Torrentio expects the parent series IMDb id plus S/E numbers, not an
+  // episode-specific IMDb id.
+  const imdbOwner = item.Type === "Series" ? item : torrentTarget;
+  const imdbId = imdbOwner?.ProviderIds?.Imdb ?? imdbOwner?.ProviderIds?.IMDb;
+  const torrentLookup = imdbId
+    ? {
+        imdbId,
+        type: (torrentTarget?.Type === "Episode" ? "series" : "movie") as
+          | "movie"
+          | "series",
+        season: torrentTarget?.ParentIndexNumber,
+        episode: torrentTarget?.IndexNumber,
+      }
+    : undefined;
 
   return (
     <motion.main
@@ -224,6 +242,16 @@ export default function Details() {
 
       <TorrentModal
         initialQuery={torrentQuery}
+        lookup={torrentLookup}
+        media={{
+          title: item.Name,
+          subtitle:
+            torrentTarget?.Type === "Episode"
+              ? `S${torrentTarget.ParentIndexNumber ?? 1} E${torrentTarget.IndexNumber ?? 1} · ${torrentTarget.Name}`
+              : item.ProductionYear?.toString(),
+          posterUrl: client.imageUrl(item, "Primary", 300),
+          isEpisode: torrentTarget?.Type === "Episode",
+        }}
         open={torrentOpen}
         onClose={() => setTorrentOpen(false)}
       />

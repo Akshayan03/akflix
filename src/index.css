@@ -2,13 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Cinematic base ─────────────────────────────────────────────── */
+/* ── Akflix prism system ────────────────────────────────────────── */
 html,
 body,
 #root {
   height: 100%;
-  background: #141414;
+  background: #090806;
   color: #fff;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at 12% -8%, rgba(214, 178, 94, 0.1), transparent 30rem),
+    radial-gradient(circle at 92% 8%, rgba(244, 233, 207, 0.045), transparent 26rem),
+    #090806;
+  font-feature-settings: "ss01" 1, "cv02" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(214, 178, 94, 0.42);
+  color: white;
 }
 
 /* Hide scrollbars on horizontal rows but keep them scrollable */
@@ -26,7 +46,7 @@ body,
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #3f3f3f;
+  background: #332e24;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-track {
@@ -35,14 +55,34 @@ body,
 
 /* Skeleton shimmer for loading cards */
 .skeleton {
-  @apply animate-shimmer rounded-md;
-  background: linear-gradient(90deg, #1f1f1f 0%, #2a2a2a 40%, #1f1f1f 80%);
+  @apply animate-shimmer rounded-2xl;
+  background: linear-gradient(90deg, #15130f 0%, #28231a 40%, #15130f 80%);
   background-size: 400px 100%;
 }
 
 /* Netflix-style text shadow for hero copy */
 .hero-shadow {
-  text-shadow: 2px 2px 6px rgba(0, 0, 0, 0.7);
+  text-shadow: 0 8px 38px rgba(0, 0, 0, 0.75);
+}
+
+.glass-panel {
+  background: linear-gradient(135deg, rgba(28, 25, 20, 0.82), rgba(10, 9, 7, 0.74));
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(24px) saturate(145%);
+}
+
+.prism-border {
+  position: relative;
+}
+
+.prism-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(120deg, rgba(240, 213, 138, 0.52), rgba(255, 255, 255, 0.06) 42%, rgba(244, 233, 207, 0.2));
 }
 
 /* Native video: fill and letterbox */

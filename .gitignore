@@ -7,6 +7,13 @@ dist-ssr
 # Tauri
 src-tauri/target
 src-tauri/gen
+src-tauri/binaries/rqbit-*-apple-darwin
+src-tauri/binaries/rqbit-*-pc-windows-msvc.exe
+src-tauri/binaries/rqbit-*-unknown-linux-gnu
+src-tauri/binaries/ffmpeg-*-apple-darwin
+src-tauri/binaries/ffmpeg-*-pc-windows-msvc.exe
+src-tauri/binaries/ffmpeg-*-unknown-linux-gnu
+src-tauri/binaries/*-universal-apple-darwin
 
 # Docker runtime data
 docker/config

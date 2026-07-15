@@ -1,0 +1,19 @@
+FFmpeg 8.1.2
+Source: https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
+
+Akflix macOS build configuration:
+  --disable-doc --disable-debug --disable-ffplay --disable-ffprobe
+  --disable-avdevice --disable-autodetect --disable-shared --enable-static
+  --enable-videotoolbox --enable-audiotoolbox --enable-securetransport
+
+The x86_64 build additionally uses --disable-x86asm because NASM is not a
+required Akflix build dependency. Both builds report LGPL version 2.1 or later.
+
+Akflix Windows build configuration:
+  --disable-doc --disable-debug --disable-ffplay --disable-ffprobe
+  --disable-avdevice --disable-autodetect --disable-shared --enable-static
+  --enable-mediafoundation --enable-schannel --disable-x86asm
+
+The Windows binary is compiled reproducibly from the same official source in
+GitHub Actions. It uses the operating system's Media Foundation H.264 encoder
+and reports LGPL version 2.1 or later.

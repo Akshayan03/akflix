@@ -5,15 +5,16 @@
 
 import { useEffect, useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { Search, Download, Settings, ChevronDown } from "lucide-react";
+import { Search, Download, Settings, ChevronDown, Home, RadioTower, Film, Tv } from "lucide-react";
 import { useAuth } from "@/stores/authStore";
 import { isTauri } from "@/lib/http";
 import { useT } from "@/i18n";
+import Brand from "@/components/Brand";
 
 // Under Tauri on macOS the window uses an overlay titlebar: the traffic
 // lights float over our navbar, so shift the wordmark right to clear them.
 const macOverlayPad =
-  isTauri() && navigator.userAgent.includes("Mac") ? "pl-[84px]" : "";
+  isTauri() && navigator.userAgent.includes("Mac") ? "!pl-[88px] md:!pl-[92px]" : "";
 
 export default function Navbar() {
   const t = useT();
@@ -34,53 +35,59 @@ export default function Navbar() {
   }, []);
 
   const linkCls = ({ isActive }: { isActive: boolean }) =>
-    `text-sm transition-colors ${
-      isActive ? "font-semibold text-white" : "text-zinc-300 hover:text-white"
+    `flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition ${
+      isActive
+        ? "bg-white/[0.10] text-white shadow-inner shadow-white/[0.04]"
+        : "text-zinc-400 hover:bg-white/[0.05] hover:text-white"
     }`;
 
   return (
     <header
       // data-tauri-drag-region: empty navbar space drags the window (desktop).
       data-tauri-drag-region
-      className={`fixed inset-x-0 top-0 z-40 flex h-16 items-center gap-8 px-6 transition-colors duration-300 md:px-12 ${macOverlayPad} ${
-        scrolled
-          ? "bg-surface/95 backdrop-blur"
-          : "bg-gradient-to-b from-black/70 to-transparent"
-      }`}
+      className={`fixed inset-x-0 top-0 z-40 flex h-20 items-center px-5 transition-all duration-300 md:px-8 ${macOverlayPad}`}
     >
-      {/* Wordmark */}
-      <Link to="/" className="select-none text-2xl font-extrabold tracking-tight text-brand">
-        AKFLIX
-      </Link>
+      <div className={`flex h-14 w-full items-center rounded-2xl border px-3 transition-all md:px-4 ${
+        scrolled
+          ? "border-white/10 bg-[#0b0a08]/88 shadow-[0_14px_45px_rgba(0,0,0,.4)] backdrop-blur-2xl"
+          : "border-white/[0.07] bg-black/20 backdrop-blur-md"
+      }`}>
+      <Link to="/" className="mr-5"><Brand /></Link>
 
-      <nav className="hidden items-center gap-6 md:flex">
+      <nav className="hidden items-center gap-1 md:flex">
         <NavLink to="/" className={linkCls} end>
-          {t("nav.home")}
+          <Home size={14} /> {t("nav.home")}
+        </NavLink>
+        <NavLink to="/movies" className={linkCls}>
+          <Film size={14} /> Movies
+        </NavLink>
+        <NavLink to="/shows" className={linkCls}>
+          <Tv size={14} /> Shows
         </NavLink>
         <NavLink to="/downloads" className={linkCls}>
-          {t("nav.downloads")}
+          <RadioTower size={14} /> Activity
         </NavLink>
       </nav>
 
-      <div className="ml-auto flex items-center gap-5">
+      <div className="ml-auto flex items-center gap-1.5">
         <button
           aria-label={t("nav.search")}
           onClick={() => navigate("/search")}
-          className="text-zinc-300 transition hover:text-white"
+          className="rounded-xl p-2.5 text-zinc-400 transition hover:bg-white/[0.07] hover:text-white"
         >
           <Search size={20} />
         </button>
         <button
           aria-label={t("nav.downloads")}
           onClick={() => navigate("/downloads")}
-          className="text-zinc-300 transition hover:text-white md:hidden"
+          className="rounded-xl p-2.5 text-zinc-400 transition hover:bg-white/[0.07] hover:text-white md:hidden"
         >
           <Download size={20} />
         </button>
         <button
           aria-label={t("nav.settings")}
           onClick={() => navigate("/settings")}
-          className="text-zinc-300 transition hover:text-white"
+          className="rounded-xl p-2.5 text-zinc-400 transition hover:bg-white/[0.07] hover:text-white"
         >
           <Settings size={20} />
         </button>
@@ -89,9 +96,9 @@ export default function Navbar() {
         <div className="relative">
           <button
             onClick={() => setMenuOpen((o) => !o)}
-            className="flex items-center gap-2 text-sm text-zinc-200 hover:text-white"
+            className="ml-1 flex items-center gap-2 rounded-xl p-1 text-sm text-zinc-200 transition hover:bg-white/[0.06] hover:text-white"
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded bg-brand font-bold uppercase">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand-light via-brand to-brand-dark font-bold uppercase text-[#090806] shadow-[0_0_20px_rgba(214,178,94,.18)]">
               {active?.userName?.[0] ?? "?"}
             </span>
             <ChevronDown size={14} className={menuOpen ? "rotate-180" : ""} />
@@ -99,7 +106,7 @@ export default function Navbar() {
 
           {menuOpen && (
             <div
-              className="absolute right-0 mt-2 w-56 overflow-hidden rounded-md border border-zinc-800 bg-surface-raised shadow-xl"
+              className="glass-panel absolute right-0 mt-3 w-60 overflow-hidden rounded-2xl p-1.5 shadow-2xl"
               onMouseLeave={() => setMenuOpen(false)}
             >
               {profiles.map((p) => (
@@ -110,7 +117,7 @@ export default function Navbar() {
                     setMenuOpen(false);
                     navigate("/");
                   }}
-                  className={`block w-full px-4 py-2.5 text-left text-sm hover:bg-white/10 ${
+                  className={`block w-full rounded-xl px-3 py-2.5 text-left text-sm hover:bg-white/[0.07] ${
                     p.id === activeId ? "text-white" : "text-zinc-300"
                   }`}
                 >
@@ -120,13 +127,13 @@ export default function Navbar() {
                   </span>
                 </button>
               ))}
-              <div className="border-t border-zinc-800">
+              <div className="mt-1 border-t border-white/[0.07] pt-1">
                 <button
                   onClick={() => {
                     logout();
                     navigate("/login");
                   }}
-                  className="block w-full px-4 py-2.5 text-left text-sm text-zinc-300 hover:bg-white/10"
+                  className="block w-full rounded-xl px-3 py-2.5 text-left text-sm text-zinc-300 hover:bg-white/[0.07]"
                 >
                   {t("nav.logout")}
                 </button>
@@ -134,6 +141,7 @@ export default function Navbar() {
             </div>
           )}
         </div>
+      </div>
       </div>
     </header>
   );

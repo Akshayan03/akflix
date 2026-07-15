@@ -41,11 +41,11 @@ export default function MediaCard({ item, variant = "poster" }: Props) {
 
   return (
     <motion.div
-      whileHover={{ scale: 1.08, zIndex: 10 }}
+      whileHover={{ y: -7, scale: 1.018, zIndex: 10 }}
       transition={{ type: "spring", stiffness: 350, damping: 25 }}
       onClick={goDetails}
-      className={`group relative shrink-0 cursor-pointer overflow-hidden rounded-md bg-surface-raised ${
-        variant === "landscape" ? "aspect-video w-64" : "aspect-[2/3] w-36 md:w-44"
+      className={`group relative shrink-0 cursor-pointer overflow-hidden rounded-[20px] border border-white/[0.08] bg-surface-raised shadow-[0_14px_35px_rgba(0,0,0,.18)] ${
+        variant === "landscape" ? "aspect-video w-72" : "aspect-[2/3] w-40 md:w-48"
       }`}
     >
       {img ? (
@@ -53,7 +53,7 @@ export default function MediaCard({ item, variant = "poster" }: Props) {
           src={img}
           alt={title}
           loading="lazy"
-          className="h-full w-full object-cover"
+          className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.045]"
           draggable={false}
         />
       ) : (
@@ -67,7 +67,7 @@ export default function MediaCard({ item, variant = "poster" }: Props) {
         <button
           onClick={goPlay}
           aria-label="Play"
-          className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition hover:bg-zinc-200"
+        className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-white text-black shadow-xl transition hover:scale-105"
         >
           <Play size={16} fill="currentColor" />
         </button>
@@ -78,7 +78,7 @@ export default function MediaCard({ item, variant = "poster" }: Props) {
       {/* Continue-watching progress bar */}
       {progress > 0 && progress < 98 && (
         <div className="absolute inset-x-0 bottom-0 h-1 bg-zinc-700/80">
-          <div className="h-full bg-brand" style={{ width: `${progress}%` }} />
+          <div className="h-full bg-gradient-to-r from-brand to-accent" style={{ width: `${progress}%` }} />
         </div>
       )}
     </motion.div>

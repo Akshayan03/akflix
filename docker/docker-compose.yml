@@ -29,7 +29,7 @@ services:
     image: jellyfin/jellyfin:latest
     container_name: jellyfin
     ports:
-      - "8096:8096" # HTTP
+      - "127.0.0.1:8096:8096" # local-only HTTP
     volumes:
       - ./config/jellyfin:/config
       - ./media:/media # permanent, curated library
@@ -45,7 +45,7 @@ services:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
     ports:
-      - "8080:8080" # Web UI / API
+      - "127.0.0.1:8080:8080" # local-only Web UI / API
       - "6881:6881" # BitTorrent
       - "6881:6881/udp"
     volumes:
@@ -62,7 +62,7 @@ services:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr
     ports:
-      - "9696:9696"
+      - "127.0.0.1:9696:9696"
     volumes:
       - ./config/prowlarr:/config
     environment:

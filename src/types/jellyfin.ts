@@ -57,6 +57,8 @@ export interface PlaybackInfoResponse {
 export interface BaseItem {
   Id: string;
   Name: string;
+  /** Server-side media path, requested for torrent-to-library handoff matching. */
+  Path?: string;
   Type:
     | "Movie"
     | "Series"
@@ -85,6 +87,8 @@ export interface BaseItem {
   CollectionType?: string; // "movies" | "tvshows" | ...
   MediaSources?: MediaSource[];
   ChildCount?: number;
+  /** External metadata ids, e.g. { Imdb: "tt1234567", Tmdb: "123" }. */
+  ProviderIds?: Record<string, string>;
 }
 
 export interface ItemsResult {
@@ -94,6 +98,7 @@ export interface ItemsResult {
 
 /** A configured Jellyfin server + saved session ("profile"). */
 export interface ServerProfile {
+  kind?: "local" | "jellyfin";
   id: string; // local uuid
   serverUrl: string; // normalized, no trailing slash
   serverName?: string;

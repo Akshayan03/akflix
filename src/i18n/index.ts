@@ -58,7 +58,7 @@ const en = {
 
   "settings.title": "Settings",
   "settings.jellyfin": "Jellyfin servers",
-  "settings.torrentClient": "Torrent client (qBittorrent)",
+  "settings.torrentClient": "Playback engine",
   "settings.indexer": "Torrent indexer (Prowlarr)",
   "settings.downloadPath": "Download path",
   "settings.language": "Language",

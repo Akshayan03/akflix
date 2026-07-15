@@ -24,21 +24,24 @@ export default function MediaRow({ title, items, variant = "poster" }: Props) {
     });
 
   return (
-    <section className="group/row relative mb-8">
-      <h2 className="mb-2 px-6 text-lg font-semibold text-zinc-100 md:px-12">{title}</h2>
+    <section className="group/row relative mb-11">
+      <div className="mb-2 flex items-end gap-3 px-6 md:px-12 lg:px-16">
+        <h2 className="text-xl font-bold tracking-[-0.025em] text-zinc-100">{title}</h2>
+        <span className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.17em] text-zinc-600">Your library</span>
+      </div>
 
       <div className="relative">
         <button
           aria-label="Scroll left"
           onClick={() => scrollBy(-1)}
-          className="absolute left-0 top-0 z-20 hidden h-full w-10 items-center justify-center bg-black/50 opacity-0 transition group-hover/row:opacity-100 md:flex"
+          className="absolute left-0 top-0 z-20 hidden h-full w-12 items-center justify-center bg-gradient-to-r from-surface to-transparent opacity-0 transition group-hover/row:opacity-100 md:flex"
         >
           <ChevronLeft />
         </button>
 
         <div
           ref={scroller}
-          className="no-scrollbar flex gap-2 overflow-x-auto scroll-smooth px-6 py-2 md:px-12"
+          className="no-scrollbar flex gap-4 overflow-x-auto scroll-smooth px-6 py-3 md:px-12 lg:px-16"
         >
           {items.map((item) => (
             <MediaCard key={item.Id} item={item} variant={variant} />
@@ -48,7 +51,7 @@ export default function MediaRow({ title, items, variant = "poster" }: Props) {
         <button
           aria-label="Scroll right"
           onClick={() => scrollBy(1)}
-          className="absolute right-0 top-0 z-20 hidden h-full w-10 items-center justify-center bg-black/50 opacity-0 transition group-hover/row:opacity-100 md:flex"
+          className="absolute right-0 top-0 z-20 hidden h-full w-14 items-center justify-center bg-gradient-to-l from-surface to-transparent opacity-0 transition group-hover/row:opacity-100 md:flex"
         >
           <ChevronRight />
         </button>

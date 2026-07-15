@@ -18,10 +18,19 @@
  */
 
 import { httpRaw, normalizeUrl } from "@/lib/http";
-import type { QbtFile, QbtTorrent } from "@/types/torrent";
+import type { QbtFile, QbtTorrent, TorrentAddMode } from "@/types/torrent";
+import { addFastTrackers } from "@/lib/torrentTrackers";
+
+function magnetHash(value: string): string | null {
+  return value.match(/(?:\?|&)xt=urn(?::|%3A)btih(?::|%3A)([a-f\d]{40})/i)?.[1]?.toLowerCase() ?? null;
+}
 
 export class QbtClient {
-  private sid: string | null = null;
+  readonly instantStreaming = false;
+  /** Full session cookie pair. qBittorrent 5 uses QBT_SID_<port>; older
+   * releases used SID, so retaining the name is required for compatibility. */
+  private sessionCookie: string | null = null;
+  private streamingOptimized = false;
 
   constructor(
     private baseUrl: string,
@@ -41,7 +50,7 @@ export class QbtClient {
     retry = true
   ): Promise<Response> {
     const headers: Record<string, string> = {};
-    if (this.sid) headers["Cookie"] = `SID=${this.sid}`;
+    if (this.sessionCookie) headers["Cookie"] = this.sessionCookie;
     if (body) headers["Content-Type"] = "application/x-www-form-urlencoded";
 
     const res = await httpRaw(`${this.baseUrl}/api/v2${path}`, {
@@ -51,7 +60,7 @@ export class QbtClient {
     });
 
     // Session expired → login once and retry.
-    if (res.status === 403 && retry) {
+    if ((res.status === 401 || res.status === 403) && retry) {
       await this.login();
       return this.request(path, body, false);
     }
@@ -73,9 +82,16 @@ export class QbtClient {
     if (!res.ok || text.trim() === "Fails.") {
       throw new Error("qBittorrent login failed — check credentials in Settings.");
     }
-    const setCookie = res.headers.get("set-cookie");
-    const m = setCookie?.match(/SID=([^;]+)/);
-    if (m) this.sid = m[1];
+    const setCookies =
+      (res.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.() ??
+      [res.headers.get("set-cookie") ?? ""];
+    for (const setCookie of setCookies) {
+      const match = setCookie.match(/\b((?:QBT_)?SID(?:_\d+)?)=([^;]+)/i);
+      if (match) {
+        this.sessionCookie = `${match[1]}=${match[2]}`;
+        break;
+      }
+    }
     // No Set-Cookie visible (browser mode): the browser holds it — that's fine.
   }
 
@@ -83,28 +99,110 @@ export class QbtClient {
    * Add a magnet link or .torrent URL.
    * @param streamMode sequential download so the file is playable early
    */
-  async add(magnetOrUrl: string, streamMode = false, savePath?: string): Promise<void> {
+  async add(
+    magnetOrUrl: string,
+    mode: TorrentAddMode = "download",
+    savePath?: string
+  ): Promise<void> {
+    const streamMode = mode === "stream";
+    const hash = magnetHash(magnetOrUrl);
+    const magnet = addFastTrackers(magnetOrUrl);
+    // iTorrents frequently has the tiny .torrent descriptor cached. Sending
+    // it beside the magnet skips minutes of DHT metadata discovery; the
+    // magnet remains as an automatic fallback when the cache misses.
+    const urls = streamMode && hash
+      ? `https://itorrents.org/torrent/${hash.toUpperCase()}.torrent\n${magnet}`
+      : magnet;
     const body = new URLSearchParams({
-      urls: magnetOrUrl,
+      urls,
       sequentialDownload: String(streamMode),
       firstLastPiecePrio: String(streamMode),
-      category: "akflix",
+      category: streamMode ? "akflix-stream" : "akflix-download",
+      tags: streamMode ? "temporary" : "offline",
+      addToTopOfQueue: String(streamMode),
     });
     if (savePath) body.set("savepath", savePath);
     const res = await this.request("/torrents/add", body);
     if (!res.ok) throw new Error(`Failed to add torrent (HTTP ${res.status})`);
   }
 
-  /** All torrents in the "akflix" category (newest first). */
+  /** All Akflix-managed torrents (newest first). */
   async list(): Promise<QbtTorrent[]> {
-    const res = await this.request("/torrents/info?category=akflix&sort=added_on&reverse=true");
+    const res = await this.request("/torrents/info?sort=added_on&reverse=true");
     if (!res.ok) throw new Error(`qBittorrent unreachable (HTTP ${res.status})`);
-    return (await res.json()) as QbtTorrent[];
+    const torrents = (await res.json()) as QbtTorrent[];
+    return torrents.filter((torrent) => torrent.category?.startsWith("akflix"));
   }
 
   async files(hash: string): Promise<QbtFile[]> {
     const res = await this.request(`/torrents/files?hash=${hash}`);
+    if (!res.ok) throw new Error(`Could not inspect torrent files (HTTP ${res.status})`);
     return (await res.json()) as QbtFile[];
+  }
+
+  /**
+   * Bytes available consecutively from the selected file's beginning.
+   * Overall torrent progress is not useful for progressive playback because
+   * completed pieces can be scattered anywhere in the file.
+   */
+  async contiguousFileHeadBytes(hash: string, fileIndex: number): Promise<number> {
+    const [files, piecesRes, propertiesRes] = await Promise.all([
+      this.files(hash),
+      this.request(`/torrents/pieceStates?hash=${hash}`),
+      this.request(`/torrents/properties?hash=${hash}`),
+    ]);
+    if (!piecesRes.ok || !propertiesRes.ok) return 0;
+
+    const file = files.find((entry) => entry.index === fileIndex);
+    if (!file?.piece_range) return 0;
+    const pieces = (await piecesRes.json()) as number[];
+    const properties = (await propertiesRes.json()) as { piece_size?: number };
+    const pieceSize = properties.piece_size ?? 0;
+    if (!pieceSize) return 0;
+
+    const [firstPiece, lastPiece] = file.piece_range;
+    let readyPieces = 0;
+    for (let piece = firstPiece; piece <= lastPiece && pieces[piece] === 2; piece += 1) {
+      readyPieces += 1;
+    }
+    return Math.min(file.size, readyPieces * pieceSize);
+  }
+
+  /**
+   * Give the requested video maximum priority and skip every other file.
+   * Torrentio supplies fileIdx for season packs; without applying it,
+   * qBittorrent may spend the opening buffer on unrelated episodes/extras.
+   */
+  async prioritizeVideoFile(hash: string, preferredIndex?: number): Promise<QbtFile | null> {
+    const files = await this.files(hash);
+    if (!files.length) return null; // Magnet metadata is still arriving.
+
+    const playable = files.filter((file) => /\.(mp4|m4v|mkv|webm|avi|mov|ts|m2ts)$/i.test(file.name));
+    const selected =
+      files.find((file) => file.index === preferredIndex) ??
+      playable.sort((a, b) => b.size - a.size)[0] ??
+      [...files].sort((a, b) => b.size - a.size)[0];
+    if (!selected) return null;
+
+    const skippedIds = files
+      .filter((file) => file.index !== selected.index && file.priority !== 0)
+      .map((file) => file.index)
+      .join("|");
+    if (skippedIds) {
+      const skipped = await this.request(
+        "/torrents/filePrio",
+        new URLSearchParams({ hash, id: skippedIds, priority: "0" })
+      );
+      if (!skipped.ok) throw new Error(`Could not skip extra files (HTTP ${skipped.status})`);
+    }
+
+    const prioritized = await this.request(
+      "/torrents/filePrio",
+      new URLSearchParams({ hash, id: String(selected.index), priority: "7" })
+    );
+    if (!prioritized.ok)
+      throw new Error(`Could not prioritize video file (HTTP ${prioritized.status})`);
+    return selected;
   }
 
   async pause(hash: string): Promise<void> {
@@ -119,10 +217,11 @@ export class QbtClient {
   }
 
   async delete(hash: string, deleteFiles: boolean): Promise<void> {
-    await this.request(
+    const res = await this.request(
       "/torrents/delete",
       new URLSearchParams({ hashes: hash, deleteFiles: String(deleteFiles) })
     );
+    if (!res.ok) throw new Error(`Failed to remove torrent (HTTP ${res.status})`);
   }
 
   /** Toggle sequential (streaming-order) download for an active torrent. */
@@ -131,6 +230,50 @@ export class QbtClient {
       "/torrents/toggleSequentialDownload",
       new URLSearchParams({ hashes: hash })
     );
+  }
+
+  /** Reassert streaming priorities after magnet metadata/file layout arrives. */
+  async refreshStreamPriority(hash: string): Promise<void> {
+    for (const endpoint of [
+      "toggleSequentialDownload",
+      "toggleFirstLastPiecePrio",
+      "toggleSequentialDownload",
+      "toggleFirstLastPiecePrio",
+    ]) {
+      const response = await this.request(
+        `/torrents/${endpoint}`,
+        new URLSearchParams({ hashes: hash })
+      );
+      if (!response.ok) throw new Error(`Could not refresh stream priority (HTTP ${response.status})`);
+    }
+  }
+
+  /** Apply safe unlimited-throughput defaults once per local client session. */
+  async optimizeForStreaming(): Promise<void> {
+    if (this.streamingOptimized) return;
+    const json = JSON.stringify({
+      dl_limit: 0,
+      scheduler_enabled: false,
+      connection_speed: 100,
+      max_connec: 1000,
+      max_connec_per_torrent: 250,
+      max_active_downloads: 6,
+      max_active_torrents: 10,
+      announce_to_all_trackers: true,
+      announce_to_all_tiers: true,
+      async_io_threads: 16,
+      upnp: true,
+    });
+    const response = await this.request(
+      "/app/setPreferences",
+      new URLSearchParams({ json })
+    );
+    if (!response.ok) throw new Error(`Could not tune qBittorrent (HTTP ${response.status})`);
+    this.streamingOptimized = true;
+  }
+
+  streamUrl(_hash: string, _fileIndex: number): null {
+    return null;
   }
 
   async test(): Promise<boolean> {

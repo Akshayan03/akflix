@@ -21,28 +21,29 @@ export default function HeroBanner({ item }: { item: BaseItem }) {
   const inProgress = (item.UserData?.PlaybackPositionTicks ?? 0) > 0;
 
   return (
-    <div className="relative h-[72vh] min-h-[420px] w-full">
+    <div className="relative h-[82vh] min-h-[610px] w-full overflow-hidden">
       {/* Backdrop */}
       {backdrop && (
         <img
           src={backdrop}
           alt=""
-          className="absolute inset-0 h-full w-full object-cover"
+          className="absolute inset-0 h-full w-full scale-[1.015] object-cover"
           draggable={false}
         />
       )}
       {/* Cinematic gradients: bottom fade into the page, left wash for text */}
-      <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/20 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/20 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/15 to-transparent" />
+      <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(9,8,6,.96)_0%,rgba(9,8,6,.6)_40%,rgba(9,8,6,.05)_76%)]" />
 
       {/* Copy */}
       <motion.div
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: "easeOut" }}
-        className="absolute bottom-[12%] left-6 max-w-xl md:left-12"
+        className="absolute bottom-[16%] left-6 max-w-2xl md:left-12 lg:left-16"
       >
-        <h1 className="hero-shadow mb-3 text-4xl font-extrabold leading-tight md:text-6xl">
+        <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.22em] text-accent">From your library</p>
+        <h1 className="hero-shadow mb-4 text-5xl font-black leading-[.94] tracking-[-0.05em] md:text-7xl">
           {item.Name}
         </h1>
 
@@ -68,14 +69,14 @@ export default function HeroBanner({ item }: { item: BaseItem }) {
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate(`/play/${item.Id}`)}
-            className="flex items-center gap-2 rounded bg-white px-6 py-2.5 font-semibold text-black transition hover:bg-zinc-200"
+            className="prism-border flex items-center gap-2 rounded-2xl bg-gradient-to-r from-brand-light to-brand px-6 py-3.5 font-bold text-[#090806] shadow-[0_14px_40px_rgba(152,117,47,.24)] transition hover:-translate-y-0.5 hover:brightness-110"
           >
             <Play size={20} fill="currentColor" />
             {inProgress ? t("hero.resume") : t("hero.play")}
           </button>
           <button
             onClick={() => navigate(`/title/${item.Id}`)}
-            className="flex items-center gap-2 rounded bg-zinc-600/70 px-6 py-2.5 font-semibold text-white transition hover:bg-zinc-600"
+            className="glass-panel flex items-center gap-2 rounded-2xl px-6 py-3.5 font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white/[0.10]"
           >
             <Info size={20} />
             {t("hero.moreInfo")}

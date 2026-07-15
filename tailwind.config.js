@@ -4,22 +4,23 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Netflix-inspired dark cinematic palette
+        // Akflix noir palette: champagne gold, warm ivory, deep espresso.
         brand: {
-          DEFAULT: "#e50914",
-          dark: "#b00710",
-          light: "#f6121d",
+          DEFAULT: "#d6b25e",
+          dark: "#98752f",
+          light: "#f0d58a",
         },
+        accent: "#f4e9cf",
         surface: {
-          DEFAULT: "#141414",
-          raised: "#1f1f1f",
-          overlay: "#232323",
+          DEFAULT: "#090806",
+          raised: "#15130f",
+          overlay: "#1f1b14",
         },
       },
       fontFamily: {
         sans: [
-          "Inter",
-          "Helvetica Neue",
+          "Avenir Next",
+          "SF Pro Display",
           "-apple-system",
           "BlinkMacSystemFont",
           "Segoe UI",

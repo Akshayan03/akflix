@@ -1,4 +1,4 @@
-/** A normalized torrent search result (from Prowlarr / Jackett). */
+/** A normalized torrent search result (from Prowlarr or Torrentio). */
 export interface TorrentResult {
   guid: string;
   title: string;
@@ -8,9 +8,15 @@ export interface TorrentResult {
   leechers: number;
   magnetUrl?: string;
   downloadUrl?: string; // .torrent file url (Prowlarr proxies these)
+  /** Hosted/debrid URL that can skip BitTorrent entirely. */
+  streamUrl?: string;
   publishDate?: string;
   category?: string;
+  /** Selected file inside a multi-file torrent (Torrentio fileIdx). */
+  fileIndex?: number;
 }
+
+export type TorrentAddMode = "stream" | "download";
 
 /** A torrent as reported by qBittorrent /torrents/info. */
 export interface QbtTorrent {
@@ -29,6 +35,8 @@ export interface QbtTorrent {
   added_on: number;
   amount_left: number;
   seq_dl: boolean;
+  category: string;
+  tags: string;
 }
 
 export interface QbtFile {
@@ -37,4 +45,6 @@ export interface QbtFile {
   size: number;
   progress: number;
   priority: number;
+  /** Inclusive global torrent piece range occupied by this file. */
+  piece_range?: [number, number];
 }

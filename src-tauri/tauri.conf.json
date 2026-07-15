@@ -20,8 +20,12 @@
         "minHeight": 600,
         "resizable": true,
         "center": true,
-        "backgroundColor": "#141414",
+        "backgroundColor": "#090806",
         "titleBarStyle": "Overlay",
+        "trafficLightPosition": {
+          "x": 18,
+          "y": 22
+        },
         "hiddenTitle": true,
         "dragDropEnabled": false
       }
@@ -37,9 +41,18 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": [
+      "binaries/rqbit",
+      "binaries/ffmpeg"
+    ],
+    "resources": [
+      "binaries/rqbit.LICENSE.txt",
+      "binaries/ffmpeg.LICENSE.txt",
+      "binaries/ffmpeg.BUILD.txt"
+    ],
     "category": "Entertainment",
-    "shortDescription": "Netflix-style client for Jellyfin with torrent streaming",
-    "longDescription": "Akflix is a beautiful desktop client for your Jellyfin media server with built-in torrent search and progressive streaming. You are responsible for using torrent features lawfully.",
+    "shortDescription": "Standalone movie and series streaming app",
+    "longDescription": "Akflix is a cinematic desktop app with a built-in playback engine, movie and series discovery, temporary streaming, offline downloads, and optional Jellyfin integration. You are responsible for using source features lawfully.",
     "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",

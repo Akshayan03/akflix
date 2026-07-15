@@ -41,7 +41,7 @@ export default function MiniPlayer() {
 
   const openFull = () => {
     expand();
-    navigate(`/play/${session.itemId}`);
+    navigate(session.direct ? "/stream" : `/play/${session.itemId}`);
   };
 
   return (
@@ -77,11 +77,13 @@ export default function MiniPlayer() {
             <img
               src={session.posterUrl}
               alt=""
-              className="h-12 w-8 shrink-0 rounded object-cover"
+              className="h-14 w-10 shrink-0 rounded-lg object-cover shadow-lg ring-1 ring-white/10"
               draggable={false}
             />
           ) : (
-            <div className="h-12 w-8 shrink-0 rounded bg-zinc-800" />
+            <div className="flex h-14 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-xs font-bold text-zinc-500">
+              {session.title.slice(0, 1).toUpperCase()}
+            </div>
           )}
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{session.title}</p>

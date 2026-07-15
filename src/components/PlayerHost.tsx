@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import Hls from "hls.js";
+import type Hls from "hls.js";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -33,6 +33,8 @@ import { toast } from "sonner";
 import { useJellyfinClient } from "@/stores/authStore";
 import { useSettings } from "@/stores/settingsStore";
 import { usePlayback } from "@/stores/playbackStore";
+import type { DirectPlaybackRequest } from "@/stores/playbackStore";
+import { useTorrents } from "@/stores/torrentStore";
 import { useT } from "@/i18n";
 import { formatClock, ticksToSeconds } from "@/lib/utils";
 import MiniPlayer from "@/components/MiniPlayer";
@@ -62,9 +64,12 @@ export default function PlayerHost() {
   // here caused an infinite re-register loop with the controls effect).
   const client = useJellyfinClient();
   const subtitleLanguage = useSettings((s) => s.subtitleLanguage);
+  const activeStreamHash = useTorrents((s) => s.activeStreamHash);
+  const finishActiveStream = useTorrents((s) => s.finishActiveStream);
 
   const {
     requestedItemId,
+    requestedDirect,
     session,
     mode,
     isPlaying,
@@ -87,6 +92,10 @@ export default function PlayerHost() {
     playSessionId: string;
   } | null>(null);
   const nextEpisodeRef = useRef<string | null>(null);
+  const directIdRef = useRef<string | null>(null);
+  const directRequestRef = useRef<DirectPlaybackRequest | null>(null);
+  const directRetryRef = useRef(0);
+  const directRetryTimer = useRef<ReturnType<typeof setTimeout>>();
   const loadSeq = useRef(0);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>();
 
@@ -100,6 +109,7 @@ export default function PlayerHost() {
 
   const reportStopped = useCallback(() => {
     const v = videoRef.current;
+    clearTimeout(directRetryTimer.current);
     const s = jfSessionRef.current;
     if (client && v && s) {
       client
@@ -131,6 +141,7 @@ export default function PlayerHost() {
       const seq = ++loadSeq.current;
 
       teardown();
+      directIdRef.current = null;
       setError(null);
       setSubTracks([]);
       setActiveSub(-1);
@@ -197,12 +208,17 @@ export default function PlayerHost() {
 
         // Attach the stream.
         const { url, isHls } = client.streamUrl(itemId, source as MediaSource, info.PlaySessionId);
-        if (isHls && Hls.isSupported()) {
-          const hls = new Hls({ startPosition: -1 });
+        // hls.js is the largest frontend dependency. Load it only when the
+        // negotiated source actually needs Media Source Extensions; direct
+        // play sessions should not pay that startup/download cost.
+        const HlsModule = isHls ? (await import("hls.js")).default : null;
+        if (seq !== loadSeq.current) return;
+        if (HlsModule?.isSupported()) {
+          const hls = new HlsModule({ startPosition: -1 });
           hlsRef.current = hls;
           hls.loadSource(url);
           hls.attachMedia(video);
-          hls.on(Hls.Events.ERROR, (_e, data) => {
+          hls.on(HlsModule.Events.ERROR, (_e, data) => {
             if (data.fatal) setError(`Stream error: ${data.type}`);
           });
         } else {
@@ -226,6 +242,37 @@ export default function PlayerHost() {
     [client, subtitleLanguage, teardown, _setSession, _sync, t]
   );
 
+  /** Local progressive playback bypasses Jellyfin's slow incomplete-file probe. */
+  const loadDirect = useCallback(
+    async (request: DirectPlaybackRequest) => {
+      const video = videoRef.current;
+      if (!video) return;
+      const seq = ++loadSeq.current;
+      teardown();
+      directIdRef.current = request.id;
+      directRequestRef.current = request;
+      directRetryRef.current = 0;
+      setError(null);
+      setSubTracks([]);
+      setActiveSub(-1);
+      nextEpisodeRef.current = null;
+      _sync({ buffering: true, hasNext: false, currentTime: 0, duration: 0 });
+      _setSession({
+        itemId: request.id,
+        title: request.title,
+        subtitle: request.subtitle,
+        posterUrl: request.posterUrl ?? null,
+        isEpisode: request.isEpisode ?? false,
+        direct: true,
+      });
+      video.src = request.url;
+      video.preload = "auto";
+      await video.play().catch(() => {});
+      if (seq === loadSeq.current) _sync({ buffering: false });
+    },
+    [_setSession, _sync, teardown]
+  );
+
   // React to open() requests from pages.
   useEffect(() => {
     if (!requestedItemId) return;
@@ -234,23 +281,43 @@ export default function PlayerHost() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestedItemId]);
 
+  useEffect(() => {
+    if (!requestedDirect) return;
+    if (directIdRef.current === requestedDirect.id) return;
+    loadDirect(requestedDirect);
+  }, [loadDirect, requestedDirect]);
+
   // Full teardown when the session is cleared (stop) or on unmount.
   useEffect(() => {
-    if (!session && jfSessionRef.current) teardown();
+    if (!session && (jfSessionRef.current || directIdRef.current)) {
+      teardown();
+      directIdRef.current = null;
+    }
   }, [session, teardown]);
   useEffect(() => () => teardown(), [teardown]);
+
+  // "Stream now" is a temporary cache. Closing/finishing the player removes
+  // its qBittorrent job and files; ordinary offline downloads are untouched.
+  useEffect(() => {
+    if (!session && !requestedItemId && !requestedDirect && activeStreamHash) {
+      finishActiveStream().catch(() => {});
+    }
+  }, [activeStreamHash, finishActiveStream, requestedDirect, requestedItemId, session]);
 
   // ── Imperative controls registered with the store ────────────────────
 
   const playNext = useCallback(async (): Promise<boolean> => {
     const nextId = nextEpisodeRef.current;
     if (!nextId) return false;
-    // Keep the store's requested id in sync so re-opening the same item works.
+    // Load first, then update the route/store. Updating requestedItemId before
+    // load() finishes makes the request effect race this direct call and can
+    // negotiate the next episode twice on a slow server.
+    await load(nextId);
+    if (jfSessionRef.current?.itemId !== nextId) return false;
     usePlayback.setState({ requestedItemId: nextId });
     if (usePlayback.getState().mode === "expanded") {
       navigate(`/play/${nextId}`, { replace: true });
     }
-    await load(nextId);
     return true;
   }, [load, navigate]);
 
@@ -371,11 +438,11 @@ export default function PlayerHost() {
 
   // ── Render ───────────────────────────────────────────────────────────
 
-  if (!session && !requestedItemId) return null;
+  if (!session && !requestedItemId && !requestedDirect) return null;
 
   const expanded = mode === "expanded";
   const onEnded = async () => {
-    if (!(await playNext())) {
+    if (session?.direct || !(await playNext())) {
       stop();
       if (usePlayback.getState().mode === "expanded") navigate(-1);
     }
@@ -392,7 +459,7 @@ export default function PlayerHost() {
           if (expanded) poke();
           else if (session) {
             usePlayback.getState().expand();
-            navigate(`/play/${session.itemId}`);
+            navigate(session.direct ? "/stream" : `/play/${session.itemId}`);
           }
         }}
         transition={{ type: "spring", stiffness: 300, damping: 32 }}
@@ -405,13 +472,35 @@ export default function PlayerHost() {
         <video
           ref={videoRef}
           className="h-full w-full"
-          crossOrigin="anonymous"
           onPlay={() => _sync({ isPlaying: true })}
           onPause={() => _sync({ isPlaying: false })}
           onWaiting={() => _sync({ buffering: true })}
           onPlaying={() => _sync({ buffering: false })}
           onTimeUpdate={(e) => _sync({ currentTime: e.currentTarget.currentTime })}
           onDurationChange={(e) => _sync({ duration: e.currentTarget.duration })}
+          onError={(e) => {
+            const mediaError = e.currentTarget.error;
+            const directRequest = directRequestRef.current;
+            if (session?.direct && directRequest && directRetryRef.current < 6) {
+              const attempt = ++directRetryRef.current;
+              setError(null);
+              _sync({ buffering: true });
+              clearTimeout(directRetryTimer.current);
+              directRetryTimer.current = setTimeout(() => {
+                const video = videoRef.current;
+                if (!video || directRequestRef.current?.id !== directRequest.id) return;
+                video.src = `${directRequest.url}${directRequest.url.includes("?") ? "&" : "?"}retry=${attempt}`;
+                video.load();
+                video.play().catch(() => {});
+              }, Math.min(6_000, 1_250 * attempt));
+              return;
+            }
+            setError(
+              mediaError?.message ||
+                "This file is not playable yet. Let it buffer longer or choose a smaller 1080p source."
+            );
+            _sync({ buffering: false });
+          }}
           onVolumeChange={(e) => _sync({ muted: e.currentTarget.muted })}
           onEnded={onEnded}
           onDoubleClick={() => expanded && usePlayback.getState().controls?.toggle()}

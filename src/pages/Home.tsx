@@ -8,9 +8,13 @@ import { motion } from "framer-motion";
 import { useAuth } from "@/stores/authStore";
 import { useT } from "@/i18n";
 import HeroBanner from "@/components/HeroBanner";
+import DiscoverHero from "@/components/DiscoverHero";
+import DiscoverRow from "@/components/DiscoverRow";
 import MediaRow from "@/components/MediaRow";
 import { HomeSkeleton } from "@/components/Skeletons";
+import { cinemeta } from "@/api/cinemeta";
 import type { BaseItem } from "@/types/jellyfin";
+import type { StremioMeta } from "@/types/stremio";
 
 const GENRE_ROWS = ["Action", "Comedy", "Drama", "Science Fiction", "Horror", "Animation"];
 
@@ -23,15 +27,32 @@ interface HomeData {
   genreRows: { genre: string; items: BaseItem[] }[];
 }
 
+interface DiscoverData {
+  hero: StremioMeta | null;
+  rows: { title: string; items: StremioMeta[] }[];
+}
+
 export default function Home() {
   const t = useT();
   const client = useAuth((s) => s.client)();
   const profileId = useAuth((s) => s.activeProfileId);
   const [data, setData] = useState<HomeData | null>(null);
+  const [discover, setDiscover] = useState<DiscoverData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!client) return;
+    if (!client) {
+      setError(null);
+      setData({
+        hero: null,
+        resume: [],
+        nextUp: [],
+        favorites: [],
+        latestByLibrary: [],
+        genreRows: [],
+      });
+      return;
+    }
     let cancelled = false;
 
     (async () => {
@@ -75,8 +96,20 @@ export default function Home() {
             genreRows: genres.filter((g) => g.items.length > 0),
           });
         }
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      } catch {
+        // Jellyfin is optional. An offline saved server must never hide the
+        // standalone Cinemeta catalog.
+        if (!cancelled) {
+          setError(null);
+          setData({
+            hero: null,
+            resume: [],
+            nextUp: [],
+            favorites: [],
+            latestByLibrary: [],
+            genreRows: [],
+          });
+        }
       }
     })();
 
@@ -87,13 +120,46 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId]);
 
+  // Cinemeta supplies the browseable Stremio catalog; Torrentio supplies
+  // sources after a title is selected. This keeps an empty Jellyfin server
+  // from producing an empty Akflix home screen.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    Promise.all([
+      cinemeta.catalog("movie", "top", undefined, ctrl.signal),
+      cinemeta.catalog("series", "top", undefined, ctrl.signal),
+      cinemeta.catalog("movie", "top", { genre: "Action" }, ctrl.signal),
+      cinemeta.catalog("series", "top", { genre: "Drama" }, ctrl.signal),
+      cinemeta.catalog("movie", "top", { genre: "Comedy" }, ctrl.signal),
+    ])
+      .then(([movies, series, action, drama, comedy]) =>
+        setDiscover({
+          hero: movies.find((item) => item.background) ?? movies[0] ?? null,
+          rows: [
+            { title: "Popular Movies", items: movies },
+            { title: "Popular Series", items: series },
+            { title: "Action Movies", items: action },
+            { title: "Drama Series", items: drama },
+            { title: "Comedy Movies", items: comedy },
+          ],
+        })
+      )
+      .catch(() => {
+        if (!ctrl.signal.aborted) setDiscover({ hero: null, rows: [] });
+      });
+    return () => ctrl.abort();
+  }, []);
+
   const rows = useMemo(() => {
-    if (!data) return null;
+    if (!data || !discover) return null;
     return (
-      <div className="relative z-10 -mt-24">
+      <div className="relative z-10 -mt-20">
         <MediaRow title={t("row.continueWatching")} items={data.resume} variant="landscape" />
         <MediaRow title={t("row.nextUp")} items={data.nextUp} variant="landscape" />
         <MediaRow title={t("row.myList")} items={data.favorites} />
+        {discover.rows.map((row) => (
+          <DiscoverRow key={row.title} title={row.title} items={row.items} />
+        ))}
         {data.latestByLibrary.map((l) => (
           <MediaRow
             key={l.name}
@@ -106,7 +172,7 @@ export default function Home() {
         ))}
       </div>
     );
-  }, [data, t]);
+  }, [data, discover, t]);
 
   if (error)
     return (
@@ -117,7 +183,7 @@ export default function Home() {
       </div>
     );
 
-  if (!data) return <HomeSkeleton />;
+  if (!data || !discover) return <HomeSkeleton />;
 
   return (
     <motion.main
@@ -126,7 +192,11 @@ export default function Home() {
       exit={{ opacity: 0 }}
       className="pb-16"
     >
-      {data.hero && <HeroBanner item={data.hero} />}
+      {data.hero ? (
+        <HeroBanner item={data.hero} />
+      ) : discover.hero ? (
+        <DiscoverHero item={discover.hero} />
+      ) : null}
       {rows}
     </motion.main>
   );
