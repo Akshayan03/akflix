@@ -8,6 +8,7 @@ import {
   Check,
   Copy,
   Download,
+  ExternalLink,
   Gauge,
   HardDrive,
   Languages,
@@ -542,8 +543,19 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                 <div className="mx-auto max-w-md py-16 text-center">
                   <p className="text-sm font-semibold text-zinc-200">No hosted streams are configured</p>
                   <p className="mt-2 text-xs leading-5 text-zinc-500">
-                    Add a debrid provider to your Torrentio manifest in Settings, or connect a Jellyfin server. Public peer links need the Mac app.
+                    This Torrentio setup returned peer links instead of direct video URLs. Add a debrid provider for instant iPhone playback.
                   </p>
+                  <motion.button
+                    whileTap={{ scale: 0.96 }}
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      navigate("/settings#hosted-streaming");
+                    }}
+                    className="mx-auto mt-5 flex h-11 items-center justify-center gap-2 rounded-xl bg-brand-light px-5 text-xs font-black text-[#090806]"
+                  >
+                    <ExternalLink size={15} /> Set up instant streaming
+                  </motion.button>
                 </div>
               )}
               {!loading && !error && compatibleResults.length > 0 && !filteredSorted.length && (

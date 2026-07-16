@@ -165,9 +165,15 @@ export default function DiscoverDetails() {
         return;
       }
       if (mobileApple) {
-        throw new Error(
-          "iPhone and iPad playback needs a hosted/debrid source or a connected Jellyfin library. Peer streaming is available in the desktop app."
-        );
+        if (episode) {
+          setSelectedSeason(episode.season);
+          setSelectedEpisode(episode);
+        }
+        setSourceOpen(true);
+        toast.info("Instant streaming is not configured", {
+          description: "Set up a hosted Torrentio source to play directly without Jellyfin or downloading.",
+        });
+        return;
       }
       await raceStreamSources(preferredResults, media);
       toast.success("Opening the fastest source", {
@@ -511,7 +517,7 @@ export default function DiscoverDetails() {
                 <ListFilter size={18} /> {mobileApple ? "Choose hosted stream" : "Choose stream"}
               </button>
               <span className="text-[11px] text-zinc-500">
-                {mobileApple ? "Hosted or Jellyfin playback" : "Auto pick or choose quality, language and size"}
+                {mobileApple ? "Direct hosted playback with no local download" : "Auto pick or choose quality, language and size"}
               </span>
             </div>
           </div>
