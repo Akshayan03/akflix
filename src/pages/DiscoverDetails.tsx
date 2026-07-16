@@ -141,6 +141,12 @@ export default function DiscoverDetails() {
     (type === "movie" ||
       (savedProgress.season === selectedEpisode?.season &&
         savedProgress.episode === selectedEpisode?.episode));
+  const resumeActionLabel =
+    canResume && type === "series" && savedProgress?.season && savedProgress.episode
+      ? `Continue S${savedProgress.season} E${savedProgress.episode}`
+      : canResume
+        ? "Resume"
+        : "Watch now";
   const catalogMetadata = {
     catalogId: meta.id,
     mediaType: type,
@@ -282,7 +288,7 @@ export default function DiscoverDetails() {
               className="flex h-[52px] items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-brand-light to-brand px-5 text-sm font-black text-[#090806] shadow-[0_14px_38px_rgba(152,117,47,.24)] disabled:opacity-40"
             >
               {starting ? <LoaderCircle size={18} className="animate-spin" /> : <Play size={18} fill="currentColor" />}
-              {starting ? "Finding stream" : canResume ? "Resume" : "Watch now"}
+              {starting ? "Finding stream" : resumeActionLabel}
             </motion.button>
             <motion.button
               whileTap={{ scale: 0.9 }}
@@ -527,11 +533,7 @@ export default function DiscoverDetails() {
                 className="prism-border flex items-center gap-2 rounded-2xl bg-gradient-to-r from-brand-light to-brand px-6 py-3.5 text-sm font-bold text-[#090806] shadow-[0_14px_40px_rgba(152,117,47,.24)] transition hover:-translate-y-0.5 hover:brightness-110 disabled:opacity-40"
               >
                 {starting ? <LoaderCircle size={18} className="animate-spin" /> : <Play size={18} fill="currentColor" />}
-                {starting
-                  ? "Opening…"
-                  : canResume
-                    ? "Resume"
-                    : "Watch now"}
+                {starting ? "Opening…" : resumeActionLabel}
               </button>
               <button
                 onClick={() => setSourceOpen(true)}

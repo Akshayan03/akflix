@@ -46,7 +46,13 @@ interface HistoryState {
     media: HistoryTitle,
     position: number,
     duration: number,
-    details?: { subtitle?: string; season?: number; episode?: number; completed?: boolean }
+    details?: {
+      subtitle?: string;
+      season?: number;
+      episode?: number;
+      completed?: boolean;
+      upNext?: boolean;
+    }
   ) => void;
   setRating: (media: HistoryTitle, value: number | null) => void;
   removeEntry: (media: HistoryTitle) => void;
@@ -70,9 +76,13 @@ export const useHistory = create<HistoryState>()(
         const profileId = activeProfileId();
         const position = Number.isFinite(rawPosition) ? Math.max(0, rawPosition) : 0;
         const duration = Number.isFinite(rawDuration) ? Math.max(0, rawDuration) : 0;
-        if (!details.completed && position < 10) return;
+        if (!details.completed && !details.upNext && position < 10) return;
         const progress = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
-        const completed = details.completed === true || (duration > 0 && progress >= 92);
+        // Finishing an episode does not mean the whole series is finished.
+        // Series are completed explicitly only after their final episode.
+        const completed =
+          details.completed === true ||
+          (media.type === "movie" && duration > 0 && progress >= 92);
         const key = historyMediaKey(media);
 
         set((state) => {

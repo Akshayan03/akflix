@@ -34,7 +34,7 @@ import { toast } from "sonner";
 import { useAuth, useJellyfinClient } from "@/stores/authStore";
 import { useSettings } from "@/stores/settingsStore";
 import { usePlayback } from "@/stores/playbackStore";
-import type { DirectPlaybackRequest } from "@/stores/playbackStore";
+import type { DirectEpisodeTarget, DirectPlaybackRequest } from "@/stores/playbackStore";
 import { useTorrents } from "@/stores/torrentStore";
 import { useT } from "@/i18n";
 import { formatClock, ticksToSeconds } from "@/lib/utils";
@@ -96,6 +96,21 @@ function saveDirectProgress(
     season: request.season,
     episode: request.episode,
     completed,
+  });
+}
+
+function queueDirectEpisodeProgress(
+  request: DirectPlaybackRequest | null,
+  next: DirectEpisodeTarget | undefined
+) {
+  if (!request || !next) return;
+  const media = directHistoryTitle(request);
+  if (!media || media.type !== "series") return;
+  useHistory.getState().recordProgress(media, 0, 0, {
+    subtitle: `S${next.season} E${next.episode} · ${next.title}`,
+    season: next.season,
+    episode: next.episode,
+    upNext: true,
   });
 }
 
@@ -608,8 +623,19 @@ export default function PlayerHost() {
 
   const expanded = mode === "expanded";
   const onEnded = async () => {
-    saveDirectProgress(directRequestRef.current, videoRef.current, true);
-    if (!(await playNext())) {
+    const finishedRequest = directRequestRef.current;
+    const nextDirectEpisode = finishedRequest?.episodeQueue?.[0];
+    const advanced = await playNext();
+
+    if (nextDirectEpisode) {
+      // Keep the series in Continue Watching at the exact next episode,
+      // including when automatic playback could not find a source yet.
+      queueDirectEpisodeProgress(finishedRequest, nextDirectEpisode);
+    } else if (!advanced) {
+      saveDirectProgress(finishedRequest, videoRef.current, true);
+    }
+
+    if (!advanced) {
       stop();
       if (usePlayback.getState().mode === "expanded") navigate(-1);
     }
