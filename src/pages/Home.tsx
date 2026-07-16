@@ -184,7 +184,12 @@ export default function Home() {
     });
     const catalogHistory = profileHistory.filter((entry) => entry.media.source === "discover");
     const continuing = catalogHistory
-      .filter((entry) => !entry.completed && entry.progress > 0)
+      .filter(
+        (entry) =>
+          !entry.completed &&
+          (entry.progress > 0 ||
+            (entry.media.type === "series" && !!entry.season && !!entry.episode))
+      )
       .sort((a, b) => b.updatedAt - a.updatedAt);
     const watched = catalogHistory
       .filter((entry) => entry.completed)
@@ -197,6 +202,10 @@ export default function Home() {
         ...cardState[key],
         progress: entry.progress,
         watched: entry.completed,
+        resumeLabel:
+          entry.media.type === "series" && entry.season && entry.episode
+            ? `Season ${entry.season} Episode ${entry.episode}${entry.subtitle?.includes("·") ? ` · ${entry.subtitle.split("·").slice(1).join("·").trim()}` : ""}`
+            : undefined,
       };
     }
     for (const rating of profileRatings) {

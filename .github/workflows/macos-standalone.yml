@@ -81,5 +81,5 @@ jobs:
             gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
               --title "Akflix $TAG" \
-              --notes "Player and source experience update. Stream cards now keep the movie or series name clean and place quality, audio, size, peers, codec, and source details beside it. Playback adds 0.5x to 2x speed controls, direct-stream captions through OpenSubtitles, smoother animations, and automatic next-episode playback across season boundaries. Use source features only for content you may lawfully access."
+              --notes "Continue Watching is now episode-aware for series. Akflix remembers the exact season, episode, title, and playback position; completing an episode advances the series to the next episode instead of marking the whole show finished. Movie resume behavior is unchanged. Use source features only for content you may lawfully access."
           fi

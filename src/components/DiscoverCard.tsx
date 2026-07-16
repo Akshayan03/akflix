@@ -9,6 +9,7 @@ export interface DiscoverCardState {
   progress?: number;
   watched?: boolean;
   rating?: number;
+  resumeLabel?: string;
 }
 
 export default function DiscoverCard({
@@ -64,10 +65,16 @@ export default function DiscoverCard({
       )}
       <div className="absolute inset-x-0 bottom-0 p-4">
         <p className="truncate text-sm font-bold tracking-tight">{item.name}</p>
-        <div className="mt-1.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-zinc-400">
-          <span>{item.releaseInfo ?? item.year ?? item.type}</span>
-          {item.imdbRating && <span className="flex items-center gap-1 text-accent"><Star size={9} fill="currentColor" /> {item.imdbRating}</span>}
-        </div>
+        {state?.resumeLabel ? (
+          <p className="mt-1.5 truncate text-[10px] font-bold uppercase tracking-[0.1em] text-accent">
+            Continue {state.resumeLabel}
+          </p>
+        ) : (
+          <div className="mt-1.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-zinc-400">
+            <span>{item.releaseInfo ?? item.year ?? item.type}</span>
+            {item.imdbRating && <span className="flex items-center gap-1 text-accent"><Star size={9} fill="currentColor" /> {item.imdbRating}</span>}
+          </div>
+        )}
       </div>
       <span className="absolute right-3 top-3 flex h-9 w-9 translate-y-1 items-center justify-center rounded-xl bg-white text-black opacity-0 shadow-xl transition duration-300 group-hover:translate-y-0 group-hover:opacity-100">
         <Play size={14} fill="currentColor" />
