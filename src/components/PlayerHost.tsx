@@ -37,6 +37,7 @@ import type { DirectPlaybackRequest } from "@/stores/playbackStore";
 import { useTorrents } from "@/stores/torrentStore";
 import { useT } from "@/i18n";
 import { formatClock, ticksToSeconds } from "@/lib/utils";
+import { isAppleMobile } from "@/lib/platform";
 import { setCompatibilityStreamPaused } from "@/lib/compatStream";
 import MiniPlayer from "@/components/MiniPlayer";
 import type { MediaSource, MediaStream } from "@/types/jellyfin";
@@ -96,6 +97,7 @@ function saveDirectProgress(
 export default function PlayerHost() {
   const t = useT();
   const navigate = useNavigate();
+  const mobileApple = isAppleMobile();
   // Memoized per profile — safe for effect deps (a fresh-per-render client
   // here caused an infinite re-register loop with the controls effect).
   const client = useJellyfinClient();
@@ -499,7 +501,14 @@ export default function PlayerHost() {
         layout
         onMouseMove={expanded ? poke : undefined}
         onClick={() => {
-          if (expanded) poke();
+          if (expanded && mobileApple) {
+            if (controlsVisible) {
+              clearTimeout(hideTimer.current);
+              setControlsVisible(false);
+            } else {
+              poke();
+            }
+          } else if (expanded) poke();
           else if (session) {
             usePlayback.getState().expand();
             navigate(session.direct ? "/stream" : `/play/${session.itemId}`);
@@ -508,13 +517,17 @@ export default function PlayerHost() {
         transition={{ type: "spring", stiffness: 300, damping: 32 }}
         className={
           expanded
-            ? "fixed inset-0 z-50 bg-black"
-            : "fixed bottom-24 right-4 z-40 aspect-video w-64 cursor-pointer overflow-hidden rounded-lg border border-zinc-700 bg-black shadow-2xl"
+            ? "fixed inset-0 z-[60] bg-black"
+            : mobileApple
+              ? "pointer-events-none fixed bottom-0 right-0 z-[-1] h-px w-px overflow-hidden opacity-0"
+              : "fixed bottom-24 right-4 z-40 aspect-video w-64 cursor-pointer overflow-hidden rounded-lg border border-zinc-700 bg-black shadow-2xl"
         }
       >
         <video
           ref={videoRef}
           className="h-full w-full"
+          playsInline
+          preload="auto"
           onPlay={() => {
             _sync({ isPlaying: true });
             if (session?.direct && activeStreamHash) {
@@ -598,7 +611,7 @@ export default function PlayerHost() {
           }}
           onVolumeChange={(e) => _sync({ muted: e.currentTarget.muted })}
           onEnded={onEnded}
-          onDoubleClick={() => expanded && usePlayback.getState().controls?.toggle()}
+          onDoubleClick={() => !mobileApple && expanded && usePlayback.getState().controls?.toggle()}
         >
           {subTracks.map((s) => (
             <track
@@ -650,38 +663,39 @@ export default function PlayerHost() {
           >
               {/* Top bar */}
               <div
-                className={`flex items-center gap-4 p-5 transition-transform duration-300 ${
+                className={`flex items-center gap-3 px-4 pb-4 pt-[calc(env(safe-area-inset-top,0px)+12px)] transition-transform duration-300 md:gap-4 md:p-5 ${
                   controlsVisible ? "translate-y-0" : "-translate-y-3"
                 }`}
               >
-                <button
+                <motion.button
+                  whileTap={mobileApple ? { scale: 0.88 } : undefined}
                   onClick={(e) => {
                     e.stopPropagation();
                     navigate(-1); // route unmount → minimize, playback continues
                   }}
                   aria-label={t("player.back")}
-                  className="text-zinc-300 transition hover:text-white"
+                  className={mobileApple ? "ios-circle-button !h-10 !w-10 shrink-0" : "text-zinc-300 transition hover:text-white"}
                 >
                   <ArrowLeft size={26} />
-                </button>
+                </motion.button>
                 <div className="min-w-0">
-                  <h1 className="truncate text-lg font-medium">{session?.title}</h1>
+                  <h1 className="truncate text-[15px] font-bold md:text-lg md:font-medium">{session?.title}</h1>
                   {session?.subtitle && (
-                    <p className="truncate text-sm text-zinc-400">{session.subtitle}</p>
+                    <p className="truncate text-[11px] text-zinc-400 md:text-sm">{session.subtitle}</p>
                   )}
                 </div>
               </div>
 
               {/* Bottom bar */}
               <div
-                className={`p-5 transition-transform duration-300 ${
+                className={`px-4 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] transition-transform duration-300 md:p-5 ${
                   controlsVisible ? "translate-y-0" : "translate-y-3"
                 }`}
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Scrubber */}
-                <div className="mb-3 flex items-center gap-3 text-xs text-zinc-300">
-                  <span className="w-14 text-right tabular-nums">
+                <div className="mb-5 flex items-center gap-2 text-[10px] text-zinc-300 md:mb-3 md:gap-3 md:text-xs">
+                  <span className="w-10 text-right tabular-nums md:w-14">
                     {formatClock(currentTime)}
                   </span>
                   <input
@@ -695,40 +709,43 @@ export default function PlayerHost() {
                     }
                     className="h-1 flex-1 cursor-pointer accent-brand"
                   />
-                  <span className="w-14 tabular-nums">{formatClock(duration)}</span>
+                  <span className="w-10 tabular-nums md:w-14">{formatClock(duration)}</span>
                 </div>
 
-                <div className="flex items-center gap-5">
-                  <button
+                <div className="flex items-center justify-center gap-6 md:justify-start md:gap-5">
+                  <motion.button
+                    whileTap={mobileApple ? { scale: 0.86 } : undefined}
                     onClick={() => usePlayback.getState().controls?.toggle()}
                     aria-label="Play/Pause"
-                    className="transition hover:text-brand"
+                    className={mobileApple ? "order-2 flex h-14 w-14 items-center justify-center rounded-full bg-white text-black" : "transition hover:text-brand"}
                   >
                     {isPlaying ? (
-                      <Pause size={28} />
+                      <Pause size={mobileApple ? 25 : 28} fill={mobileApple ? "currentColor" : "none"} />
                     ) : (
-                      <Play size={28} fill="currentColor" />
+                      <Play size={mobileApple ? 25 : 28} fill="currentColor" className={mobileApple ? "ml-1" : ""} />
                     )}
-                  </button>
-                  <button
+                  </motion.button>
+                  <motion.button
+                    whileTap={mobileApple ? { scale: 0.82 } : undefined}
                     onClick={() => usePlayback.getState().controls?.seekBy(-10)}
                     aria-label="Back 10s"
-                    className="text-zinc-300 transition hover:text-white"
+                    className={mobileApple ? "order-1 flex h-11 w-11 items-center justify-center text-white" : "text-zinc-300 transition hover:text-white"}
                   >
-                    <RotateCcw size={22} />
-                  </button>
-                  <button
+                    <RotateCcw size={mobileApple ? 27 : 22} />
+                  </motion.button>
+                  <motion.button
+                    whileTap={mobileApple ? { scale: 0.82 } : undefined}
                     onClick={() => usePlayback.getState().controls?.seekBy(10)}
                     aria-label="Forward 10s"
-                    className="text-zinc-300 transition hover:text-white"
+                    className={mobileApple ? "order-3 flex h-11 w-11 items-center justify-center text-white" : "text-zinc-300 transition hover:text-white"}
                   >
-                    <RotateCw size={22} />
-                  </button>
+                    <RotateCw size={mobileApple ? 27 : 22} />
+                  </motion.button>
                   {hasNext && (
                     <button
                       onClick={() => usePlayback.getState().controls?.next()}
                       aria-label="Next episode"
-                      className="text-zinc-300 transition hover:text-white"
+                      className={`${mobileApple ? "order-4" : ""} text-zinc-300 transition hover:text-white`}
                     >
                       <SkipForward size={24} />
                     </button>
@@ -736,12 +753,12 @@ export default function PlayerHost() {
                   <button
                     onClick={() => usePlayback.getState().controls?.setMuted(!muted)}
                     aria-label="Mute"
-                    className="text-zinc-300 transition hover:text-white"
+                    className={`${mobileApple ? "hidden" : ""} text-zinc-300 transition hover:text-white`}
                   >
                     {muted ? <VolumeX size={22} /> : <Volume2 size={22} />}
                   </button>
 
-                  <div className="ml-auto flex items-center gap-5">
+                  <div className={mobileApple ? "absolute bottom-[calc(env(safe-area-inset-bottom,0px)+27px)] right-4 flex items-center gap-4" : "ml-auto flex items-center gap-5"}>
                     {subTracks.length > 0 && (
                       <div className="relative">
                         <button
@@ -791,7 +808,7 @@ export default function PlayerHost() {
                       </div>
                     )}
 
-                    <button
+                    {!mobileApple && <button
                       onClick={() =>
                         document.fullscreenElement
                           ? document.exitFullscreen()
@@ -801,7 +818,7 @@ export default function PlayerHost() {
                       className="text-zinc-300 transition hover:text-white"
                     >
                       <Maximize size={22} />
-                    </button>
+                    </button>}
                   </div>
                 </div>
               </div>
@@ -814,7 +831,7 @@ export default function PlayerHost() {
       {!expanded && session && <MiniPlayer />}
 
       {/* In-flow spacer so page content can scroll clear of the fixed bar. */}
-      {!expanded && session && <div className="h-20" aria-hidden />}
+      {!expanded && session && <div className={mobileApple ? "h-24" : "h-20"} aria-hidden />}
     </>
   );
 }

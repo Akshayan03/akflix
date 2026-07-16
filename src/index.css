@@ -33,11 +33,46 @@ body {
 }
 
 .ios-app-shell {
-  padding-bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+  min-height: 100svh;
+  padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
 }
 
-.ios-bottom-nav {
-  bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+.ios-mobile-header {
+  padding-top: env(safe-area-inset-top, 0px);
+  background: linear-gradient(180deg, rgba(9, 8, 6, 0.82), rgba(9, 8, 6, 0));
+}
+
+.ios-circle-button {
+  display: inline-flex;
+  height: 2.25rem;
+  width: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(12, 11, 9, 0.62);
+  color: rgb(228 228 231);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(20px) saturate(145%);
+}
+
+.ios-tab-bar {
+  bottom: max(0.45rem, env(safe-area-inset-bottom, 0px));
+  min-height: 4.15rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1.55rem;
+  background: linear-gradient(145deg, rgba(24, 21, 16, 0.94), rgba(9, 8, 6, 0.9));
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55), inset 0 1px rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(28px) saturate(165%);
+}
+
+@media (hover: none) and (pointer: coarse) {
+  button,
+  a,
+  select {
+    touch-action: manipulation;
+  }
 }
 
 ::selection {

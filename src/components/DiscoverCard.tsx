@@ -3,6 +3,7 @@ import { Check, Play, Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { StremioMeta } from "@/types/stremio";
 import Artwork from "@/components/Artwork";
+import { isAppleMobile } from "@/lib/platform";
 
 export interface DiscoverCardState {
   progress?: number;
@@ -14,21 +15,27 @@ export default function DiscoverCard({
   item,
   state,
   variant = "poster",
+  fluid = false,
 }: {
   item: StremioMeta;
   state?: DiscoverCardState;
   variant?: "poster" | "landscape";
+  fluid?: boolean;
 }) {
   const navigate = useNavigate();
+  const mobileApple = isAppleMobile();
   const open = () => navigate(`/discover/${item.type}/${item.id}`);
 
   return (
     <motion.button
-      whileHover={{ y: -7, scale: 1.018, zIndex: 10 }}
+      whileHover={mobileApple ? undefined : { y: -7, scale: 1.018, zIndex: 10 }}
+      whileTap={{ scale: 0.965 }}
       transition={{ type: "spring", stiffness: 320, damping: 24 }}
       onClick={open}
-      className={`group relative shrink-0 overflow-hidden rounded-[20px] border border-white/[0.08] bg-surface-raised text-left shadow-[0_14px_35px_rgba(0,0,0,.18)] ${
-        variant === "landscape" ? "aspect-video w-72 md:w-80" : "aspect-[2/3] w-40 md:w-48"
+      className={`group relative shrink-0 snap-start overflow-hidden rounded-[18px] border border-white/[0.08] bg-surface-raised text-left shadow-[0_14px_35px_rgba(0,0,0,.18)] md:rounded-[20px] ${
+        fluid
+          ? variant === "landscape" ? "aspect-video w-full" : "aspect-[2/3] w-full"
+          : variant === "landscape" ? "aspect-video w-[82vw] max-w-[340px] md:w-80" : "aspect-[2/3] w-[138px] md:w-48"
       }`}
     >
       <Artwork

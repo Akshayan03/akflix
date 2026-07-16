@@ -5,6 +5,7 @@ import DiscoverHero from "@/components/DiscoverHero";
 import DiscoverRow from "@/components/DiscoverRow";
 import Spinner from "@/components/Spinner";
 import type { StremioMediaType, StremioMeta } from "@/types/stremio";
+import { isAppleMobile } from "@/lib/platform";
 
 interface BrowseData {
   hero: StremioMeta | null;
@@ -18,6 +19,7 @@ export default function Browse({ type }: { type: StremioMediaType }) {
   const [data, setData] = useState<BrowseData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const isSeries = type === "series";
+  const mobileApple = isAppleMobile();
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -60,8 +62,31 @@ export default function Browse({ type }: { type: StremioMediaType }) {
   return (
     <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen pb-16">
       {data.hero && <DiscoverHero item={data.hero} />}
-      <div className="relative z-10 -mt-20">
-        <div className="mb-8 px-6 md:px-12 lg:px-16">
+      <div className="relative z-10 -mt-7 md:-mt-20">
+        {mobileApple && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+            className="no-scrollbar mb-7 flex gap-2 overflow-x-auto px-4 pb-1"
+          >
+            {data.rows.map((row, index) => (
+              <motion.button
+                key={row.title}
+                whileTap={{ scale: 0.94 }}
+                onClick={() => document.getElementById(`browse-row-${index}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                className={`shrink-0 rounded-full border px-4 py-2 text-xs font-bold ${
+                  index === 0
+                    ? "border-brand/30 bg-brand/15 text-brand-light"
+                    : "border-white/10 bg-white/[0.045] text-zinc-300"
+                }`}
+              >
+                {index === 0 ? "Popular" : GENRES[index - 1]}
+              </motion.button>
+            ))}
+          </motion.div>
+        )}
+        <div className={`mb-8 px-6 md:px-12 lg:px-16 ${mobileApple ? "sr-only" : ""}`}>
           <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-accent">
             {isSeries ? "Every season. Every episode." : "Your movie night starts here."}
           </p>
@@ -69,8 +94,8 @@ export default function Browse({ type }: { type: StremioMediaType }) {
             {isSeries ? "TV Shows" : "Movies"}
           </h1>
         </div>
-        {data.rows.map((row) => (
-          <DiscoverRow key={row.title} title={row.title} items={row.items} />
+        {data.rows.map((row, index) => (
+          <DiscoverRow id={`browse-row-${index}`} key={row.title} title={row.title} items={row.items} />
         ))}
       </div>
     </motion.main>

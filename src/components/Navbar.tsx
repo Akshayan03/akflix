@@ -10,6 +10,7 @@ import { useAuth } from "@/stores/authStore";
 import { isAppleMobile, isDesktopMac } from "@/lib/platform";
 import { useT } from "@/i18n";
 import Brand from "@/components/Brand";
+import MobileNavigation from "@/components/MobileNavigation";
 
 // Under Tauri on macOS the window uses an overlay titlebar: the traffic
 // lights float over our navbar, so shift the wordmark right to clear them.
@@ -35,23 +36,20 @@ export default function Navbar() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  if (mobileApple) return <MobileNavigation />;
+
   const linkCls = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition ${
       isActive
         ? "bg-white/[0.10] text-white shadow-inner shadow-white/[0.04]"
         : "text-zinc-400 hover:bg-white/[0.05] hover:text-white"
     }`;
-  const mobileLinkCls = ({ isActive }: { isActive: boolean }) =>
-    `flex min-w-0 flex-1 flex-col items-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-semibold transition ${
-      isActive ? "bg-brand/12 text-brand-light" : "text-zinc-500"
-    }`;
-
   return (
     <>
     <header
       // data-tauri-drag-region: empty navbar space drags the window (desktop).
       data-tauri-drag-region
-      className={`fixed inset-x-0 top-0 z-40 flex h-20 items-center px-5 transition-all duration-300 md:px-8 ${macOverlayPad} ${mobileApple ? "ios-safe-top" : ""}`}
+      className={`fixed inset-x-0 top-0 z-40 flex h-20 items-center px-5 transition-all duration-300 md:px-8 ${macOverlayPad}`}
     >
       <div className={`flex h-14 w-full items-center rounded-2xl border px-3 transition-all md:px-4 ${
         scrolled
@@ -70,11 +68,9 @@ export default function Navbar() {
         <NavLink to="/shows" className={linkCls}>
           <Tv size={14} /> Shows
         </NavLink>
-        {!mobileApple && (
-          <NavLink to="/downloads" className={linkCls}>
-            <RadioTower size={14} /> Activity
-          </NavLink>
-        )}
+        <NavLink to="/downloads" className={linkCls}>
+          <RadioTower size={14} /> Activity
+        </NavLink>
       </nav>
 
       <div className="ml-auto flex items-center gap-1.5">
@@ -85,15 +81,13 @@ export default function Navbar() {
         >
           <Search size={20} />
         </button>
-        {!mobileApple && (
-          <button
-            aria-label={t("nav.downloads")}
-            onClick={() => navigate("/downloads")}
-            className="rounded-xl p-2.5 text-zinc-400 transition hover:bg-white/[0.07] hover:text-white md:hidden"
-          >
-            <Download size={20} />
-          </button>
-        )}
+        <button
+          aria-label={t("nav.downloads")}
+          onClick={() => navigate("/downloads")}
+          className="rounded-xl p-2.5 text-zinc-400 transition hover:bg-white/[0.07] hover:text-white md:hidden"
+        >
+          <Download size={20} />
+        </button>
         <button
           aria-label={t("nav.settings")}
           onClick={() => navigate("/settings")}
@@ -154,22 +148,6 @@ export default function Navbar() {
       </div>
       </div>
     </header>
-    {mobileApple && (
-      <nav className="ios-bottom-nav glass-panel fixed inset-x-3 z-40 flex items-center gap-1 rounded-[22px] p-1.5 md:hidden" aria-label="iPhone navigation">
-        <NavLink to="/" className={mobileLinkCls} end>
-          <Home size={18} /> Home
-        </NavLink>
-        <NavLink to="/movies" className={mobileLinkCls}>
-          <Film size={18} /> Movies
-        </NavLink>
-        <NavLink to="/shows" className={mobileLinkCls}>
-          <Tv size={18} /> Shows
-        </NavLink>
-        <NavLink to="/search" className={mobileLinkCls}>
-          <Search size={18} /> Search
-        </NavLink>
-      </nav>
-    )}
     </>
   );
 }

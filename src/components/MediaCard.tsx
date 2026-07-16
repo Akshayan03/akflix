@@ -9,6 +9,7 @@ import { useAuth } from "@/stores/authStore";
 import { formatRuntime } from "@/lib/utils";
 import type { BaseItem } from "@/types/jellyfin";
 import Artwork from "@/components/Artwork";
+import { isAppleMobile } from "@/lib/platform";
 
 interface Props {
   item: BaseItem;
@@ -19,6 +20,7 @@ interface Props {
 export default function MediaCard({ item, variant = "poster" }: Props) {
   const navigate = useNavigate();
   const client = useAuth((s) => s.client)();
+  const mobileApple = isAppleMobile();
   if (!client) return null;
 
   const isEpisode = item.Type === "Episode";
@@ -42,11 +44,12 @@ export default function MediaCard({ item, variant = "poster" }: Props) {
 
   return (
     <motion.div
-      whileHover={{ y: -7, scale: 1.018, zIndex: 10 }}
+      whileHover={mobileApple ? undefined : { y: -7, scale: 1.018, zIndex: 10 }}
+      whileTap={{ scale: 0.965 }}
       transition={{ type: "spring", stiffness: 350, damping: 25 }}
       onClick={goDetails}
       className={`group relative shrink-0 cursor-pointer overflow-hidden rounded-[20px] border border-white/[0.08] bg-surface-raised shadow-[0_14px_35px_rgba(0,0,0,.18)] ${
-        variant === "landscape" ? "aspect-video w-72" : "aspect-[2/3] w-40 md:w-48"
+        variant === "landscape" ? "aspect-video w-[82vw] max-w-[340px] md:w-72" : "aspect-[2/3] w-[138px] md:w-48"
       }`}
     >
       <Artwork
@@ -60,11 +63,11 @@ export default function MediaCard({ item, variant = "poster" }: Props) {
       />
 
       {/* Hover overlay */}
-      <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+      <div className={`absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/20 to-transparent p-3 transition-opacity duration-200 ${mobileApple ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
         <button
           onClick={goPlay}
           aria-label="Play"
-        className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-white text-black shadow-xl transition hover:scale-105"
+          className={`${mobileApple ? "hidden" : "flex"} mb-2 h-9 w-9 items-center justify-center rounded-xl bg-white text-black shadow-xl transition hover:scale-105`}
         >
           <Play size={16} fill="currentColor" />
         </button>

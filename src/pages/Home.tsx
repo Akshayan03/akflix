@@ -241,7 +241,7 @@ export default function Home() {
     );
     const personalized = allHistory.length > 0 || profileRatings.length > 0;
     return (
-      <div className="relative z-10 -mt-20">
+      <div className="relative z-10 -mt-8 md:-mt-20">
         <DiscoverRow
           title="Continue Watching"
           tagline="Pick up where you left off"

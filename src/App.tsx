@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { useAuth } from "@/stores/authStore";
@@ -46,6 +47,23 @@ export default function App() {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [location.pathname]);
 
+  const routes = (
+    <Routes location={location}>
+      <Route path="/login" element={<Login />} />
+      <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
+      <Route path="/movies" element={<RequireAuth><Browse type="movie" /></RequireAuth>} />
+      <Route path="/shows" element={<RequireAuth><Browse type="series" /></RequireAuth>} />
+      <Route path="/search" element={<RequireAuth><Search /></RequireAuth>} />
+      <Route path="/title/:itemId" element={<RequireAuth><Details /></RequireAuth>} />
+      <Route path="/discover/:type/:imdbId" element={<RequireAuth><DiscoverDetails /></RequireAuth>} />
+      <Route path="/play/:itemId" element={<RequireAuth><Player /></RequireAuth>} />
+      <Route path="/stream" element={<RequireAuth><DirectPlayer /></RequireAuth>} />
+      <Route path="/downloads" element={<RequireAuth><Downloads /></RequireAuth>} />
+      <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+
   return (
     <div className={mobileApple ? "ios-app-shell min-h-full" : "min-h-full"}>
       {/* The player and login are immersive full-screen pages — no navbar. */}
@@ -56,90 +74,20 @@ export default function App() {
           exit-gated routing wedges when the outgoing page re-renders during
           its exit (e.g. Downloads' 2s torrent polling), leaving the app stuck
           on the old route. Entrance animations don't have that failure mode. */}
-      <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route
-            path="/"
-            element={
-              <RequireAuth>
-                <Home />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/movies"
-            element={
-              <RequireAuth>
-                <Browse type="movie" />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/shows"
-            element={
-              <RequireAuth>
-                <Browse type="series" />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/search"
-            element={
-              <RequireAuth>
-                <Search />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/title/:itemId"
-            element={
-              <RequireAuth>
-                <Details />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/discover/:type/:imdbId"
-            element={
-              <RequireAuth>
-                <DiscoverDetails />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/play/:itemId"
-            element={
-              <RequireAuth>
-                <Player />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/stream"
-            element={
-              <RequireAuth>
-                <DirectPlayer />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/downloads"
-            element={
-              <RequireAuth>
-                <Downloads />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/settings"
-            element={
-              <RequireAuth>
-                <Settings />
-              </RequireAuth>
-            }
-          />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+      {mobileApple && !isPlayer ? (
+        <AnimatePresence initial={false} mode="sync">
+          <motion.div
+            key={location.key}
+            initial={{ opacity: 0, x: 14, filter: "blur(3px)" }}
+            animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
+            exit={{ opacity: 0, x: -10, filter: "blur(2px)" }}
+            transition={{ type: "spring", stiffness: 330, damping: 31, mass: 0.72 }}
+            className="min-h-[100svh]"
+          >
+            {routes}
+          </motion.div>
+        </AnimatePresence>
+      ) : routes}
 
       {/* Persistent playback engine: fullscreen player, PiP + mini bar. */}
       <PlayerHost />

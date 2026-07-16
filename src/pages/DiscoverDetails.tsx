@@ -182,6 +182,243 @@ export default function DiscoverDetails() {
     }
   };
 
+  if (mobileApple) {
+    return (
+      <motion.main
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="min-h-[100svh] bg-surface pb-32"
+      >
+        <section className="relative h-[49svh] min-h-[390px] overflow-hidden">
+          <motion.div
+            initial={{ scale: 1.12, opacity: 0.65 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ duration: 1.15, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute inset-0"
+          >
+            <Artwork
+              src={meta.background ?? meta.poster}
+              title={meta.name}
+              variant="backdrop"
+              className="h-full w-full object-cover"
+              draggable={false}
+            />
+          </motion.div>
+          <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-surface" />
+          <div className="absolute inset-x-0 bottom-0 h-[62%] bg-[linear-gradient(0deg,#090806_3%,rgba(9,8,6,.82)_34%,transparent_100%)]" />
+        </section>
+
+        <motion.section
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.12, type: "spring", stiffness: 230, damping: 26 }}
+          className="relative z-10 -mt-28 px-4"
+        >
+          <div className="flex items-end gap-4">
+            <motion.div
+              layoutId={`poster-${meta.id}`}
+              className="aspect-[2/3] w-[104px] shrink-0 overflow-hidden rounded-[20px] shadow-[0_22px_55px_rgba(0,0,0,.7)] ring-1 ring-white/10"
+            >
+              <Artwork
+                src={meta.poster}
+                title={meta.name}
+                variant="poster"
+                className="h-full w-full object-cover"
+                draggable={false}
+              />
+            </motion.div>
+            <div className="min-w-0 flex-1 pb-1">
+              <p className="mb-2 text-[9px] font-bold uppercase tracking-[0.22em] text-accent">
+                {type === "series" ? "Series" : "Feature film"}
+              </p>
+              <h1 className="text-[31px] font-black leading-[0.94] tracking-[-0.055em]">
+                {meta.name}
+              </h1>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-zinc-400">
+                <span>{meta.releaseInfo ?? meta.year}</span>
+                {meta.imdbRating && (
+                  <span className="flex items-center gap-1 text-accent">
+                    <Star size={11} fill="currentColor" /> {meta.imdbRating}
+                  </span>
+                )}
+                {meta.runtime && <span>{meta.runtime}</span>}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-[1fr_52px] gap-2.5">
+            <motion.button
+              whileTap={{ scale: 0.965 }}
+              onClick={() => void watchNow()}
+              disabled={!lookup || starting}
+              className="flex h-[52px] items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-brand-light to-brand px-5 text-sm font-black text-[#090806] shadow-[0_14px_38px_rgba(152,117,47,.24)] disabled:opacity-40"
+            >
+              {starting ? <LoaderCircle size={18} className="animate-spin" /> : <Play size={18} fill="currentColor" />}
+              {starting ? "Finding stream" : canResume ? "Resume" : "Watch now"}
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              onClick={() => setSourceOpen(true)}
+              disabled={!lookup}
+              aria-label="Choose hosted stream"
+              className="flex h-[52px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.055] text-zinc-200 backdrop-blur-xl disabled:opacity-40"
+            >
+              <ListFilter size={20} />
+            </motion.button>
+          </div>
+          <p className="mt-2.5 text-center text-[10px] font-medium text-zinc-600">
+            Watch uses the best compatible hosted source. Tap the filter to choose.
+          </p>
+
+          <div className="mt-6 flex flex-wrap gap-2">
+            {meta.genres?.slice(0, 4).map((genre) => (
+              <span key={genre} className="rounded-full border border-white/[0.08] bg-white/[0.035] px-3 py-1.5 text-[10px] font-semibold text-zinc-400">
+                {genre}
+              </span>
+            ))}
+          </div>
+
+          {meta.description && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="mt-5 rounded-3xl border border-white/[0.07] bg-white/[0.03] p-4"
+            >
+              <p className="text-[13px] leading-[1.65] text-zinc-300">{meta.description}</p>
+            </motion.div>
+          )}
+
+          <div className="mt-4 rounded-3xl border border-white/[0.07] bg-white/[0.03] p-4">
+            <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+              Your rating
+            </p>
+            <RatingControl value={personalRating} onChange={(value) => setRating(historyTitle, value)} />
+          </div>
+        </motion.section>
+
+        {type === "series" && seasons.length > 0 && (
+          <section className="mt-8">
+            <div className="mb-4 flex items-center justify-between px-4">
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-accent">Episodes</p>
+                <h2 className="mt-1 text-[24px] font-black tracking-[-0.04em]">Season {selectedSeason}</h2>
+              </div>
+              <span className="text-xs text-zinc-600">{episodes.length} episodes</span>
+            </div>
+
+            <div className="no-scrollbar mb-4 flex snap-x gap-2 overflow-x-auto px-4 pb-1">
+              {seasons.map((season) => (
+                <motion.button
+                  key={season}
+                  whileTap={{ scale: 0.92 }}
+                  onClick={() => {
+                    setSelectedSeason(season);
+                    setSelectedEpisode(meta.videos?.find((video) => video.season === season) ?? null);
+                  }}
+                  className={`shrink-0 rounded-full px-4 py-2 text-xs font-bold transition ${
+                    selectedSeason === season
+                      ? "bg-brand text-[#090806]"
+                      : "border border-white/10 bg-white/[0.04] text-zinc-400"
+                  }`}
+                >
+                  Season {season}
+                </motion.button>
+              ))}
+            </div>
+
+            <div className="space-y-3 px-4">
+              {episodes.map((episode, index) => (
+                <motion.article
+                  key={episode.id}
+                  initial={{ opacity: 0, y: 16 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, margin: "-40px" }}
+                  transition={{ delay: Math.min(index * 0.025, 0.16) }}
+                  className={`overflow-hidden rounded-[22px] border ${
+                    selectedEpisode?.id === episode.id
+                      ? "border-brand/25 bg-brand/[0.055]"
+                      : "border-white/[0.07] bg-white/[0.028]"
+                  }`}
+                >
+                  <div className="flex items-center gap-3 p-3">
+                    <motion.button
+                      whileTap={{ scale: 0.97 }}
+                      onClick={() => {
+                        setSelectedEpisode(episode);
+                        void watchNow(episode);
+                      }}
+                      disabled={starting}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:opacity-50"
+                    >
+                      <div className="relative aspect-video w-[122px] shrink-0 overflow-hidden rounded-2xl">
+                        <Artwork
+                          src={episode.thumbnail}
+                          title={episode.name ?? episode.title ?? `Episode ${episode.episode}`}
+                          variant="landscape"
+                          className="h-full w-full object-cover"
+                          draggable={false}
+                        />
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/20">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-black shadow-lg">
+                            <Play size={13} fill="currentColor" />
+                          </span>
+                        </span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-600">
+                          Episode {episode.episode}
+                        </p>
+                        <p className="mt-1 line-clamp-2 text-[13px] font-bold leading-4">
+                          {episode.name ?? episode.title ?? `Episode ${episode.episode}`}
+                        </p>
+                      </div>
+                    </motion.button>
+                    <motion.button
+                      whileTap={{ scale: 0.88 }}
+                      onClick={() => {
+                        setSelectedEpisode(episode);
+                        setSourceOpen(true);
+                      }}
+                      aria-label={`Choose stream for episode ${episode.episode}`}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/20 text-zinc-400"
+                    >
+                      <ListFilter size={15} />
+                    </motion.button>
+                  </div>
+                  {episode.overview && (
+                    <p className="line-clamp-2 px-3 pb-3 text-[11px] leading-[1.5] text-zinc-500">
+                      {episode.overview}
+                    </p>
+                  )}
+                </motion.article>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <TorrentModal
+          initialQuery={query}
+          lookup={lookup}
+          media={{
+            title: meta.name,
+            subtitle:
+              type === "series" && selectedEpisode
+                ? `S${selectedEpisode.season} E${selectedEpisode.episode} · ${selectedEpisode.name ?? selectedEpisode.title ?? `Episode ${selectedEpisode.episode}`}`
+                : meta.releaseInfo ?? meta.year,
+            posterUrl: meta.poster,
+            isEpisode: type === "series",
+            season: type === "series" ? selectedEpisode?.season : undefined,
+            episode: type === "series" ? selectedEpisode?.episode : undefined,
+            ...catalogMetadata,
+          }}
+          open={sourceOpen}
+          onClose={() => setSourceOpen(false)}
+        />
+      </motion.main>
+    );
+  }
+
   return (
     <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen bg-surface pb-20">
       <section className="relative h-[82vh] min-h-[620px] overflow-hidden">

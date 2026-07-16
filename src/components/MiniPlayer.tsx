@@ -20,10 +20,12 @@ import {
 } from "lucide-react";
 import { usePlayback } from "@/stores/playbackStore";
 import { formatClock } from "@/lib/utils";
+import { isAppleMobile } from "@/lib/platform";
 import Artwork from "@/components/Artwork";
 
 export default function MiniPlayer() {
   const navigate = useNavigate();
+  const mobileApple = isAppleMobile();
   const {
     session,
     isPlaying,
@@ -44,6 +46,64 @@ export default function MiniPlayer() {
     expand();
     navigate(session.direct ? "/stream" : `/play/${session.itemId}`);
   };
+
+  if (mobileApple) {
+    return (
+      <motion.div
+        initial={{ y: 36, opacity: 0, scale: 0.97 }}
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        exit={{ y: 24, opacity: 0, scale: 0.98 }}
+        transition={{ type: "spring", stiffness: 360, damping: 32 }}
+        className="fixed inset-x-3 z-[45] overflow-hidden rounded-[20px] border border-white/10 bg-[#17140f]/95 shadow-[0_18px_55px_rgba(0,0,0,.58)] backdrop-blur-2xl"
+        style={{ bottom: "calc(5.25rem + env(safe-area-inset-bottom, 0px))" }}
+      >
+        <div className="h-[3px] bg-white/10">
+          <motion.div
+            className="h-full bg-brand-light"
+            animate={{ width: `${progress}%` }}
+            transition={{ ease: "linear", duration: 0.2 }}
+          />
+        </div>
+        <div className="flex h-[65px] items-center gap-3 px-2.5">
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={openFull}
+            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          >
+            <Artwork
+              src={session.posterUrl}
+              title={session.title}
+              variant="compact"
+              className="h-12 w-9 shrink-0 rounded-[9px] object-cover shadow-lg ring-1 ring-white/10"
+              draggable={false}
+            />
+            <div className="min-w-0">
+              <p className="truncate text-[13px] font-bold">{session.title}</p>
+              <p className="mt-0.5 truncate text-[11px] text-zinc-400">
+                {session.subtitle ?? `${formatClock(currentTime)} of ${formatClock(duration)}`}
+              </p>
+            </div>
+          </motion.button>
+          <motion.button
+            whileTap={{ scale: 0.86 }}
+            onClick={() => controls?.toggle()}
+            aria-label={isPlaying ? "Pause" : "Play"}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-light text-[#090806]"
+          >
+            {isPlaying ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" className="ml-0.5" />}
+          </motion.button>
+          <motion.button
+            whileTap={{ scale: 0.86 }}
+            onClick={stop}
+            aria-label="Close player"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-zinc-400"
+          >
+            <X size={17} />
+          </motion.button>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div

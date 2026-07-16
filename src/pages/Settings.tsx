@@ -37,6 +37,8 @@ export default function Settings() {
   const mobileApple = isAppleMobile();
   const settings = useSettings();
   const profiles = useAuth((s) => s.profiles);
+  const activeProfileId = useAuth((s) => s.activeProfileId);
+  const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
   const { qbt, prowlarr, torrentio } = useTorrents();
 
   // Local draft so typing doesn't thrash the persisted store.
@@ -134,6 +136,27 @@ export default function Settings() {
     >
       <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-accent">Tune your space</p>
       <h1 className="mb-9 text-4xl font-black tracking-[-0.04em]">{t("settings.title")}</h1>
+
+      {mobileApple && (
+        <motion.section
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 flex items-center gap-4 rounded-[28px] border border-white/[0.08] bg-gradient-to-br from-brand/[0.12] to-white/[0.025] p-4 shadow-[0_18px_50px_rgba(0,0,0,.22)]"
+        >
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] bg-gradient-to-br from-brand-light to-brand text-xl font-black uppercase text-[#090806] shadow-[0_12px_30px_rgba(214,178,94,.2)]">
+            {activeProfile?.userName?.[0] ?? "A"}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-lg font-black tracking-tight">{activeProfile?.userName ?? "Akflix"}</p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {activeProfile?.kind === "local" ? "Local profile on this iPhone" : activeProfile?.serverName ?? "Jellyfin profile"}
+            </p>
+          </div>
+          <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-emerald-400">
+            Active
+          </span>
+        </motion.section>
+      )}
 
       {/* ── Jellyfin servers (read-only list; add/remove via login screen) ── */}
       <section className="glass-panel mb-6 rounded-3xl p-6">
