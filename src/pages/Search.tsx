@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Download, PlayCircle, SearchIcon } from "lucide-react";
+import { Download, PlayCircle, SearchIcon, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/stores/authStore";
 import { useTorrents } from "@/stores/torrentStore";
@@ -19,11 +19,15 @@ import { formatBytes } from "@/lib/utils";
 import type { BaseItem } from "@/types/jellyfin";
 import type { TorrentAddMode, TorrentResult } from "@/types/torrent";
 import type { StremioMeta } from "@/types/stremio";
+import { isAppleMobile } from "@/lib/platform";
+
+const QUICK_SEARCHES = ["Dune", "The Bear", "Batman", "Severance"];
 
 export default function Search() {
   const t = useT();
   const client = useAuth((s) => s.client)();
   const { search: torrentSearch, addTorrent, prowlarr } = useTorrents();
+  const mobileApple = isAppleMobile();
 
   const [query, setQuery] = useState("");
   const [libResults, setLibResults] = useState<BaseItem[]>([]);
@@ -93,48 +97,72 @@ export default function Search() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="min-h-screen bg-[radial-gradient(circle_at_50%_-12%,rgba(214,178,94,.11),transparent_34rem)] px-6 pb-16 pt-28 md:px-12 lg:px-16"
+      className="min-h-screen bg-[radial-gradient(circle_at_50%_-12%,rgba(214,178,94,.11),transparent_34rem)] px-4 pb-32 pt-28 md:px-12 md:pb-16 lg:px-16"
     >
       {/* Search input */}
-      <div className="mx-auto mb-12 max-w-3xl text-center">
+      <div className="mx-auto mb-8 max-w-3xl text-center md:mb-12">
         <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-accent">One search, every screen</p>
-        <h1 className="mb-7 text-4xl font-black tracking-[-0.045em]">What are we watching?</h1>
-      <div className="glass-panel flex items-center gap-3 rounded-2xl px-5 focus-within:border-brand/50">
+        <h1 className="mb-5 text-3xl font-black tracking-[-0.045em] md:mb-7 md:text-4xl">What are we watching?</h1>
+      <div className="glass-panel flex items-center gap-3 rounded-2xl px-4 focus-within:border-brand/50 md:px-5">
         <SearchIcon size={20} className="text-brand-light" />
         <input
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t("search.placeholder")}
-          className="w-full bg-transparent py-4 text-lg outline-none placeholder:text-zinc-600"
+          className="min-w-0 flex-1 bg-transparent py-3.5 text-base outline-none placeholder:text-zinc-600 md:py-4 md:text-lg"
         />
+        {query && (
+          <motion.button
+            whileTap={{ scale: 0.86 }}
+            onClick={() => setQuery("")}
+            aria-label="Clear search"
+            className="rounded-full bg-white/[0.07] p-1.5 text-zinc-400"
+          >
+            <X size={14} />
+          </motion.button>
+        )}
       </div>
+        {!query && mobileApple && (
+          <div className="no-scrollbar mt-4 flex gap-2 overflow-x-auto pb-1 text-left">
+            {QUICK_SEARCHES.map((suggestion) => (
+              <motion.button
+                key={suggestion}
+                whileTap={{ scale: 0.94 }}
+                onClick={() => setQuery(suggestion)}
+                className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-zinc-300"
+              >
+                {suggestion}
+              </motion.button>
+            ))}
+          </div>
+        )}
       </div>
 
       {loading && <Spinner />}
 
       {/* Jellyfin library results */}
       {libResults.length > 0 && (
-        <section className="mb-12">
-          <h2 className="mb-4 text-lg font-semibold">{t("search.library")}</h2>
+        <motion.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="mb-10 md:mb-12">
+          <h2 className="mb-4 text-lg font-black">{t("search.library")}</h2>
           <div className="flex flex-wrap gap-3">
             {libResults.map((item) => (
               <MediaCard key={item.Id} item={item} />
             ))}
           </div>
-        </section>
+        </motion.section>
       )}
 
       {/* Stremio/Cinemeta discover results — Torrentio resolves sources on detail. */}
       {discoverResults.length > 0 && (
-        <section className="mb-12">
-          <h2 className="mb-4 text-lg font-semibold">Discover Movies &amp; Series</h2>
-          <div className="flex flex-wrap gap-3">
+        <motion.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="mb-10 md:mb-12">
+          <h2 className="mb-4 text-lg font-black">Movies and series</h2>
+          <div className={mobileApple ? "grid grid-cols-2 gap-3" : "flex flex-wrap gap-3"}>
             {discoverResults.map((item) => (
-              <DiscoverCard key={`${item.type}:${item.id}`} item={item} />
+              <DiscoverCard key={`${item.type}:${item.id}`} item={item} fluid={mobileApple} />
             ))}
           </div>
-        </section>
+        </motion.section>
       )}
 
       {/* Torrent "Discover" results */}

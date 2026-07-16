@@ -1,11 +1,12 @@
 # AKFLIX
 
-A standalone desktop streaming app with movie/series discovery, one-click
-playback, temporary streaming and offline downloads. Jellyfin, Prowlarr and
-qBittorrent remain available as optional integrations for advanced setups.
+A streaming app for Mac and iPhone with movie/series discovery, one-click
+playback, watch progress, ratings, recommendations and optional Jellyfin.
+The desktop build also includes temporary peer streaming and offline downloads.
 
 - **Frontend:** React + TypeScript + Vite + TailwindCSS + Framer Motion
 - **Desktop shell:** Tauri 2 (Rust)
+- **iPhone shell:** Tauri 2 + Xcode, with native WebKit playback
 - **Catalog:** Cinemeta metadata + the configured Stremio/Torrentio source
 - **Playback engine:** bundled rqbit + bundled static FFmpeg
 - **Optional integrations:** Jellyfin, Prowlarr and external qBittorrent
@@ -49,7 +50,9 @@ akflix/
 ├── src-tauri/                  # Tauri 2 desktop shell (Rust)
 │   ├── src/lib.rs              # plugin registration (CORS-free HTTP)
 │   ├── tauri.conf.json
-│   └── capabilities/default.json
+│   ├── tauri.ios.conf.json      # iPhone-specific bundle settings
+│   ├── capabilities/default.json
+│   └── gen/apple/               # generated Xcode project
 ├── website/index.html          # self-contained download/landing page
 ├── .github/workflows/release.yml  # multi-platform release + updater artifacts
 └── src/
@@ -118,6 +121,29 @@ npm run tauri:dev
 
 The desktop development build uses the same bundled executables under
 `src-tauri/binaries`. A plain browser build cannot launch the native engine.
+
+### Run the iPhone app
+
+The iPhone target requires macOS, Xcode, CocoaPods and the Rust iOS targets.
+The Xcode project is already included, so normal development only needs:
+
+```bash
+npm install
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+npm run ios:dev -- "iPhone 17 Pro"
+```
+
+Use another installed simulator name if needed. To open the project in Xcode
+for a connected iPhone, run `npm run ios:dev -- --open`, choose your Apple
+development team under Signing & Capabilities, then run the `akflix_iOS`
+scheme. A real-device or App Store build requires Apple code signing.
+
+The iPhone app intentionally accepts hosted HTTP/HLS links or streams from a
+connected Jellyfin server. It does not bundle the desktop peer engine or
+offline torrent manager. For Torrentio playback on iPhone, paste a configured
+manifest that returns hosted links, such as a manifest backed by your own
+debrid provider. The public magnet-only manifest can browse sources but cannot
+play them directly on iOS.
 
 ### 3. Production build & distribution
 

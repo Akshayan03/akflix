@@ -1,10 +1,85 @@
 import { ArrowRight, Info, Play, Sparkles } from "lucide-react";
+import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import type { StremioMeta } from "@/types/stremio";
 import Artwork from "@/components/Artwork";
+import { isAppleMobile } from "@/lib/platform";
 
 export default function DiscoverHero({ item }: { item: StremioMeta }) {
   const navigate = useNavigate();
+  const mobileApple = isAppleMobile();
+
+  if (mobileApple) {
+    return (
+      <motion.section
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="relative h-[76svh] min-h-[610px] overflow-hidden"
+      >
+        <motion.div
+          initial={{ scale: 1.1 }}
+          animate={{ scale: 1 }}
+          transition={{ duration: 1.25, ease: [0.22, 1, 0.36, 1] }}
+          className="absolute inset-0"
+        >
+          <Artwork
+            src={item.background ?? item.poster}
+            title={item.name}
+            variant="backdrop"
+            className="h-full w-full object-cover"
+            draggable={false}
+          />
+        </motion.div>
+        <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/10 to-surface" />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(9,8,6,.36),transparent_74%)]" />
+        <div className="absolute inset-x-0 bottom-0 h-[72%] bg-[linear-gradient(0deg,#090806_2%,rgba(9,8,6,.84)_28%,transparent_82%)]" />
+
+        <motion.div
+          initial={{ opacity: 0, y: 28 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.18, type: "spring", stiffness: 220, damping: 25 }}
+          className="absolute inset-x-0 bottom-11 px-4"
+        >
+          <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/35 px-3 py-1.5 text-[9px] font-bold uppercase tracking-[0.19em] text-zinc-100 backdrop-blur-xl">
+            <Sparkles size={11} className="text-accent" /> Featured tonight
+          </div>
+          <h1 className="hero-shadow max-w-[92%] text-[43px] font-black leading-[0.9] tracking-[-0.06em]">
+            {item.name}
+          </h1>
+          <div className="mt-4 flex items-center gap-2.5 text-[12px] font-semibold text-zinc-300">
+            {item.imdbRating && <span className="text-accent">★ {item.imdbRating}</span>}
+            <span>{item.releaseInfo ?? item.year}</span>
+            <span className="rounded-full border border-white/15 px-2 py-0.5 text-[9px] uppercase tracking-wider">
+              {item.type === "series" ? "Series" : "Movie"}
+            </span>
+          </div>
+          {item.description && (
+            <p className="mt-3 line-clamp-2 max-w-[95%] text-[13px] leading-5 text-zinc-300">
+              {item.description}
+            </p>
+          )}
+          <div className="mt-5 grid grid-cols-[1fr_auto] gap-2.5">
+            <motion.button
+              whileTap={{ scale: 0.96 }}
+              onClick={() => navigate(`/discover/${item.type}/${item.id}`)}
+              className="flex h-[50px] items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-brand-light to-brand px-5 py-3.5 text-sm font-black text-[#090806] shadow-[0_14px_38px_rgba(152,117,47,.28)]"
+            >
+              <Play size={17} fill="currentColor" /> Watch now
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.92 }}
+              onClick={() => navigate(`/discover/${item.type}/${item.id}`)}
+              aria-label={`View details for ${item.name}`}
+              className="ios-circle-button !h-[50px] !w-[50px]"
+            >
+              <Info size={19} />
+            </motion.button>
+          </div>
+        </motion.div>
+      </motion.section>
+    );
+  }
+
   return (
     <section className="relative h-[82vh] min-h-[610px] overflow-hidden">
       <Artwork

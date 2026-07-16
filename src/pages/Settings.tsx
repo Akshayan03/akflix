@@ -3,9 +3,11 @@
  * language. Each service section has a live "Test connection" button.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { CheckCircle2, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, ExternalLink, RefreshCw, XCircle } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import { useSettings } from "@/stores/settingsStore";
 import { useAuth } from "@/stores/authStore";
@@ -34,9 +36,12 @@ const labelCls = "mb-1 mt-4 block text-xs text-zinc-400";
 
 export default function Settings() {
   const t = useT();
+  const location = useLocation();
   const mobileApple = isAppleMobile();
   const settings = useSettings();
   const profiles = useAuth((s) => s.profiles);
+  const activeProfileId = useAuth((s) => s.activeProfileId);
+  const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
   const { qbt, prowlarr, torrentio } = useTorrents();
 
   // Local draft so typing doesn't thrash the persisted store.
@@ -59,11 +64,22 @@ export default function Settings() {
   const [prowlarrTest, setProwlarrTest] = useState<TestState>("idle");
   const [jfTests, setJfTests] = useState<Record<string, TestState>>({});
 
+  useEffect(() => {
+    if (!mobileApple || location.hash !== "#hosted-streaming") return;
+    const timer = setTimeout(() => {
+      document.getElementById("hosted-streaming")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [location.hash, mobileApple]);
+
   const set = <K extends keyof typeof draft>(k: K, v: (typeof draft)[K]) =>
     setDraft((d) => ({ ...d, [k]: v }));
 
   const save = () => {
-    settings.update(draft);
+    settings.update(mobileApple ? { ...draft, torrentSource: "torrentio" } : draft);
     setSaved(true);
     toast.success(t("settings.saved"));
     setTimeout(() => setSaved(false), 2000);
@@ -109,7 +125,7 @@ export default function Settings() {
     save();
     setProwlarrTest("busy");
     const ok =
-      draft.torrentSource === "torrentio"
+      (mobileApple || draft.torrentSource === "torrentio")
         ? await torrentio().test()
         : await prowlarr().test();
     setProwlarrTest(ok ? "ok" : "fail");
@@ -125,19 +141,120 @@ export default function Settings() {
     }
   };
 
+  const configureTorrentio = async () => {
+    try {
+      await openUrl("https://torrentio.strem.fun/configure");
+    } catch (reason) {
+      toast.error("Could not open Torrentio", {
+        description: reason instanceof Error ? reason.message : String(reason),
+      });
+    }
+  };
+
   return (
     <motion.main
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="mx-auto min-h-screen max-w-3xl px-6 pb-24 pt-28"
+      className="mx-auto min-h-screen max-w-3xl px-4 pb-32 pt-32 sm:px-6 sm:pb-24 sm:pt-28"
     >
       <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-accent">Tune your space</p>
       <h1 className="mb-9 text-4xl font-black tracking-[-0.04em]">{t("settings.title")}</h1>
 
+      {mobileApple && (
+        <motion.section
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 flex items-center gap-4 rounded-[28px] border border-white/[0.08] bg-gradient-to-br from-brand/[0.12] to-white/[0.025] p-4 shadow-[0_18px_50px_rgba(0,0,0,.22)]"
+        >
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] bg-gradient-to-br from-brand-light to-brand text-xl font-black uppercase text-[#090806] shadow-[0_12px_30px_rgba(214,178,94,.2)]">
+            {activeProfile?.userName?.[0] ?? "A"}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-lg font-black tracking-tight">{activeProfile?.userName ?? "Akflix"}</p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {activeProfile?.kind === "local" ? "Local profile on this iPhone" : activeProfile?.serverName ?? "Jellyfin profile"}
+            </p>
+          </div>
+          <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-emerald-400">
+            Active
+          </span>
+        </motion.section>
+      )}
+
+      {mobileApple && (
+        <motion.section
+          id="hosted-streaming"
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="glass-panel mb-6 scroll-mt-24 rounded-3xl border-brand/20 p-6"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-accent">Direct playback</p>
+              <h2 className="mt-1 text-lg font-black">Instant streaming</h2>
+            </div>
+            <TestBadge state={prowlarrTest} />
+          </div>
+          <p className="mt-3 text-xs leading-5 text-zinc-400">
+            Akflix can play a hosted video URL directly. Jellyfin is optional and no local download is needed.
+          </p>
+
+          <div className="mt-5 rounded-2xl border border-white/[0.07] bg-black/20 p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">Step 1</p>
+            <p className="mt-1 text-sm font-semibold">Configure Torrentio with a debrid provider</p>
+            <p className="mt-1 text-[11px] leading-5 text-zinc-500">
+              Selecting None returns peer links, which cannot play directly on iPhone.
+            </p>
+            <motion.button
+              whileTap={{ scale: 0.96 }}
+              type="button"
+              onClick={() => void configureTorrentio()}
+              className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand-light text-xs font-black text-[#090806]"
+            >
+              <ExternalLink size={15} /> Open Torrentio setup
+            </motion.button>
+          </div>
+
+          <div className="mt-3 rounded-2xl border border-white/[0.07] bg-black/20 p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">Step 2</p>
+            <label className="mt-1 block text-sm font-semibold">Paste the configured manifest link</label>
+            <input
+              value={draft.torrentioManifestUrl}
+              onChange={(event) => set("torrentioManifestUrl", event.target.value)}
+              placeholder="https://torrentio.strem.fun/.../manifest.json"
+              inputMode="url"
+              autoCapitalize="none"
+              autoCorrect="off"
+              className={`${inputCls} mt-3 text-[12px]`}
+            />
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <motion.button
+                whileTap={{ scale: 0.96 }}
+                type="button"
+                onClick={save}
+                className="h-11 rounded-xl border border-white/10 bg-white/[0.06] text-xs font-bold text-zinc-200"
+              >
+                {saved ? "Saved" : "Save link"}
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.96 }}
+                type="button"
+                onClick={() => void testIndexer()}
+                className="h-11 rounded-xl border border-brand/30 bg-brand/10 text-xs font-bold text-brand-light"
+              >
+                Test source
+              </motion.button>
+            </div>
+          </div>
+        </motion.section>
+      )}
+
       {/* ── Jellyfin servers (read-only list; add/remove via login screen) ── */}
       <section className="glass-panel mb-6 rounded-3xl p-6">
-        <h2 className="mb-4 font-semibold">{t("settings.jellyfin")}</h2>
+        <h2 className="mb-1 font-semibold">{mobileApple ? "Personal library" : t("settings.jellyfin")}</h2>
+        {mobileApple && <p className="mb-4 text-xs text-zinc-500">Optional Jellyfin connection</p>}
         {profiles.filter((profile) => profile.kind !== "local").length === 0 && (
           <p className="text-sm text-zinc-500">No servers. Sign in from the login screen.</p>
         )}
@@ -165,18 +282,12 @@ export default function Settings() {
       </section>
 
       {/* ── Playback engine ── */}
-      <section className="glass-panel mb-6 rounded-3xl p-6">
+      {!mobileApple && <section className="glass-panel mb-6 rounded-3xl p-6">
         <div className="flex items-center gap-2">
           <h2 className="font-semibold">{t("settings.torrentClient")}</h2>
           <TestBadge state={qbtTest} />
         </div>
 
-        {mobileApple ? (
-          <p className="mt-3 text-xs leading-relaxed text-zinc-500">
-            iPhone and iPad use hosted/debrid links or a connected Jellyfin library.
-            The private peer engine and offline torrent manager are desktop-only.
-          </p>
-        ) : (
           <>
             <label className={labelCls}>Engine</label>
             <select
@@ -237,29 +348,30 @@ export default function Settings() {
               {t("settings.test")}
             </button>
           </>
-        )}
-      </section>
+      </section>}
 
       {/* ── Torrent metadata source ── */}
-      <section className="glass-panel mb-6 rounded-3xl p-6">
+      {!mobileApple && <section className="glass-panel mb-6 rounded-3xl p-6">
         <div className="flex items-center gap-2">
-          <h2 className="font-semibold">{t("settings.indexer")}</h2>
+          <h2 className="font-semibold">
+            {mobileApple ? "Hosted streaming" : t("settings.indexer")}
+          </h2>
           <TestBadge state={prowlarrTest} />
         </div>
 
         <label className={labelCls}>Provider</label>
         <select
-          value={draft.torrentSource}
+          value={mobileApple ? "torrentio" : draft.torrentSource}
           onChange={(e) =>
             set("torrentSource", e.target.value as typeof draft.torrentSource)
           }
           className={inputCls}
         >
           <option value="torrentio">Torrentio</option>
-          <option value="prowlarr">Prowlarr</option>
+          {!mobileApple && <option value="prowlarr">Prowlarr</option>}
         </select>
 
-        {draft.torrentSource === "torrentio" ? (
+        {mobileApple || draft.torrentSource === "torrentio" ? (
           <>
             <label className={labelCls}>Configured manifest URL</label>
             <input
@@ -269,8 +381,9 @@ export default function Settings() {
               className={inputCls}
             />
             <p className="mt-2 text-[11px] leading-relaxed text-zinc-600">
-              Paste Torrentio’s configured manifest link here. A debrid provider is
-              optional, but cached hosted links give the closest thing to instant playback.
+              {mobileApple
+                ? "iPhone playback needs a Torrentio manifest with a debrid provider so the app receives hosted links. Jellyfin playback works separately."
+                : "Paste Torrentio’s configured manifest link here. A debrid provider is optional, but cached hosted links give the closest thing to instant playback."}
             </p>
           </>
         ) : (
@@ -298,7 +411,7 @@ export default function Settings() {
         >
           {t("settings.test")}
         </button>
-      </section>
+      </section>}
 
       {/* ── Language ── */}
       <section className="mb-10 rounded-lg border border-zinc-800 bg-surface-raised p-6">

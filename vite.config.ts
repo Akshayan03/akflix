@@ -2,6 +2,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
+const mobileHost = process.env.TAURI_DEV_HOST;
+
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
@@ -13,8 +15,16 @@ export default defineConfig({
 
   // Tauri expects a fixed port; fail if it can't be used.
   server: {
+    host: mobileHost || false,
     port: 1420,
     strictPort: true,
+    hmr: mobileHost
+      ? {
+          protocol: "ws",
+          host: mobileHost,
+          port: 1421,
+        }
+      : undefined,
 
     /**
      * Dev-only proxies so the browser build can talk to qBittorrent and

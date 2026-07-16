@@ -6,7 +6,10 @@ dist-ssr
 
 # Tauri
 src-tauri/target
-src-tauri/gen
+src-tauri/gen/schemas
+src-tauri/gen/apple/build
+src-tauri/gen/apple/Externals
+src-tauri/gen/apple/**/xcuserdata
 src-tauri/binaries/rqbit-*-apple-darwin
 src-tauri/binaries/rqbit-*-pc-windows-msvc.exe
 src-tauri/binaries/rqbit-*-unknown-linux-gnu

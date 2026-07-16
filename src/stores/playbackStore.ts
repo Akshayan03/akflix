@@ -22,6 +22,12 @@ export interface PlaybackSession {
   direct?: boolean;
 }
 
+export interface DirectEpisodeTarget {
+  season: number;
+  episode: number;
+  title: string;
+}
+
 export interface DirectPlaybackMetadata {
   /** Clean catalog title, never the torrent release filename. */
   title: string;
@@ -41,6 +47,8 @@ export interface DirectPlaybackMetadata {
   year?: string;
   genres?: string[];
   catalogRating?: string;
+  /** Ordered episodes after the current one, used for seamless auto advance. */
+  episodeQueue?: DirectEpisodeTarget[];
 }
 
 export interface DirectPlaybackRequest extends DirectPlaybackMetadata {
@@ -54,6 +62,7 @@ export interface PlayerControls {
   seek: (seconds: number) => void;
   seekBy: (delta: number) => void;
   setMuted: (muted: boolean) => void;
+  setPlaybackRate: (rate: number) => void;
   /** Play the next episode (episodes only). Resolves false if none. */
   next: () => Promise<boolean>;
 }
@@ -72,6 +81,7 @@ interface PlaybackState {
   duration: number;
   buffering: boolean;
   hasNext: boolean;
+  playbackRate: number;
 
   controls: PlayerControls | null;
 
@@ -85,7 +95,7 @@ interface PlaybackState {
   _setSession: (s: PlaybackSession | null) => void;
   _setControls: (c: PlayerControls | null) => void;
   _sync: (patch: Partial<Pick<PlaybackState,
-    "isPlaying" | "muted" | "currentTime" | "duration" | "buffering" | "hasNext">>) => void;
+    "isPlaying" | "muted" | "currentTime" | "duration" | "buffering" | "hasNext" | "playbackRate">>) => void;
 }
 
 export const usePlayback = create<PlaybackState>()((set): PlaybackState => ({
@@ -100,6 +110,7 @@ export const usePlayback = create<PlaybackState>()((set): PlaybackState => ({
   duration: 0,
   buffering: false,
   hasNext: false,
+  playbackRate: 1,
 
   controls: null,
 

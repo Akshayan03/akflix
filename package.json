@@ -1,7 +1,7 @@
 {
   "name": "akflix",
   "private": true,
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Standalone movie and series streaming app with optional Jellyfin integration",
   "type": "module",
   "scripts": {
@@ -12,6 +12,9 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build --config src-tauri/tauri.local.conf.json",
     "tauri:build:signed": "tauri build",
+    "ios:init": "tauri ios init",
+    "ios:dev": "tauri ios dev",
+    "ios:build": "tauri ios build",
     "icons": "tauri icon assets/icon.png",
     "build:mac": "tauri build --config src-tauri/tauri.local.conf.json --bundles app,dmg",
     "build:mac:universal": "node scripts/prepare-macos-sidecars.mjs && tauri build --config src-tauri/tauri.local.conf.json --target universal-apple-darwin --bundles app,dmg",

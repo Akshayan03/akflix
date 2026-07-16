@@ -1,12 +1,14 @@
 /** Premium Torrentio source picker with explicit temporary-stream/offline modes. */
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Check,
   Copy,
   Download,
+  ExternalLink,
   Gauge,
   HardDrive,
   Languages,
@@ -31,6 +33,7 @@ import Artwork from "@/components/Artwork";
 import type { TorrentAddMode, TorrentResult } from "@/types/torrent";
 import type { TorrentioLookup } from "@/api/torrentio";
 import { sourceLanguage, type SourceLanguage } from "@/lib/sourceLanguage";
+import { isAppleMobile } from "@/lib/platform";
 
 interface Props {
   initialQuery: string;
@@ -166,16 +169,13 @@ function sourceFacts(result: TorrentResult) {
   };
 }
 
-function shortTitle(result: TorrentResult): string {
-  return result.title.split("\n")[0].replace(/\\n.*$/, "").trim();
-}
-
 export default function TorrentModal({ initialQuery, open, onClose, lookup, media }: Props) {
   const t = useT();
   const navigate = useNavigate();
   const openDirect = usePlayback((state) => state.openDirect);
   const { search, addTorrent } = useTorrents();
   const torrentSource = useSettings((state) => state.torrentSource);
+  const mobileApple = isAppleMobile();
 
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<TorrentResult[]>([]);
@@ -223,8 +223,13 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialQuery]);
 
+  const compatibleResults = useMemo(
+    () => mobileApple ? results.filter((result) => !!result.streamUrl) : results,
+    [mobileApple, results]
+  );
+
   const filteredSorted = useMemo(() => {
-    const filtered = results.filter((result) => {
+    const filtered = compatibleResults.filter((result) => {
       const facts = sourceFacts(result);
       const language = sourceLanguage(result);
       const matchesQuality =
@@ -257,7 +262,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
       });
     }
     return filtered;
-  }, [languageFilter, qualityFilter, results, sortMode, sourceFilter, speedFilter]);
+  }, [compatibleResults, languageFilter, qualityFilter, sortMode, sourceFilter, speedFilter]);
 
   const filtersActive =
     qualityFilter !== "all" ||
@@ -275,18 +280,21 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
     initialQuery.replace(/\s+\(?\d{4}\)?(?:\s+s\d{1,2}e\d{1,2})?$/i, "").trim() ||
     initialQuery;
 
-  const recommendedGuid = results[0]?.guid;
+  const recommendedGuid = compatibleResults[0]?.guid;
 
   const act = async (result: TorrentResult, mode: TorrentAddMode) => {
     if (actingGuid) return;
     setActingGuid(result.guid);
     try {
+      if (mobileApple && !result.streamUrl) {
+        throw new Error("This iPhone source is not a hosted stream. Choose a hosted/debrid option.");
+      }
       if (mode === "stream" && result.streamUrl) {
         openDirect({
           ...media,
           id: result.guid,
           url: result.streamUrl,
-          title: media?.title ?? shortTitle(result),
+          title: mediaTitle,
           subtitle: media?.subtitle,
           posterUrl: media?.posterUrl,
           isEpisode: media?.isEpisode,
@@ -332,46 +340,53 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
     toast.success("Magnet copied");
   };
 
-  return (
+  return createPortal((
     <AnimatePresence>
       {open && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md"
+          className={`fixed inset-0 z-50 flex bg-black/80 backdrop-blur-md ${
+            mobileApple ? "items-end p-0" : "items-center justify-center p-4"
+          }`}
           onClick={onClose}
         >
           <motion.section
-            initial={{ opacity: 0, scale: 0.97, y: 24 }}
+            initial={mobileApple ? { opacity: 0, y: "100%" } : { opacity: 0, scale: 0.97, y: 24 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.98, y: 12 }}
+            exit={mobileApple ? { opacity: 0, y: "100%" } : { opacity: 0, scale: 0.98, y: 12 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
             onClick={(event) => event.stopPropagation()}
-            className="glass-panel flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-[30px] shadow-[0_30px_120px_rgba(0,0,0,.8)]"
+            className={`glass-panel flex w-full max-w-5xl flex-col overflow-hidden shadow-[0_30px_120px_rgba(0,0,0,.8)] ${
+              mobileApple
+                ? "max-h-[94svh] rounded-b-none rounded-t-[32px] border-x-0 border-b-0"
+                : "max-h-[90vh] rounded-[30px]"
+            }`}
           >
-            <header className="relative shrink-0 overflow-hidden border-b border-white/[0.07] px-5 pb-4 pt-5 md:px-6">
+            <header className={`relative shrink-0 overflow-hidden border-b border-white/[0.07] ${mobileApple ? "px-4 pb-3 pt-2" : "px-5 pb-4 pt-5 md:px-6"}`}>
+              {mobileApple && <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-white/20" />}
               <div className="pointer-events-none absolute -right-20 -top-28 h-64 w-64 rounded-full bg-brand/10 blur-[90px]" />
               <div className="relative flex items-start gap-4">
                 <Artwork
                   src={media?.posterUrl}
                   title={media?.title ?? initialQuery}
                   variant="poster"
-                  className="h-[76px] w-[52px] shrink-0 rounded-xl object-cover shadow-xl ring-1 ring-white/10"
+                  className={`${mobileApple ? "h-[64px] w-[44px]" : "h-[76px] w-[52px]"} shrink-0 rounded-xl object-cover shadow-xl ring-1 ring-white/10`}
                 />
                 <div className="min-w-0 flex-1 pt-0.5">
                   <div className="flex items-center gap-2">
                     <span className="rounded-full bg-brand/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.18em] text-brand-light ring-1 ring-brand/20">
-                      Manual source
+                      {mobileApple ? "Hosted source" : "Manual source"}
                     </span>
-                    {!loading && results.length > 0 && (
+                    {!loading && compatibleResults.length > 0 && (
                       <span className="text-[10px] text-zinc-600">
-                        {filtersActive ? `${filteredSorted.length} of ${results.length} shown` : `${results.length} available`}
+                        {filtersActive ? `${filteredSorted.length} of ${compatibleResults.length} shown` : `${compatibleResults.length} available`}
                       </span>
                     )}
                   </div>
-                  <h2 className="mt-2 truncate text-xl font-bold tracking-tight">
-                    Choose a stream for {mediaTitle}
+                  <h2 className={`${mobileApple ? "mt-1.5 text-[18px]" : "mt-2 text-xl"} truncate font-bold tracking-tight`}>
+                    {mobileApple ? mediaTitle : `Choose a stream for ${mediaTitle}`}
                   </h2>
                   <p className="mt-1 truncate text-xs text-zinc-500">{media?.subtitle ?? initialQuery}</p>
                 </div>
@@ -384,24 +399,32 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                 </button>
               </div>
 
-              <div className="relative mt-4 flex items-start gap-3 rounded-2xl border border-brand/20 bg-brand/[0.055] px-4 py-3">
+              {!mobileApple && <div className="relative mt-4 flex items-start gap-3 rounded-2xl border border-brand/20 bg-brand/[0.055] px-4 py-3">
                 <ShieldCheck size={17} className="mt-0.5 shrink-0 text-brand-light" />
                 <div>
                   <p className="text-xs font-semibold text-zinc-100">Your choice stays selected</p>
                   <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-                    Unlike Watch Now, manual mode does not race or replace your source. Compare audio, picture, size and peer health below.
+                    {mobileApple
+                      ? "Only hosted links that iPhone can open without a desktop peer engine are shown. Compare the available formats below."
+                      : "Unlike Watch Now, manual mode does not race or replace your source. Compare audio, picture, size and peer health below."}
                   </p>
                 </div>
-              </div>
+              </div>}
+
+              {mobileApple && (
+                <div className="mt-3 flex items-center gap-2 rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.055] px-3 py-2.5 text-[11px] text-emerald-200">
+                  <ShieldCheck size={15} className="shrink-0" /> Only iPhone-compatible hosted links are shown
+                </div>
+              )}
 
               <form
-                className="relative mt-4 flex flex-col gap-2 md:flex-row"
+                className={`relative flex flex-col gap-2 md:flex-row ${mobileApple ? "mt-3" : "mt-4"}`}
                 onSubmit={(event) => {
                   event.preventDefault();
                   runSearch(query);
                 }}
               >
-                <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/10 bg-black/25 px-3 focus-within:border-brand/60">
+                <label className={`${mobileApple ? "hidden" : "flex"} min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/10 bg-black/25 px-3 focus-within:border-brand/60`}>
                   <Search size={15} className="shrink-0 text-zinc-600" />
                   <input
                     value={query}
@@ -410,7 +433,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                     className="w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-zinc-700"
                   />
                 </label>
-                <div className="flex overflow-x-auto rounded-xl border border-white/10 bg-black/25 p-1">
+                <div className="no-scrollbar flex overflow-x-auto rounded-xl border border-white/10 bg-black/25 p-1">
                   {(
                     [
                       ["recommended", "Best"],
@@ -423,7 +446,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                       key={mode}
                       type="button"
                       onClick={() => setSortMode(mode)}
-                      className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold transition ${
+                      className={`shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition ${
                         sortMode === mode
                           ? "bg-white text-black"
                           : "text-zinc-500 hover:text-white"
@@ -502,7 +525,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
               </div>
             </header>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-3 md:p-4">
+            <div className={`min-h-0 flex-1 overflow-y-auto ${mobileApple ? "p-2" : "p-3 md:p-4"}`}>
               {loading && <Spinner label="Finding healthy sources…" />}
               {error && (
                 <div className="m-2 rounded-xl border border-red-500/20 bg-red-500/[0.06] p-4 text-sm text-red-300">
@@ -512,7 +535,26 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
               {!loading && !error && !results.length && (
                 <div className="py-16 text-center text-sm text-zinc-500">No playable sources found.</div>
               )}
-              {!loading && !error && results.length > 0 && !filteredSorted.length && (
+              {!loading && !error && mobileApple && results.length > 0 && !compatibleResults.length && (
+                <div className="mx-auto max-w-md py-16 text-center">
+                  <p className="text-sm font-semibold text-zinc-200">No hosted streams are configured</p>
+                  <p className="mt-2 text-xs leading-5 text-zinc-500">
+                    This Torrentio setup returned peer links instead of direct video URLs. Add a debrid provider for instant iPhone playback.
+                  </p>
+                  <motion.button
+                    whileTap={{ scale: 0.96 }}
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      navigate("/settings#hosted-streaming");
+                    }}
+                    className="mx-auto mt-5 flex h-11 items-center justify-center gap-2 rounded-xl bg-brand-light px-5 text-xs font-black text-[#090806]"
+                  >
+                    <ExternalLink size={15} /> Set up instant streaming
+                  </motion.button>
+                </div>
+              )}
+              {!loading && !error && compatibleResults.length > 0 && !filteredSorted.length && (
                 <div className="flex flex-col items-center gap-3 py-16 text-center text-sm text-zinc-500">
                   <span>No sources match these filters.</span>
                   <button
@@ -525,7 +567,8 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                 </div>
               )}
 
-              <div className="space-y-2">
+              <motion.div layout className="space-y-2">
+                <AnimatePresence initial={false} mode="popLayout">
                 {filteredSorted.map((result, index) => {
                   const facts = sourceFacts(result);
                   const recommended = result.guid === recommendedGuid;
@@ -535,8 +578,17 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                   return (
                     <motion.article
                       key={result.guid}
-                      title={shortTitle(result)}
-                      className={`relative overflow-hidden rounded-2xl border p-4 transition ${
+                      layout
+                      aria-label={`Source ${index + 1} for ${mediaTitle}`}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.98 }}
+                      whileHover={!mobileApple ? { y: -2, scale: 1.002 } : undefined}
+                      transition={{
+                        layout: { type: "spring", stiffness: 380, damping: 34 },
+                        delay: Math.min(index * 0.025, 0.15),
+                      }}
+                      className={`relative overflow-hidden rounded-2xl border transition ${mobileApple ? "p-3" : "p-4"} ${
                         recommended
                           ? "border-brand/30 bg-gradient-to-r from-brand/[0.08] to-white/[0.025]"
                           : "border-white/[0.07] bg-white/[0.025] hover:border-white/15 hover:bg-white/[0.045]"
@@ -548,8 +600,8 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                         </div>
                       )}
 
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-                        <div className="min-w-0 flex-1">
+                      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_270px_auto] lg:items-center">
+                        <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2 pr-24 text-[9px] font-bold uppercase tracking-[0.18em] text-zinc-600">
                             <span>Source {String(index + 1).padStart(2, "0")}</span>
                             <span className="h-1 w-1 rounded-full bg-zinc-700" />
@@ -562,9 +614,6 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                             <p className="mt-0.5 truncate text-[11px] text-zinc-500">{media.subtitle}</p>
                           )}
                           <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[10px]">
-                            <span className="rounded-md bg-brand/10 px-2 py-1 font-semibold text-brand-light">
-                              {facts.quality}
-                            </span>
                             <span className="rounded-md bg-white/[0.05] px-2 py-1 text-zinc-300">
                               {facts.releaseType}
                             </span>
@@ -573,9 +622,6 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                             </span>
                             <span className="rounded-md bg-white/[0.05] px-2 py-1 text-zinc-400">
                               {facts.container}
-                            </span>
-                            <span className={`flex items-center gap-1 rounded-md px-2 py-1 font-medium ${facts.language.className}`}>
-                              <Languages size={11} /> {facts.language.label}
                             </span>
                             {facts.picture && (
                               <span className="rounded-md bg-white/[0.05] px-2 py-1 text-zinc-400">
@@ -593,41 +639,59 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                               </span>
                             )}
                           </div>
-                          <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
-                            <span className="flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-black/20 px-2.5 py-1.5 text-zinc-400">
-                              <HardDrive size={12} className="text-zinc-600" />
-                              <strong className="font-semibold text-zinc-200">{result.size ? formatBytes(result.size) : "Hosted"}</strong>
-                              <span>size</span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/[0.06] bg-black/20 p-2.5">
+                          <div className="rounded-xl bg-white/[0.035] p-2.5">
+                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-600">
+                              <Gauge size={11} /> Quality
                             </span>
-                            {!facts.hosted && (
-                              <span className="flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-black/20 px-2.5 py-1.5 text-zinc-400">
-                                <Users size={12} className="text-zinc-600" />
-                                <strong className="font-semibold text-zinc-200">{result.seeders.toLocaleString()}</strong>
-                                <span>seeders</span>
-                              </span>
-                            )}
-                            <span className={`flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-black/20 px-2.5 py-1.5 ${facts.health.color}`}>
-                              <Gauge size={12} /> {facts.health.label} health
+                            <strong className="mt-1 block text-sm text-brand-light">{facts.quality}</strong>
+                          </div>
+                          <div className="rounded-xl bg-white/[0.035] p-2.5">
+                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-600">
+                              <Languages size={11} /> Audio
                             </span>
+                            <strong className="mt-1 block truncate text-xs text-zinc-200">
+                              {facts.language.label}
+                            </strong>
+                          </div>
+                          <div className="rounded-xl bg-white/[0.035] p-2.5">
+                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-600">
+                              <HardDrive size={11} /> Size
+                            </span>
+                            <strong className="mt-1 block text-xs text-zinc-200">
+                              {result.size ? formatBytes(result.size) : "Hosted"}
+                            </strong>
+                          </div>
+                          <div className="rounded-xl bg-white/[0.035] p-2.5">
+                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-600">
+                              <Users size={11} /> {facts.hosted ? "Speed" : "Peers"}
+                            </span>
+                            <strong className={`mt-1 block text-xs ${facts.health.color}`}>
+                              {facts.hosted ? facts.health.label : result.seeders.toLocaleString()}
+                            </strong>
                           </div>
                         </div>
 
-                        <div className="flex shrink-0 items-stretch gap-2">
+                        <div className={`flex shrink-0 items-stretch gap-2 ${mobileApple ? "w-full" : ""}`}>
                           {added ? (
                             <div className="flex min-w-32 items-center justify-center gap-2 rounded-xl bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-400">
                               <Check size={15} /> Added
                             </div>
                           ) : (
                             <>
-                              <button
+                              <motion.button
+                                whileTap={{ scale: 0.95 }}
+                                whileHover={!mobileApple ? { scale: 1.025 } : undefined}
                                 onClick={() => act(result, "stream")}
                                 disabled={!!actingGuid}
-                                className="group/stream flex min-w-32 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-light to-brand px-4 py-2.5 text-xs font-bold text-[#090806] shadow-[0_10px_28px_rgba(152,117,47,.16)] transition hover:scale-[1.02] hover:brightness-110 disabled:opacity-50"
+                                className={`group/stream flex min-w-32 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-light to-brand px-4 py-2.5 text-xs font-bold text-[#090806] shadow-[0_10px_28px_rgba(152,117,47,.16)] transition hover:scale-[1.02] hover:brightness-110 disabled:opacity-50 ${mobileApple ? "h-11 flex-1" : ""}`}
                               >
                                 {acting ? <LoaderCircle size={15} className="animate-spin" /> : <Wifi size={15} />}
                                 {acting ? "Starting…" : "Watch this"}
-                              </button>
-                              {!result.streamUrl && (
+                              </motion.button>
+                              {!mobileApple && !result.streamUrl && (
                                 <button
                                   onClick={() => act(result, "download")}
                                   disabled={!!actingGuid}
@@ -639,7 +703,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                               )}
                             </>
                           )}
-                          {result.magnetUrl && (
+                          {!mobileApple && result.magnetUrl && (
                             <button
                               onClick={() => copyMagnet(result)}
                               title="Copy magnet"
@@ -653,16 +717,17 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                     </motion.article>
                   );
                 })}
-              </div>
+                </AnimatePresence>
+              </motion.div>
             </div>
 
-            <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-white/[0.07] bg-black/20 px-5 py-3 text-[10px] text-zinc-600">
+            <footer className={`${mobileApple ? "hidden" : "flex"} shrink-0 items-center justify-between gap-4 border-t border-white/[0.07] bg-black/20 px-5 py-3 text-[10px] text-zinc-600`}>
               <span>⚖️ {t("torrent.disclaimer")}</span>
-              <span className="hidden items-center gap-1 md:flex"><Radio size={11} /> Powered by Torrentio + your local stream engine</span>
+              <span className="hidden items-center gap-1 md:flex"><Radio size={11} /> {mobileApple ? "Hosted playback on iPhone" : "Powered by Torrentio + your local stream engine"}</span>
             </footer>
           </motion.section>
         </motion.div>
       )}
     </AnimatePresence>
-  );
+  ), document.body);
 }

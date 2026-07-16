@@ -21,11 +21,12 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+#[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager,
 };
+use tauri::Manager;
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 
 #[cfg(unix)]
@@ -732,6 +733,7 @@ fn start_stream_gateway() {
     });
 }
 
+#[cfg(desktop)]
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -742,22 +744,28 @@ fn show_main_window(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    let builder = {
         // Must be registered first: a second app launch (e.g. the OS opening
         // a magnet link) focuses the running instance instead of starting a
         // new one; the deep-link plugin receives the URL.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            show_main_window(app);
-        }))
+        builder
+            .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+                show_main_window(app);
+            }))
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init())
+    };
+
+    let app = builder
         // CORS-free fetch for the frontend (Jellyfin / qBittorrent / Prowlarr).
         .plugin(tauri_plugin_http::init())
         // Open external links in the OS default handler.
         .plugin(tauri_plugin_opener::init())
         // magnet: scheme handling (config in tauri.conf.json > plugins.deep-link).
         .plugin(tauri_plugin_deep_link::init())
-        // Auto-updates from GitHub releases + relaunch support.
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             start_hls_stream,
             start_hls_url,
@@ -767,47 +775,56 @@ pub fn run() {
             available_media_storage,
             remove_embedded_media_files
         ])
-        .setup(|app| {
-            if let Err(error) = start_embedded_torrent_engine(app.handle()) {
-                eprintln!("Akflix embedded engine warning: {error}");
-            }
-            start_stream_gateway();
-            // ── System tray ──────────────────────────────────────────────
-            let open = MenuItem::with_id(app, "open", "Open Akflix", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &quit])?;
+        .setup(|_app| {
+            #[cfg(desktop)]
+            {
+                let app = _app;
+                if let Err(error) = start_embedded_torrent_engine(app.handle()) {
+                    eprintln!("Akflix embedded engine warning: {error}");
+                }
+                start_stream_gateway();
+                let open = MenuItem::with_id(app, "open", "Open Akflix", true, None::<&str>)?;
+                let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&open, &quit])?;
 
-            TrayIconBuilder::with_id("akflix-tray")
-                .tooltip("Akflix")
-                .icon(app.default_window_icon().unwrap().clone())
-                .menu(&menu)
-                .show_menu_on_left_click(true)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "open" => show_main_window(app),
-                    "quit" => {
-                        stop_embedded_torrent_engine();
-                        app.exit(0);
-                    }
-                    _ => {}
-                })
-                .build(app)?;
+                TrayIconBuilder::with_id("akflix-tray")
+                    .tooltip("Akflix")
+                    .icon(app.default_window_icon().unwrap().clone())
+                    .menu(&menu)
+                    .show_menu_on_left_click(true)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "open" => show_main_window(app),
+                        "quit" => {
+                            stop_embedded_torrent_engine();
+                            app.exit(0);
+                        }
+                        _ => {}
+                    })
+                    .build(app)?;
+            }
 
             Ok(())
         })
         // Closing the window hides to tray (playback/downloads keep running).
         // Quit for real via the tray menu or Cmd+Q.
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let _ = window.hide();
-                api.prevent_close();
+        .on_window_event(|_window, _event| {
+            #[cfg(desktop)]
+            {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = _event {
+                    let _ = _window.hide();
+                    api.prevent_close();
+                }
             }
         })
         .build(tauri::generate_context!())
         .expect("error while building Akflix");
 
-    app.run(|_app, event| {
-        if matches!(event, tauri::RunEvent::Exit) {
-            stop_embedded_torrent_engine();
+    app.run(|_app, _event| {
+        #[cfg(desktop)]
+        {
+            if matches!(_event, tauri::RunEvent::Exit) {
+                stop_embedded_torrent_engine();
+            }
         }
     });
 }
