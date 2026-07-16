@@ -27,6 +27,7 @@ function RequireAuth({ children }: { children: JSX.Element }) {
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
+  const mobileApple = isAppleMobile();
   const isPlayer = location.pathname.startsWith("/play") || location.pathname === "/stream";
   const isLogin = location.pathname === "/login";
 
@@ -34,12 +35,19 @@ export default function App() {
   useEffect(() => {
     useAuth.getState().ensureLocalProfile();
     initDeepLinks(navigate);
-    if (!isAppleMobile()) checkForUpdatesQuietly();
+    if (!mobileApple) checkForUpdatesQuietly();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Route changes should always start at the top. This is especially
+  // important on iOS, where dismissing the keyboard can leave the WebView
+  // with a temporary scroll offset that otherwise carries into the next page.
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [location.pathname]);
+
   return (
-    <div className="min-h-full">
+    <div className={mobileApple ? "ios-app-shell min-h-full" : "min-h-full"}>
       {/* The player and login are immersive full-screen pages — no navbar. */}
       {!isPlayer && !isLogin && <Navbar />}
 
@@ -137,13 +145,13 @@ export default function App() {
       <PlayerHost />
 
       {/* Global Torrentio temporary-cache handoff and buffering status. */}
-      {!isLogin && <StreamController />}
+      {!isLogin && !mobileApple && <StreamController />}
 
       {/* Toast notifications (Sonner), styled for the dark theme. */}
       <Toaster
         theme="dark"
-        position="bottom-right"
-        offset={{ bottom: 96 }} // clear the mini player bar
+        position={mobileApple ? "bottom-center" : "bottom-right"}
+        offset={{ bottom: mobileApple ? 104 : 96 }}
         toastOptions={{
           style: {
             background: "rgba(21,19,15,.96)",

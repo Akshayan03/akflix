@@ -41,12 +41,17 @@ export default function Navbar() {
         ? "bg-white/[0.10] text-white shadow-inner shadow-white/[0.04]"
         : "text-zinc-400 hover:bg-white/[0.05] hover:text-white"
     }`;
+  const mobileLinkCls = ({ isActive }: { isActive: boolean }) =>
+    `flex min-w-0 flex-1 flex-col items-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-semibold transition ${
+      isActive ? "bg-brand/12 text-brand-light" : "text-zinc-500"
+    }`;
 
   return (
+    <>
     <header
       // data-tauri-drag-region: empty navbar space drags the window (desktop).
       data-tauri-drag-region
-      className={`fixed inset-x-0 top-0 z-40 flex h-20 items-center px-5 transition-all duration-300 md:px-8 ${macOverlayPad}`}
+      className={`fixed inset-x-0 top-0 z-40 flex h-20 items-center px-5 transition-all duration-300 md:px-8 ${macOverlayPad} ${mobileApple ? "ios-safe-top" : ""}`}
     >
       <div className={`flex h-14 w-full items-center rounded-2xl border px-3 transition-all md:px-4 ${
         scrolled
@@ -149,5 +154,22 @@ export default function Navbar() {
       </div>
       </div>
     </header>
+    {mobileApple && (
+      <nav className="ios-bottom-nav glass-panel fixed inset-x-3 z-40 flex items-center gap-1 rounded-[22px] p-1.5 md:hidden" aria-label="iPhone navigation">
+        <NavLink to="/" className={mobileLinkCls} end>
+          <Home size={18} /> Home
+        </NavLink>
+        <NavLink to="/movies" className={mobileLinkCls}>
+          <Film size={18} /> Movies
+        </NavLink>
+        <NavLink to="/shows" className={mobileLinkCls}>
+          <Tv size={18} /> Shows
+        </NavLink>
+        <NavLink to="/search" className={mobileLinkCls}>
+          <Search size={18} /> Search
+        </NavLink>
+      </nav>
+    )}
+    </>
   );
 }

@@ -63,7 +63,7 @@ export default function Settings() {
     setDraft((d) => ({ ...d, [k]: v }));
 
   const save = () => {
-    settings.update(draft);
+    settings.update(mobileApple ? { ...draft, torrentSource: "torrentio" } : draft);
     setSaved(true);
     toast.success(t("settings.saved"));
     setTimeout(() => setSaved(false), 2000);
@@ -109,7 +109,7 @@ export default function Settings() {
     save();
     setProwlarrTest("busy");
     const ok =
-      draft.torrentSource === "torrentio"
+      (mobileApple || draft.torrentSource === "torrentio")
         ? await torrentio().test()
         : await prowlarr().test();
     setProwlarrTest(ok ? "ok" : "fail");
@@ -130,7 +130,7 @@ export default function Settings() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="mx-auto min-h-screen max-w-3xl px-6 pb-24 pt-28"
+      className="mx-auto min-h-screen max-w-3xl px-4 pb-32 pt-32 sm:px-6 sm:pb-24 sm:pt-28"
     >
       <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-accent">Tune your space</p>
       <h1 className="mb-9 text-4xl font-black tracking-[-0.04em]">{t("settings.title")}</h1>
@@ -243,23 +243,25 @@ export default function Settings() {
       {/* ── Torrent metadata source ── */}
       <section className="glass-panel mb-6 rounded-3xl p-6">
         <div className="flex items-center gap-2">
-          <h2 className="font-semibold">{t("settings.indexer")}</h2>
+          <h2 className="font-semibold">
+            {mobileApple ? "Hosted streaming" : t("settings.indexer")}
+          </h2>
           <TestBadge state={prowlarrTest} />
         </div>
 
         <label className={labelCls}>Provider</label>
         <select
-          value={draft.torrentSource}
+          value={mobileApple ? "torrentio" : draft.torrentSource}
           onChange={(e) =>
             set("torrentSource", e.target.value as typeof draft.torrentSource)
           }
           className={inputCls}
         >
           <option value="torrentio">Torrentio</option>
-          <option value="prowlarr">Prowlarr</option>
+          {!mobileApple && <option value="prowlarr">Prowlarr</option>}
         </select>
 
-        {draft.torrentSource === "torrentio" ? (
+        {mobileApple || draft.torrentSource === "torrentio" ? (
           <>
             <label className={labelCls}>Configured manifest URL</label>
             <input
@@ -269,8 +271,9 @@ export default function Settings() {
               className={inputCls}
             />
             <p className="mt-2 text-[11px] leading-relaxed text-zinc-600">
-              Paste Torrentio’s configured manifest link here. A debrid provider is
-              optional, but cached hosted links give the closest thing to instant playback.
+              {mobileApple
+                ? "iPhone playback needs a Torrentio manifest with a debrid provider so the app receives hosted links. Jellyfin playback works separately."
+                : "Paste Torrentio’s configured manifest link here. A debrid provider is optional, but cached hosted links give the closest thing to instant playback."}
             </p>
           </>
         ) : (

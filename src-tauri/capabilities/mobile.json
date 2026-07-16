@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Akflix iOS capabilities for hosted playback, Jellyfin, and external links.",
+  "windows": ["main"],
+  "platforms": ["iOS"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "deep-link:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "http://*:*" },
+        { "url": "https://*:*" }
+      ]
+    }
+  ]
+}

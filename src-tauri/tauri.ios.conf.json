@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Akflix",
+        "width": 390,
+        "height": 844,
+        "resizable": true,
+        "fullscreen": false,
+        "backgroundColor": "#090806",
+        "disableInputAccessoryView": false,
+        "allowLinkPreview": false
+      }
+    ],
+    "trayIcon": null
+  },
+  "bundle": {
+    "externalBin": [],
+    "resources": [],
+    "createUpdaterArtifacts": false,
+    "fileAssociations": [],
+    "iOS": {
+      "minimumSystemVersion": "15.0",
+      "bundleVersion": "1",
+      "infoPlist": "Info.ios.plist"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "mobile": [
+        {
+          "scheme": ["akflix"],
+          "appLink": false
+        }
+      ]
+    }
+  }
+}

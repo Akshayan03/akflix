@@ -31,6 +31,7 @@ import Artwork from "@/components/Artwork";
 import type { TorrentAddMode, TorrentResult } from "@/types/torrent";
 import type { TorrentioLookup } from "@/api/torrentio";
 import { sourceLanguage, type SourceLanguage } from "@/lib/sourceLanguage";
+import { isAppleMobile } from "@/lib/platform";
 
 interface Props {
   initialQuery: string;
@@ -176,6 +177,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
   const openDirect = usePlayback((state) => state.openDirect);
   const { search, addTorrent } = useTorrents();
   const torrentSource = useSettings((state) => state.torrentSource);
+  const mobileApple = isAppleMobile();
 
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<TorrentResult[]>([]);
@@ -223,8 +225,13 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialQuery]);
 
+  const compatibleResults = useMemo(
+    () => mobileApple ? results.filter((result) => !!result.streamUrl) : results,
+    [mobileApple, results]
+  );
+
   const filteredSorted = useMemo(() => {
-    const filtered = results.filter((result) => {
+    const filtered = compatibleResults.filter((result) => {
       const facts = sourceFacts(result);
       const language = sourceLanguage(result);
       const matchesQuality =
@@ -257,7 +264,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
       });
     }
     return filtered;
-  }, [languageFilter, qualityFilter, results, sortMode, sourceFilter, speedFilter]);
+  }, [compatibleResults, languageFilter, qualityFilter, sortMode, sourceFilter, speedFilter]);
 
   const filtersActive =
     qualityFilter !== "all" ||
@@ -275,12 +282,15 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
     initialQuery.replace(/\s+\(?\d{4}\)?(?:\s+s\d{1,2}e\d{1,2})?$/i, "").trim() ||
     initialQuery;
 
-  const recommendedGuid = results[0]?.guid;
+  const recommendedGuid = compatibleResults[0]?.guid;
 
   const act = async (result: TorrentResult, mode: TorrentAddMode) => {
     if (actingGuid) return;
     setActingGuid(result.guid);
     try {
+      if (mobileApple && !result.streamUrl) {
+        throw new Error("This iPhone source is not a hosted stream. Choose a hosted/debrid option.");
+      }
       if (mode === "stream" && result.streamUrl) {
         openDirect({
           ...media,
@@ -362,11 +372,11 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                 <div className="min-w-0 flex-1 pt-0.5">
                   <div className="flex items-center gap-2">
                     <span className="rounded-full bg-brand/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.18em] text-brand-light ring-1 ring-brand/20">
-                      Manual source
+                      {mobileApple ? "Hosted source" : "Manual source"}
                     </span>
-                    {!loading && results.length > 0 && (
+                    {!loading && compatibleResults.length > 0 && (
                       <span className="text-[10px] text-zinc-600">
-                        {filtersActive ? `${filteredSorted.length} of ${results.length} shown` : `${results.length} available`}
+                        {filtersActive ? `${filteredSorted.length} of ${compatibleResults.length} shown` : `${compatibleResults.length} available`}
                       </span>
                     )}
                   </div>
@@ -389,7 +399,9 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                 <div>
                   <p className="text-xs font-semibold text-zinc-100">Your choice stays selected</p>
                   <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-                    Unlike Watch Now, manual mode does not race or replace your source. Compare audio, picture, size and peer health below.
+                    {mobileApple
+                      ? "Only hosted links that iPhone can open without a desktop peer engine are shown. Compare the available formats below."
+                      : "Unlike Watch Now, manual mode does not race or replace your source. Compare audio, picture, size and peer health below."}
                   </p>
                 </div>
               </div>
@@ -512,7 +524,15 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
               {!loading && !error && !results.length && (
                 <div className="py-16 text-center text-sm text-zinc-500">No playable sources found.</div>
               )}
-              {!loading && !error && results.length > 0 && !filteredSorted.length && (
+              {!loading && !error && mobileApple && results.length > 0 && !compatibleResults.length && (
+                <div className="mx-auto max-w-md py-16 text-center">
+                  <p className="text-sm font-semibold text-zinc-200">No hosted streams are configured</p>
+                  <p className="mt-2 text-xs leading-5 text-zinc-500">
+                    Add a debrid provider to your Torrentio manifest in Settings, or connect a Jellyfin server. Public peer links need the Mac app.
+                  </p>
+                </div>
+              )}
+              {!loading && !error && compatibleResults.length > 0 && !filteredSorted.length && (
                 <div className="flex flex-col items-center gap-3 py-16 text-center text-sm text-zinc-500">
                   <span>No sources match these filters.</span>
                   <button
@@ -627,7 +647,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                                 {acting ? <LoaderCircle size={15} className="animate-spin" /> : <Wifi size={15} />}
                                 {acting ? "Starting…" : "Watch this"}
                               </button>
-                              {!result.streamUrl && (
+                              {!mobileApple && !result.streamUrl && (
                                 <button
                                   onClick={() => act(result, "download")}
                                   disabled={!!actingGuid}
@@ -639,7 +659,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                               )}
                             </>
                           )}
-                          {result.magnetUrl && (
+                          {!mobileApple && result.magnetUrl && (
                             <button
                               onClick={() => copyMagnet(result)}
                               title="Copy magnet"
@@ -658,7 +678,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
 
             <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-white/[0.07] bg-black/20 px-5 py-3 text-[10px] text-zinc-600">
               <span>⚖️ {t("torrent.disclaimer")}</span>
-              <span className="hidden items-center gap-1 md:flex"><Radio size={11} /> Powered by Torrentio + your local stream engine</span>
+              <span className="hidden items-center gap-1 md:flex"><Radio size={11} /> {mobileApple ? "Hosted playback on iPhone" : "Powered by Torrentio + your local stream engine"}</span>
             </footer>
           </motion.section>
         </motion.div>

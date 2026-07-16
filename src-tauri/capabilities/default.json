@@ -3,6 +3,7 @@
   "identifier": "default",
   "description": "Akflix window capabilities: CORS-free HTTP to media services, deep links, updater.",
   "windows": ["main"],
+  "platforms": ["macOS", "windows", "linux"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

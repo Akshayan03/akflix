@@ -577,7 +577,14 @@ export default function PlayerHost() {
               directRetryTimer.current = setTimeout(() => {
                 const video = videoRef.current;
                 if (!video || directRequestRef.current?.id !== directRequest.id) return;
-                video.src = `${directRequest.url}${directRequest.url.includes("?") ? "&" : "?"}retry=${attempt}`;
+                // Hosted playback URLs are often signed. Appending a query
+                // parameter invalidates their signature, so only cache-bust
+                // Akflix's own local stream gateway.
+                video.src = /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?\//i.test(
+                  directRequest.url
+                )
+                  ? `${directRequest.url}${directRequest.url.includes("?") ? "&" : "?"}retry=${attempt}`
+                  : directRequest.url;
                 video.load();
                 video.play().catch(() => {});
               }, Math.min(6_000, 1_250 * attempt));
