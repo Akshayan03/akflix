@@ -201,12 +201,12 @@ export class JellyfinClient {
     return this.get<ItemsResult>(`/Shows/${seriesId}/Seasons?UserId=${this.userId}`);
   }
 
-  async episodes(seriesId: string, seasonId: string): Promise<ItemsResult> {
+  async episodes(seriesId: string, seasonId?: string): Promise<ItemsResult> {
     const q = new URLSearchParams({
       UserId: this.userId!,
-      SeasonId: seasonId,
       Fields: "Overview",
     });
+    if (seasonId) q.set("SeasonId", seasonId);
     return this.get<ItemsResult>(`/Shows/${seriesId}/Episodes?${q}`);
   }
 

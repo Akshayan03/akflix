@@ -1,7 +1,7 @@
 {
   "name": "akflix",
   "private": true,
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Standalone movie and series streaming app with optional Jellyfin integration",
   "type": "module",
   "scripts": {

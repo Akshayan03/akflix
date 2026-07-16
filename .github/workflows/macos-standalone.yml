@@ -81,5 +81,5 @@ jobs:
             gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
               --title "Akflix $TAG" \
-              --notes "Source picker update. Every result now keeps the movie or series title visible and places quality, release type, codec, container, language, size, seeders, and health underneath. Filter by quality, audio, source type, or speed, then sort by best match, quality, seeders, or size. Use source features only for content you may lawfully access."
+              --notes "Player and source experience update. Stream cards now keep the movie or series name clean and place quality, audio, size, peers, codec, and source details beside it. Playback adds 0.5x to 2x speed controls, direct-stream captions through OpenSubtitles, smoother animations, and automatic next-episode playback across season boundaries. Use source features only for content you may lawfully access."
           fi

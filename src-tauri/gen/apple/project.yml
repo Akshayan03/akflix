@@ -51,7 +51,7 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 1.0.8
+        CFBundleShortVersionString: 1.0.9
         CFBundleVersion: "1"
         NSLocalNetworkUsageDescription: Akflix can connect to an optional Jellyfin server on your home network.
         NSAppTransportSecurity:

@@ -22,6 +22,23 @@ import {
   type HistoryTitle,
 } from "@/stores/historyStore";
 
+function episodesAfter(items: BaseItem[], current?: BaseItem) {
+  if (!current) return [];
+  const ordered = [...items].sort(
+    (a, b) =>
+      (a.ParentIndexNumber ?? 0) - (b.ParentIndexNumber ?? 0) ||
+      (a.IndexNumber ?? 0) - (b.IndexNumber ?? 0)
+  );
+  const index = ordered.findIndex((episode) => episode.Id === current.Id);
+  return index < 0
+    ? []
+    : ordered.slice(index + 1).map((episode) => ({
+        season: episode.ParentIndexNumber ?? 1,
+        episode: episode.IndexNumber ?? 1,
+        title: episode.Name,
+      }));
+}
+
 export default function Details() {
   const t = useT();
   const navigate = useNavigate();
@@ -35,6 +52,7 @@ export default function Details() {
   const [seasons, setSeasons] = useState<BaseItem[]>([]);
   const [activeSeason, setActiveSeason] = useState<string | null>(null);
   const [episodes, setEpisodes] = useState<BaseItem[]>([]);
+  const [allEpisodes, setAllEpisodes] = useState<BaseItem[]>([]);
   const [favorite, setFavorite] = useState(false);
   const [torrentOpen, setTorrentOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,9 +68,13 @@ export default function Details() {
         setItem(it);
         setFavorite(it.UserData?.IsFavorite ?? false);
         if (it.Type === "Series") {
-          const s = await client.seasons(it.Id);
+          const [s, everyEpisode] = await Promise.all([
+            client.seasons(it.Id),
+            client.episodes(it.Id),
+          ]);
           if (cancelled) return;
           setSeasons(s.Items);
+          setAllEpisodes(everyEpisode.Items);
           if (s.Items[0]) setActiveSeason(s.Items[0].Id);
         }
       } catch (e) {
@@ -295,6 +317,18 @@ export default function Details() {
           season:
             torrentTarget?.Type === "Episode" ? torrentTarget.ParentIndexNumber ?? 1 : undefined,
           episode: torrentTarget?.Type === "Episode" ? torrentTarget.IndexNumber ?? 1 : undefined,
+          catalogId: imdbId,
+          mediaType: item.Type === "Series" ? "series" : "movie",
+          backgroundUrl: backdrop,
+          description: item.Overview,
+          releaseInfo: item.ProductionYear?.toString(),
+          year: item.ProductionYear?.toString(),
+          genres: item.Genres,
+          catalogRating: item.CommunityRating?.toString(),
+          episodeQueue:
+            torrentTarget?.Type === "Episode"
+              ? episodesAfter(allEpisodes, torrentTarget)
+              : undefined,
         }}
         open={torrentOpen}
         onClose={() => setTorrentOpen(false)}

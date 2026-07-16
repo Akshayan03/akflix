@@ -169,10 +169,6 @@ function sourceFacts(result: TorrentResult) {
   };
 }
 
-function shortTitle(result: TorrentResult): string {
-  return result.title.split("\n")[0].replace(/\\n.*$/, "").trim();
-}
-
 export default function TorrentModal({ initialQuery, open, onClose, lookup, media }: Props) {
   const t = useT();
   const navigate = useNavigate();
@@ -298,7 +294,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
           ...media,
           id: result.guid,
           url: result.streamUrl,
-          title: media?.title ?? shortTitle(result),
+          title: mediaTitle,
           subtitle: media?.subtitle,
           posterUrl: media?.posterUrl,
           isEpisode: media?.isEpisode,
@@ -571,7 +567,8 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                 </div>
               )}
 
-              <div className="space-y-2">
+              <motion.div layout className="space-y-2">
+                <AnimatePresence initial={false} mode="popLayout">
                 {filteredSorted.map((result, index) => {
                   const facts = sourceFacts(result);
                   const recommended = result.guid === recommendedGuid;
@@ -581,10 +578,16 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                   return (
                     <motion.article
                       key={result.guid}
-                      title={shortTitle(result)}
+                      layout
+                      aria-label={`Source ${index + 1} for ${mediaTitle}`}
                       initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: Math.min(index * 0.035, 0.2) }}
+                      exit={{ opacity: 0, scale: 0.98 }}
+                      whileHover={!mobileApple ? { y: -2, scale: 1.002 } : undefined}
+                      transition={{
+                        layout: { type: "spring", stiffness: 380, damping: 34 },
+                        delay: Math.min(index * 0.025, 0.15),
+                      }}
                       className={`relative overflow-hidden rounded-2xl border transition ${mobileApple ? "p-3" : "p-4"} ${
                         recommended
                           ? "border-brand/30 bg-gradient-to-r from-brand/[0.08] to-white/[0.025]"
@@ -597,8 +600,8 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                         </div>
                       )}
 
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-                        <div className="min-w-0 flex-1">
+                      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_270px_auto] lg:items-center">
+                        <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2 pr-24 text-[9px] font-bold uppercase tracking-[0.18em] text-zinc-600">
                             <span>Source {String(index + 1).padStart(2, "0")}</span>
                             <span className="h-1 w-1 rounded-full bg-zinc-700" />
@@ -611,9 +614,6 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                             <p className="mt-0.5 truncate text-[11px] text-zinc-500">{media.subtitle}</p>
                           )}
                           <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[10px]">
-                            <span className="rounded-md bg-brand/10 px-2 py-1 font-semibold text-brand-light">
-                              {facts.quality}
-                            </span>
                             <span className="rounded-md bg-white/[0.05] px-2 py-1 text-zinc-300">
                               {facts.releaseType}
                             </span>
@@ -622,9 +622,6 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                             </span>
                             <span className="rounded-md bg-white/[0.05] px-2 py-1 text-zinc-400">
                               {facts.container}
-                            </span>
-                            <span className={`flex items-center gap-1 rounded-md px-2 py-1 font-medium ${facts.language.className}`}>
-                              <Languages size={11} /> {facts.language.label}
                             </span>
                             {facts.picture && (
                               <span className="rounded-md bg-white/[0.05] px-2 py-1 text-zinc-400">
@@ -642,22 +639,38 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                               </span>
                             )}
                           </div>
-                          <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
-                            <span className="flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-black/20 px-2.5 py-1.5 text-zinc-400">
-                              <HardDrive size={12} className="text-zinc-600" />
-                              <strong className="font-semibold text-zinc-200">{result.size ? formatBytes(result.size) : "Hosted"}</strong>
-                              <span>size</span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/[0.06] bg-black/20 p-2.5">
+                          <div className="rounded-xl bg-white/[0.035] p-2.5">
+                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-600">
+                              <Gauge size={11} /> Quality
                             </span>
-                            {!facts.hosted && (
-                              <span className="flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-black/20 px-2.5 py-1.5 text-zinc-400">
-                                <Users size={12} className="text-zinc-600" />
-                                <strong className="font-semibold text-zinc-200">{result.seeders.toLocaleString()}</strong>
-                                <span>seeders</span>
-                              </span>
-                            )}
-                            <span className={`flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-black/20 px-2.5 py-1.5 ${facts.health.color}`}>
-                              <Gauge size={12} /> {facts.health.label} health
+                            <strong className="mt-1 block text-sm text-brand-light">{facts.quality}</strong>
+                          </div>
+                          <div className="rounded-xl bg-white/[0.035] p-2.5">
+                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-600">
+                              <Languages size={11} /> Audio
                             </span>
+                            <strong className="mt-1 block truncate text-xs text-zinc-200">
+                              {facts.language.label}
+                            </strong>
+                          </div>
+                          <div className="rounded-xl bg-white/[0.035] p-2.5">
+                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-600">
+                              <HardDrive size={11} /> Size
+                            </span>
+                            <strong className="mt-1 block text-xs text-zinc-200">
+                              {result.size ? formatBytes(result.size) : "Hosted"}
+                            </strong>
+                          </div>
+                          <div className="rounded-xl bg-white/[0.035] p-2.5">
+                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-600">
+                              <Users size={11} /> {facts.hosted ? "Speed" : "Peers"}
+                            </span>
+                            <strong className={`mt-1 block text-xs ${facts.health.color}`}>
+                              {facts.hosted ? facts.health.label : result.seeders.toLocaleString()}
+                            </strong>
                           </div>
                         </div>
 
@@ -668,14 +681,16 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                             </div>
                           ) : (
                             <>
-                              <button
+                              <motion.button
+                                whileTap={{ scale: 0.95 }}
+                                whileHover={!mobileApple ? { scale: 1.025 } : undefined}
                                 onClick={() => act(result, "stream")}
                                 disabled={!!actingGuid}
                                 className={`group/stream flex min-w-32 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-light to-brand px-4 py-2.5 text-xs font-bold text-[#090806] shadow-[0_10px_28px_rgba(152,117,47,.16)] transition hover:scale-[1.02] hover:brightness-110 disabled:opacity-50 ${mobileApple ? "h-11 flex-1" : ""}`}
                               >
                                 {acting ? <LoaderCircle size={15} className="animate-spin" /> : <Wifi size={15} />}
                                 {acting ? "Starting…" : "Watch this"}
-                              </button>
+                              </motion.button>
                               {!mobileApple && !result.streamUrl && (
                                 <button
                                   onClick={() => act(result, "download")}
@@ -702,7 +717,8 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                     </motion.article>
                   );
                 })}
-              </div>
+                </AnimatePresence>
+              </motion.div>
             </div>
 
             <footer className={`${mobileApple ? "hidden" : "flex"} shrink-0 items-center justify-between gap-4 border-t border-white/[0.07] bg-black/20 px-5 py-3 text-[10px] text-zinc-600`}>

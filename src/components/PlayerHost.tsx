@@ -16,9 +16,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type Hls from "hls.js";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowLeft,
+  Gauge,
   Maximize,
   Pause,
   Play,
@@ -39,12 +40,16 @@ import { useT } from "@/i18n";
 import { formatClock, ticksToSeconds } from "@/lib/utils";
 import { isAppleMobile } from "@/lib/platform";
 import { setCompatibilityStreamPaused } from "@/lib/compatStream";
+import { iosNativeSources } from "@/lib/iosSourceCompatibility";
+import { englishSafeSources } from "@/lib/sourceLanguage";
+import { directSubtitleTracks } from "@/api/subtitles";
 import MiniPlayer from "@/components/MiniPlayer";
 import type { MediaSource, MediaStream } from "@/types/jellyfin";
 import { useHistory, type HistoryTitle } from "@/stores/historyStore";
 
 const PROGRESS_INTERVAL_MS = 10_000;
 const LOCAL_HISTORY_INTERVAL_MS = 5_000;
+const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 
 interface SubTrack {
   index: number;
@@ -116,6 +121,7 @@ export default function PlayerHost() {
     duration,
     buffering,
     hasNext,
+    playbackRate,
     _setSession,
     _setControls,
     _sync,
@@ -138,10 +144,12 @@ export default function PlayerHost() {
   const lastLocalHistoryWrite = useRef(0);
   const loadSeq = useRef(0);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>();
+  const subtitleBlobUrlsRef = useRef<string[]>([]);
 
   const [subTracks, setSubTracks] = useState<SubTrack[]>([]);
   const [activeSub, setActiveSub] = useState(-1);
   const [subMenuOpen, setSubMenuOpen] = useState(false);
+  const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -165,6 +173,8 @@ export default function PlayerHost() {
     reportStopped();
     hlsRef.current?.destroy();
     hlsRef.current = null;
+    subtitleBlobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    subtitleBlobUrlsRef.current = [];
     const v = videoRef.current;
     if (v) {
       v.pause();
@@ -235,13 +245,18 @@ export default function PlayerHost() {
         if (preferred) setActiveSub(preferred.index);
 
         // Resolve the next episode (for the Next button / auto-advance).
-        if (isEpisode && item.SeriesId && item.SeasonId) {
+        if (isEpisode && item.SeriesId) {
           client
-            .episodes(item.SeriesId, item.SeasonId)
+            .episodes(item.SeriesId)
             .then((r) => {
               if (seq !== loadSeq.current) return;
-              const i = r.Items.findIndex((e) => e.Id === itemId);
-              const next = i >= 0 ? r.Items[i + 1] : undefined;
+              const ordered = [...r.Items].sort(
+                (a, b) =>
+                  (a.ParentIndexNumber ?? 0) - (b.ParentIndexNumber ?? 0) ||
+                  (a.IndexNumber ?? 0) - (b.IndexNumber ?? 0)
+              );
+              const i = ordered.findIndex((episode) => episode.Id === itemId);
+              const next = i >= 0 ? ordered[i + 1] : undefined;
               nextEpisodeRef.current = next?.Id ?? null;
               _sync({ hasNext: !!next });
             })
@@ -266,6 +281,7 @@ export default function PlayerHost() {
         } else {
           video.src = url;
         }
+        video.playbackRate = usePlayback.getState().playbackRate;
         // HLS transcodes already start server-side at the requested position.
         if (startAt > 5 && !isHls) video.currentTime = startAt;
 
@@ -300,7 +316,12 @@ export default function PlayerHost() {
       setSubTracks([]);
       setActiveSub(-1);
       nextEpisodeRef.current = null;
-      _sync({ buffering: true, hasNext: false, currentTime: 0, duration: 0 });
+      _sync({
+        buffering: true,
+        hasNext: !!request.episodeQueue?.length,
+        currentTime: 0,
+        duration: 0,
+      });
       _setSession({
         itemId: request.id,
         title: request.title,
@@ -311,10 +332,40 @@ export default function PlayerHost() {
       });
       video.src = request.url;
       video.preload = "auto";
+      video.playbackRate = usePlayback.getState().playbackRate;
       await video.play().catch(() => {});
       if (seq === loadSeq.current) _sync({ buffering: false });
+
+      if (request.catalogId && request.mediaType) {
+        directSubtitleTracks(
+          request.catalogId,
+          request.mediaType,
+          subtitleLanguage,
+          request.season,
+          request.episode
+        )
+          .then((tracks) => {
+            if (seq !== loadSeq.current) {
+              tracks.forEach((track) => URL.revokeObjectURL(track.url));
+              return;
+            }
+            subtitleBlobUrlsRef.current = tracks.map((track) => track.url);
+            const prepared = tracks.map((track, index) => ({
+              index: 10_000 + index,
+              label: track.label,
+              language: track.language,
+              url: track.url,
+            }));
+            setSubTracks(prepared);
+            const preferred = prepared.find(
+              (track) => track.language === subtitleLanguage
+            );
+            if (preferred) setActiveSub(preferred.index);
+          })
+          .catch(() => {});
+      }
     },
-    [_setSession, _sync, teardown]
+    [_setSession, _sync, subtitleLanguage, teardown]
   );
 
   // React to open() requests from pages.
@@ -352,18 +403,69 @@ export default function PlayerHost() {
 
   const playNext = useCallback(async (): Promise<boolean> => {
     const nextId = nextEpisodeRef.current;
-    if (!nextId) return false;
-    // Load first, then update the route/store. Updating requestedItemId before
-    // load() finishes makes the request effect race this direct call and can
-    // negotiate the next episode twice on a slow server.
-    await load(nextId);
-    if (jfSessionRef.current?.itemId !== nextId) return false;
-    usePlayback.setState({ requestedItemId: nextId });
-    if (usePlayback.getState().mode === "expanded") {
-      navigate(`/play/${nextId}`, { replace: true });
+    if (nextId) {
+      // Load first, then update the route/store. Updating requestedItemId before
+      // load() finishes makes the request effect race this direct call.
+      await load(nextId);
+      if (jfSessionRef.current?.itemId !== nextId) return false;
+      usePlayback.setState({ requestedItemId: nextId });
+      if (usePlayback.getState().mode === "expanded") {
+        navigate(`/play/${nextId}`, { replace: true });
+      }
+      return true;
     }
-    return true;
-  }, [load, navigate]);
+
+    const current = directRequestRef.current;
+    const next = current?.episodeQueue?.[0];
+    if (!current || !next || !current.catalogId) return false;
+    const { id: _id, url: _url, episodeQueue = [], ...base } = current;
+    const nextMedia = {
+      ...base,
+      subtitle: `S${next.season} E${next.episode} · ${next.title}`,
+      season: next.season,
+      episode: next.episode,
+      episodeQueue: episodeQueue.slice(1),
+    };
+
+    try {
+      videoRef.current?.pause();
+      _sync({ buffering: true, hasNext: false, currentTime: 0, duration: 0 });
+      toast.info("Loading the next episode", {
+        description: nextMedia.subtitle,
+      });
+      const torrentState = useTorrents.getState();
+      const results = await torrentState.search(current.title, undefined, {
+        imdbId: current.catalogId,
+        type: "series",
+        season: next.season,
+        episode: next.episode,
+      });
+      let eligible = englishSafeSources(results);
+      if (mobileApple) eligible = iosNativeSources(eligible);
+      if (!eligible.length) throw new Error("No compatible source was found for the next episode.");
+
+      await finishActiveStream().catch(() => {});
+      const hosted = eligible.find((result) => result.streamUrl);
+      if (hosted?.streamUrl) {
+        usePlayback.getState().openDirect({
+          ...nextMedia,
+          id: hosted.guid,
+          url: hosted.streamUrl,
+        });
+      } else {
+        await torrentState.raceStreamSources(eligible, nextMedia);
+      }
+      if (usePlayback.getState().mode === "expanded") {
+        navigate("/stream", { replace: true });
+      }
+      return true;
+    } catch (reason) {
+      toast.error("Could not play the next episode", {
+        description: reason instanceof Error ? reason.message : String(reason),
+      });
+      return false;
+    }
+  }, [finishActiveStream, load, mobileApple, navigate, _sync]);
 
   useEffect(() => {
     _setControls({
@@ -394,6 +496,12 @@ export default function PlayerHost() {
           v.muted = m;
           _sync({ muted: m });
         }
+      },
+      setPlaybackRate: (rate) => {
+        const v = videoRef.current;
+        if (!v) return;
+        v.playbackRate = rate;
+        _sync({ playbackRate: rate });
       },
       next: playNext,
     });
@@ -445,6 +553,20 @@ export default function PlayerHost() {
         case "m":
           ctrl.setMuted(!v.muted);
           break;
+        case "<":
+        case ",": {
+          const currentIndex = PLAYBACK_RATES.findIndex((rate) => rate >= v.playbackRate);
+          ctrl.setPlaybackRate(PLAYBACK_RATES[Math.max(0, currentIndex - 1)]);
+          break;
+        }
+        case ">":
+        case ".": {
+          const currentIndex = PLAYBACK_RATES.findIndex((rate) => rate > v.playbackRate);
+          ctrl.setPlaybackRate(
+            currentIndex < 0 ? PLAYBACK_RATES[PLAYBACK_RATES.length - 1] : PLAYBACK_RATES[currentIndex]
+          );
+          break;
+        }
         case "Escape":
           if (expanded && !document.fullscreenElement) navigate(-1);
           break;
@@ -462,9 +584,9 @@ export default function PlayerHost() {
     hideTimer.current = setTimeout(() => {
       // Keep controls up while paused or while a menu is open.
       const v = videoRef.current;
-      if (v && !v.paused && !subMenuOpen) setControlsVisible(false);
+      if (v && !v.paused && !subMenuOpen && !speedMenuOpen) setControlsVisible(false);
     }, 3000);
-  }, [subMenuOpen]);
+  }, [speedMenuOpen, subMenuOpen]);
 
   useEffect(() => {
     if (mode === "expanded") poke();
@@ -487,7 +609,7 @@ export default function PlayerHost() {
   const expanded = mode === "expanded";
   const onEnded = async () => {
     saveDirectProgress(directRequestRef.current, videoRef.current, true);
-    if (session?.direct || !(await playNext())) {
+    if (!(await playNext())) {
       stop();
       if (usePlayback.getState().mode === "expanded") navigate(-1);
     }
@@ -610,6 +732,7 @@ export default function PlayerHost() {
             _sync({ buffering: false });
           }}
           onVolumeChange={(e) => _sync({ muted: e.currentTarget.muted })}
+          onRateChange={(e) => _sync({ playbackRate: e.currentTarget.playbackRate })}
           onEnded={onEnded}
           onDoubleClick={() => !mobileApple && expanded && usePlayback.getState().controls?.toggle()}
         >
@@ -742,13 +865,15 @@ export default function PlayerHost() {
                     <RotateCw size={mobileApple ? 27 : 22} />
                   </motion.button>
                   {hasNext && (
-                    <button
+                    <motion.button
+                      whileTap={{ scale: 0.86 }}
+                      whileHover={!mobileApple ? { scale: 1.08 } : undefined}
                       onClick={() => usePlayback.getState().controls?.next()}
                       aria-label="Next episode"
                       className={`${mobileApple ? "order-4" : ""} text-zinc-300 transition hover:text-white`}
                     >
                       <SkipForward size={24} />
-                    </button>
+                    </motion.button>
                   )}
                   <button
                     onClick={() => usePlayback.getState().controls?.setMuted(!muted)}
@@ -758,11 +883,14 @@ export default function PlayerHost() {
                     {muted ? <VolumeX size={22} /> : <Volume2 size={22} />}
                   </button>
 
-                  <div className={mobileApple ? "absolute bottom-[calc(env(safe-area-inset-bottom,0px)+27px)] right-4 flex items-center gap-4" : "ml-auto flex items-center gap-5"}>
-                    {subTracks.length > 0 && (
-                      <div className="relative">
-                        <button
-                          onClick={() => setSubMenuOpen((o) => !o)}
+                  <div className={mobileApple ? "absolute bottom-[calc(env(safe-area-inset-bottom,0px)+27px)] right-4 flex items-center gap-3" : "ml-auto flex items-center gap-5"}>
+                    <div className="relative">
+                        <motion.button
+                          whileTap={{ scale: 0.86 }}
+                          onClick={() => {
+                            setSpeedMenuOpen(false);
+                            setSubMenuOpen((o) => !o);
+                          }}
                           aria-label={t("player.subtitles")}
                           className={
                             activeSub >= 0
@@ -771,42 +899,98 @@ export default function PlayerHost() {
                           }
                         >
                           <Subtitles size={22} />
-                        </button>
-                        {subMenuOpen && (
-                          <motion.div
-                            initial={{ opacity: 0, y: 8 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="absolute bottom-10 right-0 w-52 rounded-md border border-zinc-800 bg-surface-raised py-1 shadow-xl"
-                          >
+                        </motion.button>
+                        <AnimatePresence>
+                          {subMenuOpen && (
+                            <motion.div
+                              initial={{ opacity: 0, y: 12, scale: 0.94 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                              transition={{ type: "spring", stiffness: 430, damping: 32 }}
+                              className="absolute bottom-10 right-0 w-56 origin-bottom-right overflow-hidden rounded-2xl border border-white/10 bg-[#15130f]/95 p-1.5 shadow-2xl backdrop-blur-xl"
+                            >
+                              <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">
+                                Captions
+                              </p>
                               <button
                                 onClick={() => {
                                   setActiveSub(-1);
                                   setSubMenuOpen(false);
                                 }}
-                                className={`block w-full px-4 py-2 text-left text-sm hover:bg-white/10 ${
+                                className={`block w-full rounded-xl px-3 py-2 text-left text-sm transition hover:bg-white/10 ${
                                   activeSub === -1 ? "text-brand" : ""
                                 }`}
                               >
                                 {t("player.subtitlesOff")}
                               </button>
-                            {subTracks.map((s) => (
+                              {subTracks.map((s) => (
+                                <button
+                                  key={s.index}
+                                  onClick={() => {
+                                    setActiveSub(s.index);
+                                    setSubMenuOpen(false);
+                                  }}
+                                  className={`block w-full truncate rounded-xl px-3 py-2 text-left text-sm transition hover:bg-white/10 ${
+                                    activeSub === s.index ? "text-brand" : ""
+                                  }`}
+                                >
+                                  {s.label}
+                                </button>
+                              ))}
+                              {!subTracks.length && (
+                                <p className="px-3 py-2 text-xs leading-5 text-zinc-500">
+                                  No captions are available for this source.
+                                </p>
+                              )}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+
+                    <div className="relative">
+                      <motion.button
+                        whileTap={{ scale: 0.86 }}
+                        onClick={() => {
+                          setSubMenuOpen(false);
+                          setSpeedMenuOpen((open) => !open);
+                        }}
+                        aria-label={`Playback speed ${playbackRate}x`}
+                        className="flex items-center gap-1 text-zinc-300 transition hover:text-white"
+                      >
+                        <Gauge size={21} />
+                        <span className="text-[11px] font-bold tabular-nums">{playbackRate}x</span>
+                      </motion.button>
+                      <AnimatePresence>
+                        {speedMenuOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 12, scale: 0.94 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                            transition={{ type: "spring", stiffness: 430, damping: 32 }}
+                            className="absolute bottom-10 right-0 w-40 origin-bottom-right overflow-hidden rounded-2xl border border-white/10 bg-[#15130f]/95 p-1.5 shadow-2xl backdrop-blur-xl"
+                          >
+                            <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">
+                              Playback speed
+                            </p>
+                            {PLAYBACK_RATES.map((rate) => (
                               <button
-                                key={s.index}
+                                key={rate}
                                 onClick={() => {
-                                  setActiveSub(s.index);
-                                  setSubMenuOpen(false);
+                                  usePlayback.getState().controls?.setPlaybackRate(rate);
+                                  setSpeedMenuOpen(false);
                                 }}
-                                className={`block w-full truncate px-4 py-2 text-left text-sm hover:bg-white/10 ${
-                                  activeSub === s.index ? "text-brand" : ""
+                                className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition hover:bg-white/10 ${
+                                  playbackRate === rate ? "text-brand" : "text-zinc-200"
                                 }`}
                               >
-                                {s.label}
+                                <span>{rate === 1 ? "Normal" : `${rate}x`}</span>
+                                {playbackRate === rate && <span className="h-1.5 w-1.5 rounded-full bg-brand" />}
                               </button>
                             ))}
                           </motion.div>
                         )}
-                      </div>
-                    )}
+                      </AnimatePresence>
+                    </div>
 
                     {!mobileApple && <button
                       onClick={() =>

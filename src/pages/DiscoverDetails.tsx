@@ -36,6 +36,27 @@ function discoverHistoryTitle(meta: StremioMeta): HistoryTitle {
   };
 }
 
+function episodesAfter(
+  videos: StremioVideo[] | undefined,
+  current: StremioVideo | null | undefined
+) {
+  if (!videos || !current) return [];
+  const ordered = videos
+    .filter((video) => video.season > 0 && video.episode > 0)
+    .sort((a, b) => a.season - b.season || a.episode - b.episode);
+  const currentIndex = ordered.findIndex(
+    (video) =>
+      video.id === current.id ||
+      (video.season === current.season && video.episode === current.episode)
+  );
+  if (currentIndex < 0) return [];
+  return ordered.slice(currentIndex + 1).map((video) => ({
+    season: video.season,
+    episode: video.episode,
+    title: video.name ?? video.title ?? `Episode ${video.episode}`,
+  }));
+}
+
 export default function DiscoverDetails() {
   const navigate = useNavigate();
   const searchSources = useTorrents((state) => state.search);
@@ -150,6 +171,7 @@ export default function DiscoverDetails() {
       isEpisode: type === "series",
       season: type === "series" ? episode?.season : undefined,
       episode: type === "series" ? episode?.episode : undefined,
+      episodeQueue: type === "series" ? episodesAfter(meta.videos, episode) : undefined,
       ...catalogMetadata,
     };
     setStarting(true);
@@ -416,6 +438,8 @@ export default function DiscoverDetails() {
             isEpisode: type === "series",
             season: type === "series" ? selectedEpisode?.season : undefined,
             episode: type === "series" ? selectedEpisode?.episode : undefined,
+            episodeQueue:
+              type === "series" ? episodesAfter(meta.videos, selectedEpisode) : undefined,
             ...catalogMetadata,
           }}
           open={sourceOpen}
@@ -609,6 +633,8 @@ export default function DiscoverDetails() {
           isEpisode: type === "series",
           season: type === "series" ? selectedEpisode?.season : undefined,
           episode: type === "series" ? selectedEpisode?.episode : undefined,
+          episodeQueue:
+            type === "series" ? episodesAfter(meta.videos, selectedEpisode) : undefined,
           ...catalogMetadata,
         }}
         open={sourceOpen}
