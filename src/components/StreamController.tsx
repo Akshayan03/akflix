@@ -20,6 +20,7 @@ import { formatBytes, formatSpeed } from "@/lib/utils";
 import { startCompatibilityStream, startCompatibilityStreamUrl } from "@/lib/compatStream";
 import { useSettings } from "@/stores/settingsStore";
 import Artwork from "@/components/Artwork";
+import { mediaDisplayFromRelease } from "@/lib/mediaTitle";
 
 const MIB = 1024 * 1024;
 const STREAM_GATEWAY = "http://127.0.0.1:8097";
@@ -39,14 +40,6 @@ function gatewayUrl(filename: string): string {
     .split("/")
     .map((part) => encodeURIComponent(part))
     .join("/")}`;
-}
-
-function friendlyName(name: string): string {
-  return name
-    .replace(/\.[a-z\d]{2,5}$/i, "")
-    .replace(/[._]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 export default function StreamController() {
@@ -88,6 +81,11 @@ export default function StreamController() {
     pendingStreamHash && pendingStreamFileIndex !== null
       ? streamUrl(pendingStreamHash, pendingStreamFileIndex)
       : null;
+  const fallbackMedia = mediaDisplayFromRelease(
+    pendingStreamFileName || torrent?.name || ""
+  );
+  const displayTitle = pendingStreamMedia?.title?.trim() || fallbackMedia.title;
+  const displaySubtitle = pendingStreamMedia?.subtitle?.trim() || fallbackMedia.subtitle;
 
   useEffect(() => {
     if (!pendingStreamHash || pendingStreamFileName || priorityBusy.current) return;
@@ -155,12 +153,13 @@ export default function StreamController() {
           : compatibility
             ? await startCompatibilityStream(pendingStreamFileName, torrent.hash, audioLanguage)
             : gatewayUrl(pendingStreamFileName);
+        const fallback = mediaDisplayFromRelease(pendingStreamFileName);
         openDirect({
           ...pendingStreamMedia,
           id: `torrent:${torrent.hash}`,
           url,
-          title: pendingStreamMedia?.title ?? friendlyName(pendingStreamFileName),
-          subtitle: pendingStreamMedia?.subtitle,
+          title: pendingStreamMedia?.title?.trim() || fallback.title,
+          subtitle: pendingStreamMedia?.subtitle?.trim() || fallback.subtitle,
           posterUrl: pendingStreamMedia?.posterUrl,
           isEpisode: pendingStreamMedia?.isEpisode,
           compatibility: compatibilitySource,
@@ -211,7 +210,7 @@ export default function StreamController() {
         <div className="flex items-start gap-3">
           <Artwork
             src={pendingStreamMedia?.posterUrl}
-            title={pendingStreamMedia?.title ?? torrent?.name ?? "Akflix stream"}
+            title={displayTitle}
             variant="compact"
             className="h-14 w-10 shrink-0 rounded-lg object-cover ring-1 ring-white/10"
           />
@@ -230,9 +229,12 @@ export default function StreamController() {
                 temporary
               </span>
             </div>
-            <p className="mt-1 truncate text-xs text-zinc-400" title={pendingStreamMedia?.title ?? torrent?.name}>
-              {pendingStreamMedia?.title ?? (torrent ? friendlyName(pendingStreamFileName || torrent.name) : "Connecting to source…")}
+            <p className="mt-1 truncate text-xs font-medium text-zinc-300" title={displayTitle}>
+              {torrent ? displayTitle : "Connecting to source…"}
             </p>
+            {torrent && displaySubtitle && (
+              <p className="mt-0.5 truncate text-[11px] text-zinc-500">{displaySubtitle}</p>
+            )}
           </div>
           <button
             onClick={() => cancelPendingStream().catch(() => {})}

@@ -39,6 +39,7 @@ import { useTorrents } from "@/stores/torrentStore";
 import { useT } from "@/i18n";
 import { formatClock, ticksToSeconds } from "@/lib/utils";
 import { isAppleMobile } from "@/lib/platform";
+import { mediaDisplayFromRelease } from "@/lib/mediaTitle";
 import {
   setCompatibilityStreamPaused,
   startCompatibilityStream,
@@ -351,10 +352,11 @@ export default function PlayerHost() {
         currentTime: 0,
         duration: request.durationSeconds ?? 0,
       });
+      const display = mediaDisplayFromRelease(request.title);
       _setSession({
         itemId: request.id,
-        title: request.title,
-        subtitle: request.subtitle,
+        title: display.title,
+        subtitle: request.subtitle?.trim() || display.subtitle,
         posterUrl: request.posterUrl ?? null,
         isEpisode: request.isEpisode ?? false,
         direct: true,
