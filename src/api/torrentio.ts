@@ -60,7 +60,7 @@ function streamRank(result: TorrentResult): number {
 
   // Language correctness outranks a marginal peer-speed advantage. Untagged
   // releases remain neutral because most English releases omit a language tag.
-  if (result.sourceLanguage === "english") score += 600;
+  if (result.sourceLanguage === "english") score += 180;
   else if (result.sourceLanguage === "multi") score += 80;
   else if (result.sourceLanguage === "non-english") score -= 800;
 
@@ -72,10 +72,15 @@ function streamRank(result: TorrentResult): number {
   else if (/\b2160p\b|\b4k\b/.test(text)) score += 12;
   else if (/\b4320p\b|\b8k\b/.test(text)) score -= 25;
 
-  if (/\b(h\.?264|x264|avc)\b/.test(text)) score += 18;
-  if (/\b(h\.?265|x265|hevc|av1)\b/.test(text)) score -= 9;
-  if (/\.(mp4|m4v)\b/.test(text)) score += 14;
-  if (/\.(mkv)\b/.test(text)) score += 2;
+  const nativeCodec = /\b(h\.?264|x264|avc)\b/.test(text);
+  const nativeContainer = /\.(mp4|m4v|mov)\b/.test(text);
+  const conversionCodec = /\b(h\.?265|x265|hevc|av1)\b/.test(text);
+  const conversionContainer = /\.(mkv|avi)\b/.test(text);
+  if (nativeCodec) score += 35;
+  if (nativeContainer) score += 45;
+  if (nativeCodec && nativeContainer) score += 90;
+  if (conversionCodec) score -= 24;
+  if (conversionContainer) score -= 45;
   if (/\b(cam|hdcam|telesync|tsrip)\b/.test(text)) score -= 35;
 
   const gb = result.size / 1024 ** 3;
@@ -85,7 +90,8 @@ function streamRank(result: TorrentResult): number {
   else if (gb > 12) score -= 22;
 
   // Reported peers are only a hint, but a healthy swarm matters more than a
-  // perfect container now that Akflix can hardware-convert MKV/HEVC sources.
+  // perfect container, but native-play files outrank conversion because they
+  // start and seek more like a hosted streaming service.
   score += Math.min(75, Math.log2(Math.max(1, result.seeders)) * 8);
   if (result.seeders >= 500) score += 25;
   else if (result.seeders >= 100) score += 12;

@@ -6,7 +6,8 @@ const STREAM_GATEWAY = "http://127.0.0.1:8097";
 export async function startCompatibilityStream(
   filename: string,
   hash: string,
-  audioLanguage = "eng"
+  audioLanguage = "eng",
+  startSeconds = 0
 ): Promise<string> {
   if (!isTauri()) throw new Error("Compatibility streaming is available in the desktop app.");
   const { invoke } = await import("@tauri-apps/api/core");
@@ -14,6 +15,7 @@ export async function startCompatibilityStream(
     relativePath: `Streaming Cache/${filename}`,
     streamId: hash,
     audioLanguage,
+    startSeconds,
   });
   return `${STREAM_GATEWAY}/${route}`;
 }
@@ -22,7 +24,8 @@ export async function startCompatibilityStream(
 export async function startCompatibilityStreamUrl(
   inputUrl: string,
   hash: string,
-  audioLanguage = "eng"
+  audioLanguage = "eng",
+  startSeconds = 0
 ): Promise<string> {
   if (!isTauri()) throw new Error("Compatibility streaming is available in the desktop app.");
   const { invoke } = await import("@tauri-apps/api/core");
@@ -30,6 +33,7 @@ export async function startCompatibilityStreamUrl(
     inputUrl,
     streamId: hash,
     audioLanguage,
+    startSeconds,
   });
   return `${STREAM_GATEWAY}/${route}`;
 }

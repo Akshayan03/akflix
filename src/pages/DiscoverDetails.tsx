@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { ChevronRight, Clock3, ListFilter, LoaderCircle, Play, Star } from "lucide-react";
+import { ChevronRight, Clock3, ListFilter, LoaderCircle, Play, Sparkles, Star } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { cinemeta } from "@/api/cinemeta";
 import Spinner from "@/components/Spinner";
 import TorrentModal from "@/components/TorrentModal";
 import Artwork from "@/components/Artwork";
+import DiscoverCard from "@/components/DiscoverCard";
 import type { StremioMediaType, StremioMeta, StremioVideo } from "@/types/stremio";
 import { useTorrents } from "@/stores/torrentStore";
 import { usePlayback } from "@/stores/playbackStore";
@@ -19,6 +20,7 @@ import {
   useHistory,
   type HistoryTitle,
 } from "@/stores/historyStore";
+import { parseRuntimeSeconds } from "@/lib/utils";
 
 function discoverHistoryTitle(meta: StremioMeta): HistoryTitle {
   return {
@@ -57,6 +59,66 @@ function episodesAfter(
   }));
 }
 
+function titleFamily(value: string): string {
+  return value.split(/[:|-]/)[0]?.trim().toLowerCase() ?? value.toLowerCase();
+}
+
+function rankRelated(current: StremioMeta, candidates: StremioMeta[]): StremioMeta[] {
+  const currentGenres = new Set((current.genres ?? []).map((genre) => genre.toLowerCase()));
+  const currentYear = Number(current.year?.match(/\d{4}/)?.[0] ?? 0);
+  const family = titleFamily(current.name);
+  const unique = new Map<string, StremioMeta>();
+  for (const candidate of candidates) {
+    if (candidate.id === current.id && candidate.type === current.type) continue;
+    unique.set(`${candidate.type}:${candidate.id}`, candidate);
+  }
+  return [...unique.values()]
+    .map((candidate) => {
+      const sharedGenres = (candidate.genres ?? []).filter((genre) =>
+        currentGenres.has(genre.toLowerCase())
+      ).length;
+      const candidateYear = Number(candidate.year?.match(/\d{4}/)?.[0] ?? 0);
+      const yearDistance =
+        currentYear && candidateYear ? Math.abs(currentYear - candidateYear) : 20;
+      const familyMatch =
+        family.length >= 4 && titleFamily(candidate.name).includes(family) ? 320 : 0;
+      const score =
+        familyMatch +
+        sharedGenres * 110 +
+        (candidate.type === current.type ? 70 : 0) +
+        Math.max(0, 50 - yearDistance * 3) +
+        Number(candidate.imdbRating ?? 0) * 4;
+      return { candidate, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 14)
+    .map(({ candidate }) => candidate);
+}
+
+function RelatedShelf({ title, items }: { title: string; items: StremioMeta[] }) {
+  if (!items.length) return null;
+  return (
+    <section className="mx-auto max-w-6xl px-4 pt-12 sm:px-6 md:px-12">
+      <div className="mb-5 flex items-end justify-between gap-4">
+        <div>
+          <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-accent">
+            <Sparkles size={12} /> Discover next
+          </p>
+          <h2 className="mt-1 text-2xl font-black tracking-tight">More Like This</h2>
+        </div>
+        <p className="hidden max-w-sm text-right text-xs leading-5 text-zinc-500 sm:block">
+          Related to {title} by genre, collection, release period and rating
+        </p>
+      </div>
+      <div className="hide-scrollbar -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-5 sm:-mx-6 sm:px-6 md:-mx-12 md:gap-4 md:px-12">
+        {items.map((item) => (
+          <DiscoverCard key={`${item.type}:${item.id}`} item={item} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function DiscoverDetails() {
   const navigate = useNavigate();
   const searchSources = useTorrents((state) => state.search);
@@ -73,6 +135,7 @@ export default function DiscoverDetails() {
   const [selectedSeason, setSelectedSeason] = useState(1);
   const [selectedEpisode, setSelectedEpisode] = useState<StremioVideo | null>(null);
   const [starting, setStarting] = useState(false);
+  const [related, setRelated] = useState<StremioMeta[]>([]);
   const mobileApple = isAppleMobile();
 
   useEffect(() => {
@@ -104,6 +167,29 @@ export default function DiscoverDetails() {
       });
     return () => ctrl.abort();
   }, [type, imdbId]);
+
+  useEffect(() => {
+    if (!meta) {
+      setRelated([]);
+      return;
+    }
+    const ctrl = new AbortController();
+    const genres = (meta.genres ?? []).slice(0, 3);
+    Promise.allSettled([
+      cinemeta.search(titleFamily(meta.name), ctrl.signal),
+      ...genres.map((genre) =>
+        cinemeta.catalog(meta.type, "top", { genre }, ctrl.signal)
+      ),
+      cinemeta.catalog(meta.type, "top", undefined, ctrl.signal),
+    ]).then((results) => {
+      if (ctrl.signal.aborted) return;
+      const candidates = results.flatMap((result) =>
+        result.status === "fulfilled" ? result.value : []
+      );
+      setRelated(rankRelated(meta, candidates));
+    });
+    return () => ctrl.abort();
+  }, [meta]);
 
   const seasons = useMemo(
     () => [...new Set(meta?.videos?.map((video) => video.season).filter((n) => n > 0) ?? [])],
@@ -156,6 +242,7 @@ export default function DiscoverDetails() {
     year: meta.year,
     genres: meta.genres,
     catalogRating: meta.imdbRating,
+    durationSeconds: parseRuntimeSeconds(meta.runtime),
   };
 
   const watchNow = async (episode = selectedEpisode) => {
@@ -431,6 +518,8 @@ export default function DiscoverDetails() {
           </section>
         )}
 
+        <RelatedShelf title={meta.name} items={related} />
+
         <TorrentModal
           initialQuery={query}
           lookup={lookup}
@@ -621,6 +710,8 @@ export default function DiscoverDetails() {
           </div>
         </section>
       )}
+
+      <RelatedShelf title={meta.name} items={related} />
 
       <TorrentModal
         initialQuery={query}

@@ -17,6 +17,21 @@ export function formatRuntime(ticks?: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+/** Convert catalog runtime labels such as "2h 14m" or "111 min" to seconds. */
+export function parseRuntimeSeconds(value?: string): number | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  const hours = Number(
+    normalized.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b/)?.[1] ?? 0
+  );
+  const minutes = Number(
+    normalized.match(/(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b/)?.[1] ?? 0
+  );
+  if (hours || minutes) return Math.round((hours * 60 + minutes) * 60);
+  const plainMinutes = normalized.match(/^(\d+(?:\.\d+)?)$/)?.[1];
+  return plainMinutes ? Math.round(Number(plainMinutes) * 60) : undefined;
+}
+
 /** "1:23:45" clock for the player scrubber. */
 export function formatClock(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
