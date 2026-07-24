@@ -81,5 +81,5 @@ jobs:
             gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
               --title "Akflix $TAG" \
-              --notes "Continue Watching is now episode-aware for series. Akflix remembers the exact season, episode, title, and playback position; completing an episode advances the series to the next episode instead of marking the whole show finished. Movie resume behavior is unchanged. Use source features only for content you may lawfully access."
+              --notes "Akflix 1.0.11 improves Watch Now with smarter English-first source ranking and seekable compatibility playback. Title pages now include a More Like This shelf, and Settings can move temporary streams and downloads to a connected external drive. Continue Watching remains episode-aware for series. Use source features only for content you may lawfully access."
           fi

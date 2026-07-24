@@ -138,6 +138,16 @@ export default function StreamController() {
 
     const handoff = async () => {
       try {
+        const compatibilitySource = compatibility
+          ? {
+              streamId: torrent.hash,
+              audioLanguage,
+              startSeconds: 0,
+              ...(embeddedUrl
+                ? { inputUrl: embeddedUrl }
+                : { filename: pendingStreamFileName }),
+            }
+          : undefined;
         const url = embeddedUrl
           ? compatibility
             ? await startCompatibilityStreamUrl(embeddedUrl, torrent.hash, audioLanguage)
@@ -153,6 +163,7 @@ export default function StreamController() {
           subtitle: pendingStreamMedia?.subtitle,
           posterUrl: pendingStreamMedia?.posterUrl,
           isEpisode: pendingStreamMedia?.isEpisode,
+          compatibility: compatibilitySource,
         });
         // Publish the player request before marking the torrent active. This
         // prevents the cleanup effect from seeing a transient "active but no

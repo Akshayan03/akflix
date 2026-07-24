@@ -46,6 +46,10 @@ jobs:
             --pattern "*.dmg" --pattern "*.exe" --pattern "*.msi" \
             --pattern "*.AppImage" --pattern "*.deb" || \
             echo "No published installers yet; deploying the website without bundled downloads."
+          LATEST_MAC_DMG=$(find website/downloads -maxdepth 1 -type f -name "*_aarch64.dmg" | sort -V | tail -n 1)
+          if [ -n "$LATEST_MAC_DMG" ]; then
+            cp "$LATEST_MAC_DMG" website/downloads/Akflix_latest_aarch64.dmg
+          fi
           ls -lh website/downloads
 
       - uses: actions/configure-pages@v5

@@ -8,6 +8,7 @@
     "core:default",
     "core:window:allow-start-dragging",
     "opener:default",
+    "dialog:allow-open",
     "deep-link:default",
     "updater:default",
     "process:allow-restart",

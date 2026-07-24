@@ -39,7 +39,11 @@ import { useTorrents } from "@/stores/torrentStore";
 import { useT } from "@/i18n";
 import { formatClock, ticksToSeconds } from "@/lib/utils";
 import { isAppleMobile } from "@/lib/platform";
-import { setCompatibilityStreamPaused } from "@/lib/compatStream";
+import {
+  setCompatibilityStreamPaused,
+  startCompatibilityStream,
+  startCompatibilityStreamUrl,
+} from "@/lib/compatStream";
 import { iosNativeSources } from "@/lib/iosSourceCompatibility";
 import { englishSafeSources } from "@/lib/sourceLanguage";
 import { directSubtitleTracks } from "@/api/subtitles";
@@ -91,7 +95,14 @@ function saveDirectProgress(
   if (!request || !video) return;
   const media = directHistoryTitle(request);
   if (!media) return;
-  useHistory.getState().recordProgress(media, video.currentTime, video.duration, {
+  const currentTime = request.compatibility
+    ? request.compatibility.startSeconds + video.currentTime
+    : video.currentTime;
+  const duration =
+    request.durationSeconds && request.durationSeconds > 0
+      ? request.durationSeconds
+      : video.duration;
+  useHistory.getState().recordProgress(media, currentTime, duration, {
     subtitle: request.subtitle,
     season: request.season,
     episode: request.episode,
@@ -155,6 +166,8 @@ export default function PlayerHost() {
   const directRequestRef = useRef<DirectPlaybackRequest | null>(null);
   const directRetryRef = useRef(0);
   const directRetryTimer = useRef<ReturnType<typeof setTimeout>>();
+  const compatibilitySeekTimer = useRef<ReturnType<typeof setTimeout>>();
+  const compatibilitySeekSequence = useRef(0);
   const directResumeAppliedRef = useRef<string | null>(null);
   const lastLocalHistoryWrite = useRef(0);
   const loadSeq = useRef(0);
@@ -173,6 +186,7 @@ export default function PlayerHost() {
   const reportStopped = useCallback(() => {
     const v = videoRef.current;
     clearTimeout(directRetryTimer.current);
+    clearTimeout(compatibilitySeekTimer.current);
     const s = jfSessionRef.current;
     if (client && v && s) {
       client
@@ -335,7 +349,7 @@ export default function PlayerHost() {
         buffering: true,
         hasNext: !!request.episodeQueue?.length,
         currentTime: 0,
-        duration: 0,
+        duration: request.durationSeconds ?? 0,
       });
       _setSession({
         itemId: request.id,
@@ -433,7 +447,13 @@ export default function PlayerHost() {
     const current = directRequestRef.current;
     const next = current?.episodeQueue?.[0];
     if (!current || !next || !current.catalogId) return false;
-    const { id: _id, url: _url, episodeQueue = [], ...base } = current;
+    const {
+      id: _id,
+      url: _url,
+      compatibility: _compatibility,
+      episodeQueue = [],
+      ...base
+    } = current;
     const nextMedia = {
       ...base,
       subtitle: `S${next.season} E${next.episode} · ${next.title}`,
@@ -482,6 +502,81 @@ export default function PlayerHost() {
     }
   }, [finishActiveStream, load, mobileApple, navigate, _sync]);
 
+  const seekPlayback = useCallback(
+    (seconds: number) => {
+      const video = videoRef.current;
+      if (!video) return;
+      const request = directRequestRef.current;
+      const compatibility = request?.compatibility;
+      if (!request || !compatibility) {
+        video.currentTime = Math.max(0, seconds);
+        return;
+      }
+
+      const limit = request.durationSeconds ?? Number.POSITIVE_INFINITY;
+      const target = Math.max(0, Math.min(seconds, Math.max(0, limit - 1)));
+      const sequence = ++compatibilitySeekSequence.current;
+      clearTimeout(compatibilitySeekTimer.current);
+      _sync({ currentTime: target, buffering: true });
+
+      compatibilitySeekTimer.current = setTimeout(() => {
+        const restart = async () => {
+          const activeRequest = directRequestRef.current;
+          if (
+            sequence !== compatibilitySeekSequence.current ||
+            activeRequest?.id !== request.id ||
+            !activeRequest.compatibility
+          ) {
+            return;
+          }
+
+          video.pause();
+          try {
+            const source = activeRequest.compatibility;
+            const url = source.inputUrl
+              ? await startCompatibilityStreamUrl(
+                  source.inputUrl,
+                  source.streamId,
+                  source.audioLanguage,
+                  target
+                )
+              : source.filename
+                ? await startCompatibilityStream(
+                    source.filename,
+                    source.streamId,
+                    source.audioLanguage,
+                    target
+                  )
+                : null;
+            if (!url) throw new Error("The conversion source is unavailable.");
+            if (
+              sequence !== compatibilitySeekSequence.current ||
+              directRequestRef.current?.id !== request.id
+            ) {
+              return;
+            }
+
+            source.startSeconds = target;
+            activeRequest.url = url;
+            directRetryRef.current = 0;
+            setError(null);
+            video.src = `${url}${url.includes("?") ? "&" : "?"}seek=${Date.now()}`;
+            video.load();
+            video.playbackRate = usePlayback.getState().playbackRate;
+            await video.play().catch(() => {});
+          } catch (reason) {
+            _sync({ buffering: false });
+            toast.error("Could not jump to that point", {
+              description: reason instanceof Error ? reason.message : String(reason),
+            });
+          }
+        };
+        void restart();
+      }, 280);
+    },
+    [_sync]
+  );
+
   useEffect(() => {
     _setControls({
       toggle: () => {
@@ -498,12 +593,10 @@ export default function PlayerHost() {
         }
       },
       seek: (sec) => {
-        const v = videoRef.current;
-        if (v) v.currentTime = sec;
+        seekPlayback(sec);
       },
       seekBy: (delta) => {
-        const v = videoRef.current;
-        if (v) v.currentTime += delta;
+        seekPlayback(usePlayback.getState().currentTime + delta);
       },
       setMuted: (m) => {
         const v = videoRef.current;
@@ -521,7 +614,7 @@ export default function PlayerHost() {
       next: playNext,
     });
     return () => _setControls(null);
-  }, [client, playNext, _setControls, _sync]);
+  }, [client, playNext, seekPlayback, _setControls, _sync]);
 
   // ── Progress reporting heartbeat ─────────────────────────────────────
   useEffect(() => {
@@ -693,7 +786,11 @@ export default function PlayerHost() {
           onPlaying={() => _sync({ buffering: false })}
           onTimeUpdate={(e) => {
             const video = e.currentTarget;
-            _sync({ currentTime: video.currentTime });
+            const request = directRequestRef.current;
+            const timelineTime = request?.compatibility
+              ? request.compatibility.startSeconds + video.currentTime
+              : video.currentTime;
+            _sync({ currentTime: timelineTime });
             if (
               directRequestRef.current &&
               Date.now() - lastLocalHistoryWrite.current >= LOCAL_HISTORY_INTERVAL_MS
@@ -702,7 +799,14 @@ export default function PlayerHost() {
               saveDirectProgress(directRequestRef.current, video);
             }
           }}
-          onDurationChange={(e) => _sync({ duration: e.currentTarget.duration })}
+          onDurationChange={(e) => {
+            const request = directRequestRef.current;
+            const mediaDuration =
+              request?.durationSeconds && request.durationSeconds > 0
+                ? request.durationSeconds
+                : e.currentTarget.duration;
+            _sync({ duration: Number.isFinite(mediaDuration) ? mediaDuration : 0 });
+          }}
           onLoadedMetadata={(e) => {
             const request = directRequestRef.current;
             const video = e.currentTarget;
@@ -720,8 +824,9 @@ export default function PlayerHost() {
                 entry.episode === request.episode &&
                 !entry.completed
             );
-            if (saved && saved.position > 10 && saved.position < video.duration - 5) {
-              video.currentTime = saved.position;
+            const mediaDuration = request.durationSeconds ?? video.duration;
+            if (saved && saved.position > 10 && saved.position < mediaDuration - 5) {
+              seekPlayback(saved.position);
               toast.info("Resuming where you left off", {
                 description: `${formatClock(saved.position)} into ${request.title}`,
               });

@@ -5,7 +5,15 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { CheckCircle2, ExternalLink, RefreshCw, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  ExternalLink,
+  FolderOpen,
+  HardDrive,
+  RefreshCw,
+  RotateCcw,
+  XCircle,
+} from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
@@ -17,8 +25,15 @@ import { isTauri } from "@/lib/http";
 import { checkForUpdates, installUpdate } from "@/lib/desktop";
 import { useT } from "@/i18n";
 import { isAppleMobile } from "@/lib/platform";
+import {
+  configureMediaStorage,
+  getMediaStorageStatus,
+  resetMediaStorage,
+  type MediaStorageStatus,
+} from "@/lib/mediaStorage";
+import { formatBytes } from "@/lib/utils";
 
-const APP_VERSION = "1.0.8"; // keep in sync with package.json / tauri.conf.json
+const APP_VERSION = "1.0.11"; // keep in sync with package.json / tauri.conf.json
 
 type TestState = "idle" | "busy" | "ok" | "fail";
 
@@ -63,6 +78,8 @@ export default function Settings() {
   const [qbtTest, setQbtTest] = useState<TestState>("idle");
   const [prowlarrTest, setProwlarrTest] = useState<TestState>("idle");
   const [jfTests, setJfTests] = useState<Record<string, TestState>>({});
+  const [storageStatus, setStorageStatus] = useState<MediaStorageStatus | null>(null);
+  const [storageBusy, setStorageBusy] = useState(false);
 
   useEffect(() => {
     if (!mobileApple || location.hash !== "#hosted-streaming") return;
@@ -74,6 +91,17 @@ export default function Settings() {
     }, 250);
     return () => clearTimeout(timer);
   }, [location.hash, mobileApple]);
+
+  useEffect(() => {
+    if (mobileApple || !isTauri()) return;
+    void getMediaStorageStatus()
+      .then(setStorageStatus)
+      .catch((reason) => {
+        toast.error("Could not inspect media storage", {
+          description: reason instanceof Error ? reason.message : String(reason),
+        });
+      });
+  }, [mobileApple]);
 
   const set = <K extends keyof typeof draft>(k: K, v: (typeof draft)[K]) =>
     setDraft((d) => ({ ...d, [k]: v }));
@@ -149,6 +177,55 @@ export default function Settings() {
         description: reason instanceof Error ? reason.message : String(reason),
       });
     }
+  };
+
+  const chooseMediaStorage = async () => {
+    if (storageBusy) return;
+    setStorageBusy(true);
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const choice = await open({
+        directory: true,
+        multiple: false,
+        title: "Choose a drive or folder for Akflix media",
+      });
+      const selected = Array.isArray(choice) ? choice[0] : choice;
+      if (!selected) return;
+      const next = await configureMediaStorage(selected);
+      setStorageStatus(next);
+      toast.success("Media drive selected", {
+        description: "Restart Akflix to move all new streaming work to this location.",
+      });
+    } catch (reason) {
+      toast.error("Could not use this location", {
+        description: reason instanceof Error ? reason.message : String(reason),
+      });
+    } finally {
+      setStorageBusy(false);
+    }
+  };
+
+  const useMacStorage = async () => {
+    if (storageBusy) return;
+    setStorageBusy(true);
+    try {
+      const next = await resetMediaStorage();
+      setStorageStatus(next);
+      toast.success("Mac storage selected", {
+        description: "Restart Akflix to apply the change.",
+      });
+    } catch (reason) {
+      toast.error("Could not reset media storage", {
+        description: reason instanceof Error ? reason.message : String(reason),
+      });
+    } finally {
+      setStorageBusy(false);
+    }
+  };
+
+  const restartForStorage = async () => {
+    const { relaunch } = await import("@tauri-apps/plugin-process");
+    await relaunch();
   };
 
   return (
@@ -300,9 +377,97 @@ export default function Settings() {
             </select>
 
             {draft.torrentEngine === "embedded" ? (
-              <p className="mt-3 text-xs leading-relaxed text-zinc-500">
-                Ready automatically. Akflix manages its own temporary streams and offline media on this device.
-              </p>
+              <>
+                <p className="mt-3 text-xs leading-relaxed text-zinc-500">
+                  Ready automatically. Akflix manages its own temporary streams and offline media on this device.
+                </p>
+
+                {storageStatus && (
+                  <div className="mt-5 overflow-hidden rounded-2xl border border-white/[0.08] bg-black/20">
+                    <div className="flex items-start gap-3 p-4">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand/15 text-brand-light">
+                        <HardDrive size={20} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold">
+                            {storageStatus.volumeName ?? "Mac storage"}
+                          </p>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                              storageStatus.restartRequired ||
+                              (storageStatus.available && !storageStatus.engineRunning)
+                                ? "bg-amber-500/10 text-amber-300"
+                                : storageStatus.available && storageStatus.writable
+                                  ? "bg-emerald-500/10 text-emerald-400"
+                                  : "bg-red-500/10 text-red-400"
+                            }`}
+                          >
+                            {storageStatus.restartRequired
+                              ? "Restart required"
+                              : storageStatus.available && !storageStatus.engineRunning
+                                ? "Restart engine"
+                              : storageStatus.available && storageStatus.writable
+                                ? "Ready"
+                                : "Disconnected"}
+                          </span>
+                        </div>
+                        <p className="mt-1 break-all text-[11px] leading-5 text-zinc-500">
+                          {storageStatus.path}
+                        </p>
+                        <p className="mt-1 text-[11px] text-zinc-400">
+                          {storageStatus.freeBytes !== null
+                            ? `${formatBytes(storageStatus.freeBytes)} free`
+                            : "Free space unavailable"}
+                          {storageStatus.usingExternal ? " on external storage" : " on this Mac"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {!storageStatus.available && (
+                      <div className="border-t border-red-500/10 bg-red-500/[0.05] px-4 py-3 text-[11px] leading-5 text-red-300">
+                        Reconnect this drive before streaming. Akflix will not create a fallback cache on the internal disk.
+                      </div>
+                    )}
+
+                    <div className="border-t border-white/[0.06] px-4 py-3">
+                      <p className="mb-3 text-[11px] leading-5 text-zinc-500">
+                        New temporary streams, offline downloads and compatibility files use this location. Existing saved files stay where they were created.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void chooseMediaStorage()}
+                          disabled={storageBusy}
+                          className="flex items-center gap-2 rounded-xl bg-brand-light px-3.5 py-2.5 text-xs font-bold text-[#090806] transition hover:brightness-105 disabled:opacity-50"
+                        >
+                          <FolderOpen size={14} /> {storageBusy ? "Checking..." : "Choose drive"}
+                        </button>
+                        {!storageStatus.usingDefault && (
+                          <button
+                            type="button"
+                            onClick={() => void useMacStorage()}
+                            disabled={storageBusy}
+                            className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-xs font-semibold text-zinc-300 transition hover:bg-white/[0.08] disabled:opacity-50"
+                          >
+                            <RotateCcw size={14} /> Use Mac storage
+                          </button>
+                        )}
+                        {(storageStatus.restartRequired ||
+                          (storageStatus.available && !storageStatus.engineRunning)) && (
+                          <button
+                            type="button"
+                            onClick={() => void restartForStorage()}
+                            className="flex items-center gap-2 rounded-xl border border-amber-400/25 bg-amber-400/10 px-3.5 py-2.5 text-xs font-bold text-amber-200 transition hover:bg-amber-400/15"
+                          >
+                            <RefreshCw size={14} /> Restart now
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
               <>
                 <label className={labelCls}>URL</label>

@@ -47,13 +47,25 @@ export interface DirectPlaybackMetadata {
   year?: string;
   genres?: string[];
   catalogRating?: string;
+  /** Catalog runtime used to keep the scrubber seekable during rolling conversion. */
+  durationSeconds?: number;
   /** Ordered episodes after the current one, used for seamless auto advance. */
   episodeQueue?: DirectEpisodeTarget[];
+}
+
+export interface CompatibilityPlaybackSource {
+  streamId: string;
+  audioLanguage: string;
+  inputUrl?: string;
+  filename?: string;
+  startSeconds: number;
 }
 
 export interface DirectPlaybackRequest extends DirectPlaybackMetadata {
   id: string;
   url: string;
+  /** Source details required to restart a rolling HLS conversion after a seek. */
+  compatibility?: CompatibilityPlaybackSource;
 }
 
 /** Imperative surface registered by PlayerHost. */

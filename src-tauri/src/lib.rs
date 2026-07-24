@@ -21,12 +21,12 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use tauri::Manager;
 #[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
 };
-use tauri::Manager;
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 
 #[cfg(unix)]
@@ -70,6 +70,179 @@ fn downloads_root() -> Option<PathBuf> {
     Some(project.join("docker/downloads"))
 }
 
+#[derive(Default, serde::Deserialize, serde::Serialize)]
+struct MediaStoragePreference {
+    path: Option<PathBuf>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MediaStorageStatus {
+    path: String,
+    active_path: String,
+    available: bool,
+    active_available: bool,
+    writable: bool,
+    free_bytes: Option<u64>,
+    active_free_bytes: Option<u64>,
+    using_external: bool,
+    using_default: bool,
+    restart_required: bool,
+    engine_running: bool,
+    volume_name: Option<String>,
+}
+
+fn default_media_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("Media"))
+}
+
+fn media_storage_preference_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("media-storage.json"))
+}
+
+fn preferred_media_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let default = default_media_root(app)?;
+    let preference_path = media_storage_preference_path(app)?;
+    let Ok(contents) = fs::read(&preference_path) else {
+        return Ok(default);
+    };
+    let Ok(preference) = serde_json::from_slice::<MediaStoragePreference>(&contents) else {
+        return Ok(default);
+    };
+    Ok(preference
+        .path
+        .filter(|path| path.is_absolute())
+        .unwrap_or(default))
+}
+
+fn is_external_media_root(path: &std::path::Path) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        path.starts_with("/Volumes")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+fn media_volume_name(path: &std::path::Path) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        path.strip_prefix("/Volumes")
+            .ok()?
+            .components()
+            .next()?
+            .as_os_str()
+            .to_str()
+            .map(str::to_owned)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        None
+    }
+}
+
+fn storage_target_for_selection(selection: &std::path::Path) -> PathBuf {
+    if selection.file_name().and_then(|name| name.to_str()) == Some("Akflix Media") {
+        selection.to_path_buf()
+    } else {
+        selection.join("Akflix Media")
+    }
+}
+
+fn path_is_writable(path: &std::path::Path) -> bool {
+    path.metadata()
+        .map(|metadata| metadata.is_dir() && !metadata.permissions().readonly())
+        .unwrap_or(false)
+}
+
+fn write_media_storage_preference(
+    app: &tauri::AppHandle,
+    path: Option<PathBuf>,
+) -> Result<(), String> {
+    let preference_path = media_storage_preference_path(app)?;
+    let parent = preference_path
+        .parent()
+        .ok_or("Could not locate Akflix application data")?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let temporary = preference_path.with_extension("json.tmp");
+    fs::write(
+        &temporary,
+        serde_json::to_vec_pretty(&MediaStoragePreference { path })
+            .map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    fs::rename(temporary, preference_path).map_err(|error| error.to_string())
+}
+
+fn build_media_storage_status(app: &tauri::AppHandle) -> Result<MediaStorageStatus, String> {
+    let default = default_media_root(app)?;
+    let preferred = preferred_media_root(app)?;
+    let active = downloads_root().unwrap_or_else(|| preferred.clone());
+    let available = preferred.is_dir();
+    let active_available = active.is_dir();
+    Ok(MediaStorageStatus {
+        path: preferred.to_string_lossy().into_owned(),
+        active_path: active.to_string_lossy().into_owned(),
+        available,
+        active_available,
+        writable: available && path_is_writable(&preferred),
+        free_bytes: available_bytes(&preferred).ok().filter(|_| available),
+        active_free_bytes: available_bytes(&active).ok().filter(|_| active_available),
+        using_external: is_external_media_root(&preferred),
+        using_default: preferred == default,
+        restart_required: active != preferred,
+        engine_running: rqbit_ready(),
+        volume_name: media_volume_name(&preferred),
+    })
+}
+
+#[tauri::command]
+fn media_storage_status(app: tauri::AppHandle) -> Result<MediaStorageStatus, String> {
+    build_media_storage_status(&app)
+}
+
+#[tauri::command]
+fn configure_media_storage(
+    app: tauri::AppHandle,
+    selected_path: String,
+) -> Result<MediaStorageStatus, String> {
+    let selected = PathBuf::from(selected_path);
+    if !selected.is_absolute() || !selected.is_dir() {
+        return Err("Choose a connected folder or drive".into());
+    }
+    let selected = fs::canonicalize(selected).map_err(|error| error.to_string())?;
+    let target = storage_target_for_selection(&selected);
+    fs::create_dir_all(&target).map_err(|error| error.to_string())?;
+
+    let probe = target.join(format!(".akflix-write-test-{}", std::process::id()));
+    fs::write(&probe, b"Akflix storage test")
+        .map_err(|error| format!("Akflix cannot write to this location: {error}"))?;
+    fs::remove_file(&probe).map_err(|error| error.to_string())?;
+
+    write_media_storage_preference(&app, Some(target))?;
+    build_media_storage_status(&app)
+}
+
+#[tauri::command]
+fn reset_media_storage(app: tauri::AppHandle) -> Result<MediaStorageStatus, String> {
+    let default = default_media_root(&app)?;
+    fs::create_dir_all(&default).map_err(|error| error.to_string())?;
+    write_media_storage_preference(&app, None)?;
+    build_media_storage_status(&app)
+}
+
 #[cfg(unix)]
 fn available_bytes(path: &std::path::Path) -> Result<u64, String> {
     let encoded = CString::new(path.as_os_str().as_bytes())
@@ -91,7 +264,12 @@ fn available_bytes(_path: &std::path::Path) -> Result<u64, String> {
 #[tauri::command]
 fn available_media_storage() -> Result<u64, String> {
     let root = downloads_root().ok_or("Could not locate media storage")?;
-    fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+    if !root.is_dir() {
+        let name = media_volume_name(&root).unwrap_or_else(|| "selected storage".into());
+        return Err(format!(
+            "{name} is disconnected. Reconnect it before starting a stream."
+        ));
+    }
     available_bytes(&root)
 }
 
@@ -212,9 +390,22 @@ fn start_embedded_torrent_engine(app: &tauri::AppHandle) -> Result<(), String> {
         .path()
         .app_data_dir()
         .map_err(|error| error.to_string())?;
-    let media = app_data.join("Media");
+    let default_media = app_data.join("Media");
+    let media = preferred_media_root(app)?;
     let state = app_data.join("Engine");
-    fs::create_dir_all(&media).map_err(|error| error.to_string())?;
+    let _ = APP_MEDIA_ROOT.set(media.clone());
+
+    if media == default_media {
+        fs::create_dir_all(&media).map_err(|error| error.to_string())?;
+    } else if !media.is_dir() {
+        let name = media_volume_name(&media).unwrap_or_else(|| "Selected storage".into());
+        return Err(format!(
+            "{name} is disconnected. Akflix left the media engine paused to protect your files."
+        ));
+    }
+    if !path_is_writable(&media) {
+        return Err("The selected Akflix media location is read-only".into());
+    }
     fs::create_dir_all(&state).map_err(|error| error.to_string())?;
     // rqbit normally resumes persisted sessions before the frontend can
     // classify them. Pause them once during this migration, then the frontend
@@ -222,8 +413,6 @@ fn start_embedded_torrent_engine(app: &tauri::AppHandle) -> Result<(), String> {
     if let Err(error) = pause_persisted_torrents_once(&state) {
         eprintln!("Akflix session cleanup warning: {error}");
     }
-    let _ = APP_MEDIA_ROOT.set(media.clone());
-
     if rqbit_ready() {
         return Ok(());
     }
@@ -445,6 +634,7 @@ fn start_hls_input(
     input: String,
     stream_id: String,
     audio_language: Option<String>,
+    start_seconds: Option<f64>,
 ) -> Result<String, String> {
     let id = safe_stream_id(&stream_id).ok_or("Invalid stream id")?;
     let root = downloads_root().ok_or("Could not locate downloads")?;
@@ -459,6 +649,11 @@ fn start_hls_input(
     let segment_pattern = output.join("segment-%06d.ts");
 
     let audio_map = preferred_audio_map(&ffmpeg, &input, audio_language.as_deref());
+    let start_seconds = start_seconds
+        .filter(|value| value.is_finite())
+        .unwrap_or_default()
+        .max(0.0);
+    let seek_value = format!("{start_seconds:.3}");
     let mut command = Command::new(ffmpeg);
     command
         .args([
@@ -469,8 +664,14 @@ fn start_hls_input(
             "-re",
             "-fflags",
             "+genpts",
-            "-i",
-        ])
+        ]);
+    if start_seconds > 0.05 {
+        // Input-side seeking makes FFmpeg issue a byte-range request near the
+        // requested timestamp instead of converting every preceding minute.
+        command.args(["-ss", &seek_value]);
+    }
+    command
+        .arg("-i")
         .arg(&input)
         .args(["-map", "0:v:0", "-map"])
         .arg(audio_map)
@@ -516,7 +717,7 @@ fn start_hls_input(
             "-hls_list_size",
             "600",
             "-hls_flags",
-            "delete_segments+omit_endlist+independent_segments+temp_file",
+            "delete_segments+independent_segments+temp_file",
             "-hls_segment_filename",
         ])
         .arg(&segment_pattern)
@@ -564,6 +765,7 @@ fn start_hls_stream(
     relative_path: String,
     stream_id: String,
     audio_language: Option<String>,
+    start_seconds: Option<f64>,
 ) -> Result<String, String> {
     let root = downloads_root().ok_or("Could not locate downloads")?;
     let relative = PathBuf::from(&relative_path);
@@ -581,6 +783,7 @@ fn start_hls_stream(
         input.to_string_lossy().into_owned(),
         stream_id,
         audio_language,
+        start_seconds,
     )
 }
 
@@ -589,11 +792,12 @@ fn start_hls_url(
     input_url: String,
     stream_id: String,
     audio_language: Option<String>,
+    start_seconds: Option<f64>,
 ) -> Result<String, String> {
     if !input_url.starts_with("http://127.0.0.1:3031/torrents/") {
         return Err("Only the embedded local stream can be transcoded".into());
     }
-    start_hls_input(input_url, stream_id, audio_language)
+    start_hls_input(input_url, stream_id, audio_language, start_seconds)
 }
 
 #[derive(serde::Serialize)]
@@ -764,6 +968,8 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         // Open external links in the OS default handler.
         .plugin(tauri_plugin_opener::init())
+        // Native folder picker for choosing a fast media/cache drive.
+        .plugin(tauri_plugin_dialog::init())
         // magnet: scheme handling (config in tauri.conf.json > plugins.deep-link).
         .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![
@@ -773,6 +979,9 @@ pub fn run() {
             set_hls_stream_paused,
             embedded_engine_status,
             available_media_storage,
+            media_storage_status,
+            configure_media_storage,
+            reset_media_storage,
             remove_embedded_media_files
         ])
         .setup(|_app| {
@@ -910,5 +1119,17 @@ mod tests {
         assert!(root.exists());
 
         remove_embedded_media_files(vec!["../outside".into()]).expect("unsafe paths are ignored");
+    }
+
+    #[test]
+    fn creates_a_named_media_folder_for_selected_drives() {
+        assert_eq!(
+            storage_target_for_selection(std::path::Path::new("/Volumes/Akflix 5")),
+            PathBuf::from("/Volumes/Akflix 5/Akflix Media")
+        );
+        assert_eq!(
+            storage_target_for_selection(std::path::Path::new("/Volumes/Akflix 5/Akflix Media")),
+            PathBuf::from("/Volumes/Akflix 5/Akflix Media")
+        );
     }
 }
