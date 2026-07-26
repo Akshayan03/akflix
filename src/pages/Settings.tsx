@@ -33,7 +33,7 @@ import {
 } from "@/lib/mediaStorage";
 import { formatBytes } from "@/lib/utils";
 
-const APP_VERSION = "1.0.11"; // keep in sync with package.json / tauri.conf.json
+const APP_VERSION = "1.0.12"; // keep in sync with package.json / tauri.conf.json
 
 type TestState = "idle" | "busy" | "ok" | "fail";
 
