@@ -48,7 +48,8 @@ export class QbtClient {
   private async request(
     path: string,
     body?: URLSearchParams,
-    retry = true
+    retry = true,
+    signal?: AbortSignal
   ): Promise<Response> {
     const headers: Record<string, string> = {};
     if (this.sessionCookie) headers["Cookie"] = this.sessionCookie;
@@ -58,12 +59,13 @@ export class QbtClient {
       method: body ? "POST" : "GET",
       headers,
       body: body?.toString(),
+      signal,
     });
 
     // Session expired → login once and retry.
     if ((res.status === 401 || res.status === 403) && retry) {
       await this.login();
-      return this.request(path, body, false);
+      return this.request(path, body, false, signal);
     }
     return res;
   }
@@ -103,7 +105,8 @@ export class QbtClient {
   async add(
     magnetOrUrl: string,
     mode: TorrentAddMode = "download",
-    savePath?: string
+    savePath?: string,
+    signal?: AbortSignal
   ): Promise<void> {
     const streamMode = mode === "stream";
     const hash = magnetHash(magnetOrUrl);
@@ -123,7 +126,7 @@ export class QbtClient {
       addToTopOfQueue: String(streamMode),
     });
     if (savePath) body.set("savepath", savePath);
-    const res = await this.request("/torrents/add", body);
+    const res = await this.request("/torrents/add", body, true, signal);
     if (!res.ok) throw new Error(`Failed to add torrent (HTTP ${res.status})`);
   }
 

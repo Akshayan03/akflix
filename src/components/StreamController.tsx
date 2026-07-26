@@ -20,6 +20,7 @@ import { formatBytes, formatSpeed } from "@/lib/utils";
 import { startCompatibilityStream, startCompatibilityStreamUrl } from "@/lib/compatStream";
 import { useSettings } from "@/stores/settingsStore";
 import Artwork from "@/components/Artwork";
+import { mediaDisplayFromRelease } from "@/lib/mediaTitle";
 
 const MIB = 1024 * 1024;
 const STREAM_GATEWAY = "http://127.0.0.1:8097";
@@ -39,14 +40,6 @@ function gatewayUrl(filename: string): string {
     .split("/")
     .map((part) => encodeURIComponent(part))
     .join("/")}`;
-}
-
-function friendlyName(name: string): string {
-  return name
-    .replace(/\.[a-z\d]{2,5}$/i, "")
-    .replace(/[._]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 export default function StreamController() {
@@ -70,6 +63,9 @@ export default function StreamController() {
     pendingStreamMedia,
     failoverPendingStream,
     streamUrl,
+    sourceRaceActive,
+    sourceRaceMedia,
+    cancelSourceRace,
   } = useTorrents();
   const priorityBusy = useRef(false);
   const handoffBusy = useRef(false);
@@ -88,6 +84,12 @@ export default function StreamController() {
     pendingStreamHash && pendingStreamFileIndex !== null
       ? streamUrl(pendingStreamHash, pendingStreamFileIndex)
       : null;
+  const fallbackMedia = mediaDisplayFromRelease(
+    pendingStreamFileName || torrent?.name || ""
+  );
+  const displayMedia = pendingStreamMedia ?? sourceRaceMedia;
+  const displayTitle = displayMedia?.title?.trim() || fallbackMedia.title;
+  const displaySubtitle = displayMedia?.subtitle?.trim() || fallbackMedia.subtitle;
 
   useEffect(() => {
     if (!pendingStreamHash || pendingStreamFileName || priorityBusy.current) return;
@@ -138,11 +140,12 @@ export default function StreamController() {
 
     const handoff = async () => {
       try {
+        const resumeSeconds = Math.max(0, pendingStreamMedia?.resumeSeconds ?? 0);
         const compatibilitySource = compatibility
           ? {
               streamId: torrent.hash,
               audioLanguage,
-              startSeconds: 0,
+              startSeconds: resumeSeconds,
               ...(embeddedUrl
                 ? { inputUrl: embeddedUrl }
                 : { filename: pendingStreamFileName }),
@@ -150,17 +153,28 @@ export default function StreamController() {
           : undefined;
         const url = embeddedUrl
           ? compatibility
-            ? await startCompatibilityStreamUrl(embeddedUrl, torrent.hash, audioLanguage)
+            ? await startCompatibilityStreamUrl(
+                embeddedUrl,
+                torrent.hash,
+                audioLanguage,
+                resumeSeconds
+              )
             : embeddedUrl
           : compatibility
-            ? await startCompatibilityStream(pendingStreamFileName, torrent.hash, audioLanguage)
+            ? await startCompatibilityStream(
+                pendingStreamFileName,
+                torrent.hash,
+                audioLanguage,
+                resumeSeconds
+              )
             : gatewayUrl(pendingStreamFileName);
+        const fallback = mediaDisplayFromRelease(pendingStreamFileName);
         openDirect({
           ...pendingStreamMedia,
           id: `torrent:${torrent.hash}`,
           url,
-          title: pendingStreamMedia?.title ?? friendlyName(pendingStreamFileName),
-          subtitle: pendingStreamMedia?.subtitle,
+          title: pendingStreamMedia?.title?.trim() || fallback.title,
+          subtitle: pendingStreamMedia?.subtitle?.trim() || fallback.subtitle,
           posterUrl: pendingStreamMedia?.posterUrl,
           isEpisode: pendingStreamMedia?.isEpisode,
           compatibility: compatibilitySource,
@@ -189,7 +203,7 @@ export default function StreamController() {
     void handoff();
   }, [audioLanguage, embeddedUrl, markStreamReady, navigate, openDirect, pendingStreamFileName, pendingStreamFileSize, pendingStreamHash, pendingStreamHeadBytes, pendingStreamMedia, torrent]);
 
-  if (!pendingStreamHash) return null;
+  if (!pendingStreamHash && !sourceRaceActive) return null;
 
   const streamSize = pendingStreamFileSize || torrent?.size || 0;
   const compatibility = needsCompatibility(pendingStreamFileName);
@@ -210,15 +224,17 @@ export default function StreamController() {
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand to-transparent" />
         <div className="flex items-start gap-3">
           <Artwork
-            src={pendingStreamMedia?.posterUrl}
-            title={pendingStreamMedia?.title ?? torrent?.name ?? "Akflix stream"}
+            src={displayMedia?.posterUrl}
+            title={displayTitle}
             variant="compact"
             className="h-14 w-10 shrink-0 rounded-lg object-cover ring-1 ring-white/10"
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <p className="text-sm font-semibold">
-                {waitingForPeers
+                {sourceRaceActive
+                  ? "Checking the best sources"
+                  : waitingForPeers
                   ? "Finding a fast peer"
                   : embeddedUrl
                     ? "Opening instantly"
@@ -230,12 +246,17 @@ export default function StreamController() {
                 temporary
               </span>
             </div>
-            <p className="mt-1 truncate text-xs text-zinc-400" title={pendingStreamMedia?.title ?? torrent?.name}>
-              {pendingStreamMedia?.title ?? (torrent ? friendlyName(pendingStreamFileName || torrent.name) : "Connecting to source…")}
+            <p className="mt-1 truncate text-xs font-medium text-zinc-300" title={displayTitle}>
+              {displayTitle || "Connecting to source…"}
             </p>
+            {displaySubtitle && (
+              <p className="mt-0.5 truncate text-[11px] text-zinc-500">{displaySubtitle}</p>
+            )}
           </div>
           <button
-            onClick={() => cancelPendingStream().catch(() => {})}
+            onClick={() =>
+              (sourceRaceActive ? cancelSourceRace() : cancelPendingStream()).catch(() => {})
+            }
             aria-label="Cancel stream"
             title="Cancel and clear temporary cache"
             className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-white/10 hover:text-white"
@@ -247,13 +268,24 @@ export default function StreamController() {
         <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/10">
           <motion.div
             className="h-full rounded-full bg-gradient-to-r from-brand-dark via-brand to-accent"
-            animate={{ width: `${Math.max(3, bufferProgress)}%` }}
+            animate={
+              sourceRaceActive
+                ? { width: ["8%", "55%", "22%"], x: ["0%", "70%", "0%"] }
+                : { width: `${Math.max(3, bufferProgress)}%`, x: "0%" }
+            }
+            transition={
+              sourceRaceActive
+                ? { duration: 1.6, repeat: Infinity, ease: "easeInOut" }
+                : undefined
+            }
           />
         </div>
 
         <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-500">
           <span>
-            {embeddedUrl
+            {sourceRaceActive
+              ? "Testing peer response and language"
+              : embeddedUrl
               ? "Direct source ready"
               : torrent
               ? `${formatBytes(Math.min(received, bufferTarget))} / ${formatBytes(

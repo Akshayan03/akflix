@@ -17,7 +17,7 @@ import { useAuth } from "@/stores/authStore";
 import type { QbtTorrent, TorrentAddMode, TorrentResult } from "@/types/torrent";
 import type { DirectPlaybackMetadata } from "@/stores/playbackStore";
 import { stopCompatibilityStream } from "@/lib/compatStream";
-import { englishSafeSources } from "@/lib/sourceLanguage";
+import { automaticSafeSources } from "@/lib/sourceLanguage";
 import { availableMediaStorage } from "@/lib/mediaStorage";
 import { formatBytes } from "@/lib/utils";
 
@@ -36,9 +36,14 @@ interface TorrentState {
   pendingStreamFallbacks: TorrentResult[];
   pendingStreamStartedAt: number;
   pendingStreamMedia: DirectPlaybackMetadata | null;
+  /** True while Watch now is measuring candidate sources. */
+  sourceRaceActive: boolean;
+  sourceRaceMedia: DirectPlaybackMetadata | null;
   /** Stream currently attached to the player. Temporary jobs are deleted on stop. */
   activeStreamHash: string | null;
   activeStreamTemporary: boolean;
+  activeStreamFallbacks: TorrentResult[];
+  activeStreamMedia: DirectPlaybackMetadata | null;
 
   qbt: () => TorrentClient;
   streamUrl: (hash: string, fileIndex: number) => string | null;
@@ -55,7 +60,8 @@ interface TorrentState {
     result: TorrentResult,
     mode: TorrentAddMode,
     fallbacks?: TorrentResult[],
-    media?: DirectPlaybackMetadata
+    media?: DirectPlaybackMetadata,
+    signal?: AbortSignal
   ) => Promise<string | null>;
   /** Briefly race up to three sources and keep the one delivering real bytes fastest. */
   raceStreamSources: (
@@ -66,13 +72,16 @@ interface TorrentState {
     magnet: string,
     mode: TorrentAddMode,
     fileIndex?: number,
-    media?: DirectPlaybackMetadata | null
+    media?: DirectPlaybackMetadata | null,
+    signal?: AbortSignal
   ) => Promise<string | null>;
   prepareStreamFile: () => Promise<boolean>;
   setPendingStreamHash: (hash: string | null) => void;
   markStreamReady: (hash: string) => void;
+  cancelSourceRace: () => Promise<void>;
   cancelPendingStream: () => Promise<void>;
   failoverPendingStream: () => Promise<TorrentResult | null>;
+  failoverActiveStream: (resumeSeconds?: number) => Promise<TorrentResult | null>;
   finishActiveStream: () => Promise<void>;
   pause: (hash: string) => Promise<void>;
   resume: (hash: string) => Promise<void>;
@@ -86,6 +95,9 @@ interface TorrentState {
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 type TorrentClient = QbtClient | RqbitClient;
+let sourceRaceController: AbortController | null = null;
+let sourceRaceHashes = new Set<string>();
+let sourceRaceExistingHashes = new Set<string>();
 
 let cachedQbt: TorrentClient | null = null;
 let cachedQbtKey = "";
@@ -149,8 +161,12 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
   pendingStreamFallbacks: [],
   pendingStreamStartedAt: 0,
   pendingStreamMedia: null,
+  sourceRaceActive: false,
+  sourceRaceMedia: null,
   activeStreamHash: null,
   activeStreamTemporary: false,
+  activeStreamFallbacks: [],
+  activeStreamMedia: null,
 
   qbt: () => {
     const s = useSettings.getState();
@@ -196,7 +212,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     return get().prowlarr().search(query, [2000, 5000], signal);
   },
 
-  addTorrent: async (result, mode, fallbacks = [], media) => {
+  addTorrent: async (result, mode, fallbacks = [], media, signal) => {
     if (mode === "stream") await sourcesThatFitStorage([result]);
     const link = result.magnetUrl ?? result.downloadUrl;
     if (!link) throw new Error("Result has no magnet or download link.");
@@ -204,7 +220,8 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       link,
       mode,
       result.fileIndex,
-      mode === "stream" ? media ?? null : undefined
+      mode === "stream" ? media ?? null : undefined,
+      signal
     );
     if (mode === "stream") {
       set({
@@ -217,7 +234,14 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
   },
 
   raceStreamSources: async (results, media) => {
-    const eligibleResults = await sourcesThatFitStorage(englishSafeSources(results));
+    sourceRaceController?.abort();
+    const controller = new AbortController();
+    sourceRaceController = controller;
+    sourceRaceHashes = new Set();
+    sourceRaceExistingHashes = new Set();
+    set({ sourceRaceActive: true, sourceRaceMedia: media ?? null });
+    try {
+    const eligibleResults = await sourcesThatFitStorage(automaticSafeSources(results));
     const unique = new Map<string, TorrentResult>();
     for (const result of eligibleResults) {
       const link = result.magnetUrl ?? result.downloadUrl;
@@ -227,25 +251,78 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     }
     const candidates = [...unique.entries()].map(([hash, result]) => ({ hash, result }));
     if (!candidates.length) throw new Error("No torrent sources are available to race.");
-    if (candidates.length === 1) {
-      return get().addTorrent(candidates[0].result, "stream", eligibleResults.slice(1), media);
-    }
-
+    sourceRaceHashes = new Set(candidates.map((candidate) => candidate.hash));
     const settings = useSettings.getState();
     const basePath = (settings.downloadPath || "/downloads").replace(/\/$/, "");
     const savePath = `${basePath}/Streaming Cache`;
     const qbt = get().qbt();
     const before = await qbt.list();
     const beforeByHash = new Map(before.map((torrent) => [torrent.hash, torrent]));
+    sourceRaceExistingHashes = new Set(beforeByHash.keys());
+    if (candidates.length === 1) {
+      return get().addTorrent(
+        candidates[0].result,
+        "stream",
+        eligibleResults.slice(1),
+        media,
+        controller.signal
+      );
+    }
 
     const added = await Promise.allSettled(
       candidates.map(({ result }) => {
         const link = result.magnetUrl ?? result.downloadUrl!;
-        return qbt.add(link, "stream", savePath);
+        return qbt.add(link, "stream", savePath, controller.signal);
       })
     );
-    if (added.every((outcome) => outcome.status === "rejected")) {
-      throw new Error("None of the candidate sources could be started.");
+    const startedCandidates = candidates.filter(
+      (_candidate, index) => added[index]?.status === "fulfilled"
+    );
+    if (!startedCandidates.length) {
+      // Cached torrent metadata and trackers can fail temporarily for a
+      // perfectly healthy source. Do not stop at the first three race entries.
+      // Walk several additional ranked sources one at a time so a title with
+      // one bad provider row can still begin playing.
+      const racedHashes = new Set(candidates.map((candidate) => candidate.hash));
+      const additional = eligibleResults
+        .filter((result) => {
+          const link = result.magnetUrl ?? result.downloadUrl;
+          const hash = link ? magnetInfoHash(link) : null;
+          return !!hash && !racedHashes.has(hash);
+        })
+        .slice(0, 5);
+      const errors = added.flatMap((outcome) =>
+        outcome.status === "rejected"
+          ? [outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)]
+          : []
+      );
+
+      for (let index = 0; index < additional.length; index += 1) {
+        if (controller.signal.aborted) throw new DOMException("Source search cancelled.", "AbortError");
+        const result = additional[index];
+        const link = result.magnetUrl ?? result.downloadUrl;
+        const hash = link ? magnetInfoHash(link) : null;
+        if (hash) sourceRaceHashes.add(hash);
+        try {
+          return await get().addTorrent(
+            result,
+            "stream",
+            additional.slice(index + 1),
+            media,
+            controller.signal
+          );
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
+        }
+      }
+
+      const uniqueErrors = [...new Set(errors)].filter(Boolean);
+      const detail = uniqueErrors[uniqueErrors.length - 1];
+      throw new Error(
+        `Akflix tried ${candidates.length + additional.length} sources but none could load.${
+          detail ? ` ${detail}` : ""
+        }`
+      );
     }
 
     // Metadata cache usually resolves immediately. Give peers a short window
@@ -257,9 +334,11 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     const raceLimit = instantEngine ? 1_800 : 4_500;
     const minimumRace = instantEngine ? 600 : 2_250;
     while (Date.now() - raceStarted < raceLimit) {
+      if (controller.signal.aborted) throw new DOMException("Source search cancelled.", "AbortError");
       await new Promise((resolve) => setTimeout(resolve, instantEngine ? 300 : 750));
       snapshots = await qbt.list();
-      const active = snapshots.filter((torrent) => unique.has(torrent.hash));
+      const startedHashes = new Set(startedCandidates.map((candidate) => candidate.hash));
+      const active = snapshots.filter((torrent) => startedHashes.has(torrent.hash));
       if (
         Date.now() - raceStarted >= minimumRace &&
         active.some((torrent) =>
@@ -271,7 +350,9 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     }
 
     const winner = snapshots
-      .filter((torrent) => unique.has(torrent.hash))
+      .filter((torrent) =>
+        startedCandidates.some((candidate) => candidate.hash === torrent.hash)
+      )
       .sort((a, b) => {
         const speed = b.dlspeed - a.dlspeed;
         if (speed) return speed;
@@ -280,12 +361,12 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
         return b.num_seeds - a.num_seeds;
       })[0];
     const winnerCandidate = winner
-      ? candidates.find((candidate) => candidate.hash === winner.hash)
-      : candidates[0];
+      ? startedCandidates.find((candidate) => candidate.hash === winner.hash)
+      : startedCandidates[0];
     if (!winnerCandidate) throw new Error("The source race did not produce a winner.");
 
     await Promise.all(
-      candidates
+      startedCandidates
         .filter((candidate) => {
           if (candidate.hash === winnerCandidate.hash) return false;
           const existing = beforeByHash.get(candidate.hash);
@@ -316,9 +397,17 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       pendingStreamMedia: media ?? null,
     });
     return winnerCandidate.hash;
+    } finally {
+      if (sourceRaceController === controller) {
+        sourceRaceController = null;
+        sourceRaceHashes = new Set();
+        sourceRaceExistingHashes = new Set();
+        set({ sourceRaceActive: false, sourceRaceMedia: null });
+      }
+    }
   },
 
-  addMagnet: async (magnet, mode, fileIndex, media) => {
+  addMagnet: async (magnet, mode, fileIndex, media, signal) => {
     const s = useSettings.getState();
     const hash = magnetInfoHash(magnet);
     const qbt = get().qbt();
@@ -327,7 +416,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     if (streamMode) await requireMinimumStreamStorage();
     const basePath = (s.downloadPath || "/downloads").replace(/\/$/, "");
     const savePath = streamMode ? `${basePath}/Streaming Cache` : basePath;
-    await qbt.add(magnet, mode, savePath);
+    await qbt.add(magnet, mode, savePath, signal);
     if (streamMode && existing && !existing.seq_dl) await qbt.setSequential(existing.hash);
     if (streamMode && hash) {
       const temporary = !existing || existing.category === "akflix-stream";
@@ -399,7 +488,40 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       pendingStreamMedia: null,
       activeStreamHash: hash,
       activeStreamTemporary: state.pendingStreamTemporary,
+      activeStreamFallbacks: state.pendingStreamFallbacks,
+      activeStreamMedia: state.pendingStreamMedia,
     });
+  },
+
+  cancelSourceRace: async () => {
+    const controller = sourceRaceController;
+    const hashes = new Set(sourceRaceHashes);
+    const existingHashes = new Set(sourceRaceExistingHashes);
+    controller?.abort();
+    set({ sourceRaceActive: false, sourceRaceMedia: null });
+    if (!hashes.size) return;
+
+    // An add request can finish server-side just as it is aborted. Inspect the
+    // engine once and remove only temporary race entries that were not already
+    // present before the user pressed Watch now.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const qbt = get().qbt();
+    const current = await qbt.list().catch(() => []);
+    await Promise.all(
+      current
+        .filter(
+          (torrent) =>
+            hashes.has(torrent.hash) &&
+            !existingHashes.has(torrent.hash) &&
+            torrent.category === "akflix-stream"
+        )
+        .map((torrent) => qbt.delete(torrent.hash, true).catch(() => {}))
+    );
+    set((state) => ({
+      torrents: state.torrents.filter(
+        (torrent) => !hashes.has(torrent.hash) || existingHashes.has(torrent.hash)
+      ),
+    }));
   },
 
   cancelPendingStream: async () => {
@@ -427,6 +549,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     const oldHash = state.pendingStreamHash;
     const oldTemporary = state.pendingStreamTemporary;
     const candidates = [...state.pendingStreamFallbacks];
+    const media = state.pendingStreamMedia;
     if (!oldHash || !candidates.length) return null;
 
     set({
@@ -448,10 +571,11 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       const link = candidate.magnetUrl ?? candidate.downloadUrl;
       if (!link) continue;
       try {
-        await get().addMagnet(link, "stream", candidate.fileIndex);
+        await get().addMagnet(link, "stream", candidate.fileIndex, media);
         set({
           pendingStreamFallbacks: candidates,
           pendingStreamStartedAt: Date.now(),
+          pendingStreamMedia: media,
         });
         return candidate;
       } catch {
@@ -461,9 +585,60 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     return null;
   },
 
+  failoverActiveStream: async (resumeSeconds) => {
+    const state = get();
+    const oldHash = state.activeStreamHash;
+    const oldTemporary = state.activeStreamTemporary;
+    const candidates = [...state.activeStreamFallbacks];
+    const media = state.activeStreamMedia
+      ? {
+          ...state.activeStreamMedia,
+          ...(resumeSeconds !== undefined ? { resumeSeconds } : {}),
+        }
+      : null;
+    if (!oldHash || !candidates.length) return null;
+
+    set({
+      activeStreamHash: null,
+      activeStreamTemporary: false,
+      activeStreamFallbacks: [],
+      activeStreamMedia: null,
+    });
+    await stopCompatibilityStream(oldHash).catch(() => {});
+    if (oldTemporary) {
+      await get().qbt().delete(oldHash, true).catch(() => {});
+      set((current) => ({
+        torrents: current.torrents.filter((torrent) => torrent.hash !== oldHash),
+      }));
+    }
+
+    while (candidates.length) {
+      const candidate = candidates.shift()!;
+      const link = candidate.magnetUrl ?? candidate.downloadUrl;
+      if (!link) continue;
+      try {
+        await get().addMagnet(link, "stream", candidate.fileIndex, media);
+        set({
+          pendingStreamFallbacks: candidates,
+          pendingStreamStartedAt: Date.now(),
+          pendingStreamMedia: media,
+        });
+        return candidate;
+      } catch {
+        // Continue through ranked backups before surfacing a playback error.
+      }
+    }
+    return null;
+  },
+
   finishActiveStream: async () => {
     const { activeStreamHash: hash, activeStreamTemporary: temporary } = get();
-    set({ activeStreamHash: null, activeStreamTemporary: false });
+    set({
+      activeStreamHash: null,
+      activeStreamTemporary: false,
+      activeStreamFallbacks: [],
+      activeStreamMedia: null,
+    });
     if (hash) await stopCompatibilityStream(hash).catch(() => {});
     if (hash && temporary) {
       await get().qbt().delete(hash, true);

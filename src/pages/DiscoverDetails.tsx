@@ -12,7 +12,7 @@ import type { StremioMediaType, StremioMeta, StremioVideo } from "@/types/stremi
 import { useTorrents } from "@/stores/torrentStore";
 import { usePlayback } from "@/stores/playbackStore";
 import { isAppleMobile } from "@/lib/platform";
-import { englishSafeSources } from "@/lib/sourceLanguage";
+import { automaticSafeSources } from "@/lib/sourceLanguage";
 import RatingControl from "@/components/RatingControl";
 import { useAuth } from "@/stores/authStore";
 import {
@@ -254,6 +254,15 @@ export default function DiscoverDetails() {
           ? { imdbId, type: "series" as const, season: episode.season, episode: episode.episode }
           : undefined;
     if (!targetLookup) return;
+    const matchesSavedEpisode =
+      type === "movie" ||
+      (!!episode &&
+        savedProgress?.season === episode.season &&
+        savedProgress?.episode === episode.episode);
+    const resumeSeconds =
+      savedProgress && !savedProgress.completed && matchesSavedEpisode && savedProgress.position > 10
+        ? savedProgress.position
+        : undefined;
     const media = {
       title: meta.name,
       subtitle:
@@ -265,13 +274,14 @@ export default function DiscoverDetails() {
       season: type === "series" ? episode?.season : undefined,
       episode: type === "series" ? episode?.episode : undefined,
       episodeQueue: type === "series" ? episodesAfter(meta.videos, episode) : undefined,
+      resumeSeconds,
       ...catalogMetadata,
     };
     setStarting(true);
     try {
       const results = await searchSources(query, undefined, targetLookup);
       if (!results.length) throw new Error("No playable sources were found for this title.");
-      const preferredResults = englishSafeSources(results);
+      const preferredResults = automaticSafeSources(results);
       const hosted = preferredResults.find((result) => result.streamUrl);
       if (hosted?.streamUrl) {
         openDirect({ id: hosted.guid, url: hosted.streamUrl, ...media });
@@ -295,6 +305,12 @@ export default function DiscoverDetails() {
         description: "Akflix will switch sources automatically if this one stalls.",
       });
     } catch (reason) {
+      if (
+        (reason instanceof DOMException && reason.name === "AbortError") ||
+        (reason instanceof Error && /cancelled/i.test(reason.message))
+      ) {
+        return;
+      }
       toast.error("Couldn’t start playback", {
         description: reason instanceof Error ? reason.message : String(reason),
       });
@@ -535,6 +551,7 @@ export default function DiscoverDetails() {
             episode: type === "series" ? selectedEpisode?.episode : undefined,
             episodeQueue:
               type === "series" ? episodesAfter(meta.videos, selectedEpisode) : undefined,
+            resumeSeconds: canResume ? savedProgress?.position : undefined,
             ...catalogMetadata,
           }}
           open={sourceOpen}
@@ -728,6 +745,7 @@ export default function DiscoverDetails() {
           episode: type === "series" ? selectedEpisode?.episode : undefined,
           episodeQueue:
             type === "series" ? episodesAfter(meta.videos, selectedEpisode) : undefined,
+          resumeSeconds: canResume ? savedProgress?.position : undefined,
           ...catalogMetadata,
         }}
         open={sourceOpen}
