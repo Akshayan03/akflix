@@ -244,8 +244,49 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
         return qbt.add(link, "stream", savePath);
       })
     );
-    if (added.every((outcome) => outcome.status === "rejected")) {
-      throw new Error("None of the candidate sources could be started.");
+    const startedCandidates = candidates.filter(
+      (_candidate, index) => added[index]?.status === "fulfilled"
+    );
+    if (!startedCandidates.length) {
+      // Cached torrent metadata and trackers can fail temporarily for a
+      // perfectly healthy source. Do not stop at the first three race entries.
+      // Walk several additional ranked sources one at a time so a title with
+      // one bad provider row can still begin playing.
+      const racedHashes = new Set(candidates.map((candidate) => candidate.hash));
+      const additional = eligibleResults
+        .filter((result) => {
+          const link = result.magnetUrl ?? result.downloadUrl;
+          const hash = link ? magnetInfoHash(link) : null;
+          return !!hash && !racedHashes.has(hash);
+        })
+        .slice(0, 5);
+      const errors = added.flatMap((outcome) =>
+        outcome.status === "rejected"
+          ? [outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)]
+          : []
+      );
+
+      for (let index = 0; index < additional.length; index += 1) {
+        const result = additional[index];
+        try {
+          return await get().addTorrent(
+            result,
+            "stream",
+            additional.slice(index + 1),
+            media
+          );
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
+        }
+      }
+
+      const uniqueErrors = [...new Set(errors)].filter(Boolean);
+      const detail = uniqueErrors[uniqueErrors.length - 1];
+      throw new Error(
+        `Akflix tried ${candidates.length + additional.length} sources but none could load.${
+          detail ? ` ${detail}` : ""
+        }`
+      );
     }
 
     // Metadata cache usually resolves immediately. Give peers a short window
@@ -259,7 +300,8 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     while (Date.now() - raceStarted < raceLimit) {
       await new Promise((resolve) => setTimeout(resolve, instantEngine ? 300 : 750));
       snapshots = await qbt.list();
-      const active = snapshots.filter((torrent) => unique.has(torrent.hash));
+      const startedHashes = new Set(startedCandidates.map((candidate) => candidate.hash));
+      const active = snapshots.filter((torrent) => startedHashes.has(torrent.hash));
       if (
         Date.now() - raceStarted >= minimumRace &&
         active.some((torrent) =>
@@ -271,7 +313,9 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     }
 
     const winner = snapshots
-      .filter((torrent) => unique.has(torrent.hash))
+      .filter((torrent) =>
+        startedCandidates.some((candidate) => candidate.hash === torrent.hash)
+      )
       .sort((a, b) => {
         const speed = b.dlspeed - a.dlspeed;
         if (speed) return speed;
@@ -280,12 +324,12 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
         return b.num_seeds - a.num_seeds;
       })[0];
     const winnerCandidate = winner
-      ? candidates.find((candidate) => candidate.hash === winner.hash)
-      : candidates[0];
+      ? startedCandidates.find((candidate) => candidate.hash === winner.hash)
+      : startedCandidates[0];
     if (!winnerCandidate) throw new Error("The source race did not produce a winner.");
 
     await Promise.all(
-      candidates
+      startedCandidates
         .filter((candidate) => {
           if (candidate.hash === winnerCandidate.hash) return false;
           const existing = beforeByHash.get(candidate.hash);

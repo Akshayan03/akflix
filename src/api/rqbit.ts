@@ -103,9 +103,13 @@ export class RqbitClient {
     const hash = magnetHash(value);
     const existingMode = hash ? readModes()[hash] : undefined;
     const candidates = hash
-      ? [`https://itorrents.org/torrent/${hash.toUpperCase()}.torrent`, addFastTrackers(value)]
+      ? [
+          `https://itorrents.net/torrent/${hash.toUpperCase()}.torrent`,
+          `https://itorrents.org/torrent/${hash.toUpperCase()}.torrent`,
+          addFastTrackers(value),
+        ]
       : [value];
-    let lastError = "The source could not be added";
+    const errors: string[] = [];
 
     for (const candidate of candidates) {
       try {
@@ -114,7 +118,7 @@ export class RqbitClient {
           body: candidate,
         });
         if (!response.ok) {
-          lastError = `Embedded engine rejected the source (HTTP ${response.status})`;
+          errors.push(`HTTP ${response.status}`);
           continue;
         }
         const added = (await response.json()) as RqbitAddResponse;
@@ -122,10 +126,15 @@ export class RqbitClient {
         if (resolvedHash) writeMode(resolvedHash, existingMode ?? mode);
         return;
       } catch (error) {
-        lastError = error instanceof Error ? error.message : String(error);
+        errors.push(error instanceof Error ? error.message : String(error));
       }
     }
-    throw new Error(lastError);
+    const detail = [...new Set(errors)].filter(Boolean).join(", ");
+    throw new Error(
+      detail
+        ? `Embedded engine could not load this source: ${detail}`
+        : "The source could not be added"
+    );
   }
 
   async list(): Promise<QbtTorrent[]> {
