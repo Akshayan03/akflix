@@ -85,7 +85,10 @@ export class RqbitClient {
     this.baseUrl = this.baseUrl.replace(/\/+$/, "");
   }
 
-  private async request(path: string, init: { method?: string; body?: string; json?: unknown } = {}) {
+  private async request(
+    path: string,
+    init: { method?: string; body?: string; json?: unknown; signal?: AbortSignal } = {}
+  ) {
     const body = init.json === undefined ? init.body : JSON.stringify(init.json);
     return httpRaw(`${this.baseUrl}${path}`, {
       method: init.method ?? "GET",
@@ -96,10 +99,16 @@ export class RqbitClient {
             : undefined
           : { "Content-Type": "application/json" },
       body,
+      signal: init.signal,
     });
   }
 
-  async add(value: string, mode: TorrentAddMode = "download", _savePath?: string): Promise<void> {
+  async add(
+    value: string,
+    mode: TorrentAddMode = "download",
+    _savePath?: string,
+    signal?: AbortSignal
+  ): Promise<void> {
     const hash = magnetHash(value);
     const existingMode = hash ? readModes()[hash] : undefined;
     const candidates = hash
@@ -112,10 +121,12 @@ export class RqbitClient {
     const errors: string[] = [];
 
     for (const candidate of candidates) {
+      if (signal?.aborted) throw new DOMException("Source search cancelled.", "AbortError");
       try {
         const response = await this.request("/torrents", {
           method: "POST",
           body: candidate,
+          signal,
         });
         if (!response.ok) {
           errors.push(`HTTP ${response.status}`);
@@ -126,6 +137,7 @@ export class RqbitClient {
         if (resolvedHash) writeMode(resolvedHash, existingMode ?? mode);
         return;
       } catch (error) {
+        if (signal?.aborted) throw new DOMException("Source search cancelled.", "AbortError");
         errors.push(error instanceof Error ? error.message : String(error));
       }
     }

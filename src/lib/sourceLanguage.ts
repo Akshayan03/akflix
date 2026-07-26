@@ -34,3 +34,30 @@ export function englishSafeSources(results: TorrentResult[]): TorrentResult[] {
   const safe = results.filter((result) => sourceLanguage(result) !== "non-english");
   return safe.length ? safe : results;
 }
+
+const LOW_GRADE_RELEASE =
+  /\b(?:cam|hdcam|camrip|telesync|tsrip|hdts|screener|telecine)\b/i;
+
+/**
+ * Conservative pool for Watch now. Manual source selection intentionally
+ * keeps every result, but the automatic path should not choose theatre
+ * captures with embedded ads or an explicitly foreign-only audio track when
+ * a normal release is available.
+ */
+export function automaticSafeSources(results: TorrentResult[]): TorrentResult[] {
+  const languageSafe = englishSafeSources(results);
+  const clean = languageSafe.filter((result) => {
+    const text = `${result.title} ${result.category ?? ""}`;
+    return !LOW_GRADE_RELEASE.test(text.replace(/[._-]+/g, " "));
+  });
+  const pool = clean.length ? clean : languageSafe;
+  const priority: Record<SourceLanguage, number> = {
+    english: 0,
+    unknown: 1,
+    multi: 2,
+    "non-english": 3,
+  };
+  return [...pool].sort(
+    (a, b) => priority[sourceLanguage(a)] - priority[sourceLanguage(b)]
+  );
+}

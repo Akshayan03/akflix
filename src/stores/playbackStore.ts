@@ -49,6 +49,8 @@ export interface DirectPlaybackMetadata {
   catalogRating?: string;
   /** Catalog runtime used to keep the scrubber seekable during rolling conversion. */
   durationSeconds?: number;
+  /** Saved position that should be applied before playback begins. */
+  resumeSeconds?: number;
   /** Ordered episodes after the current one, used for seamless auto advance. */
   episodeQueue?: DirectEpisodeTarget[];
 }

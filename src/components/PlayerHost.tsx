@@ -46,7 +46,7 @@ import {
   startCompatibilityStreamUrl,
 } from "@/lib/compatStream";
 import { iosNativeSources } from "@/lib/iosSourceCompatibility";
-import { englishSafeSources } from "@/lib/sourceLanguage";
+import { automaticSafeSources } from "@/lib/sourceLanguage";
 import { directSubtitleTracks } from "@/api/subtitles";
 import MiniPlayer from "@/components/MiniPlayer";
 import type { MediaSource, MediaStream } from "@/types/jellyfin";
@@ -167,6 +167,8 @@ export default function PlayerHost() {
   const directRequestRef = useRef<DirectPlaybackRequest | null>(null);
   const directRetryRef = useRef(0);
   const directRetryTimer = useRef<ReturnType<typeof setTimeout>>();
+  const playbackStallTimer = useRef<ReturnType<typeof setTimeout>>();
+  const playbackStallHandling = useRef(false);
   const compatibilitySeekTimer = useRef<ReturnType<typeof setTimeout>>();
   const compatibilitySeekSequence = useRef(0);
   const directResumeAppliedRef = useRef<string | null>(null);
@@ -187,6 +189,7 @@ export default function PlayerHost() {
   const reportStopped = useCallback(() => {
     const v = videoRef.current;
     clearTimeout(directRetryTimer.current);
+    clearTimeout(playbackStallTimer.current);
     clearTimeout(compatibilitySeekTimer.current);
     const s = jfSessionRef.current;
     if (client && v && s) {
@@ -341,6 +344,7 @@ export default function PlayerHost() {
       directRequestRef.current = request;
       directRetryRef.current = 0;
       directResumeAppliedRef.current = null;
+      playbackStallHandling.current = false;
       lastLocalHistoryWrite.current = 0;
       setError(null);
       setSubTracks([]);
@@ -349,9 +353,12 @@ export default function PlayerHost() {
       _sync({
         buffering: true,
         hasNext: !!request.episodeQueue?.length,
-        currentTime: 0,
+        currentTime: request.compatibility?.startSeconds ?? 0,
         duration: request.durationSeconds ?? 0,
       });
+      if ((request.compatibility?.startSeconds ?? 0) > 10) {
+        directResumeAppliedRef.current = request.id;
+      }
       const display = mediaDisplayFromRelease(request.title);
       _setSession({
         itemId: request.id,
@@ -477,7 +484,7 @@ export default function PlayerHost() {
         season: next.season,
         episode: next.episode,
       });
-      let eligible = englishSafeSources(results);
+      let eligible = automaticSafeSources(results);
       if (mobileApple) eligible = iosNativeSources(eligible);
       if (!eligible.length) throw new Error("No compatible source was found for the next episode.");
 
@@ -578,6 +585,64 @@ export default function PlayerHost() {
     },
     [_sync]
   );
+
+  const clearPlaybackStall = useCallback(() => {
+    clearTimeout(playbackStallTimer.current);
+  }, []);
+
+  const failoverPlaybackSource = useCallback(
+    async (message: string) => {
+      if (playbackStallHandling.current) return;
+      const activeRequest = directRequestRef.current;
+      const activeVideo = videoRef.current;
+      if (!activeRequest || !activeVideo) return;
+      playbackStallHandling.current = true;
+      saveDirectProgress(activeRequest, activeVideo);
+      const timelineTime = activeRequest.compatibility
+        ? activeRequest.compatibility.startSeconds + activeVideo.currentTime
+        : activeVideo.currentTime;
+      activeVideo.pause();
+      activeVideo.removeAttribute("src");
+      activeVideo.load();
+      try {
+        const next = await useTorrents.getState().failoverActiveStream(timelineTime);
+        if (next) {
+          toast.info(message, {
+            description: "Switching to the next healthy source automatically.",
+          });
+          return;
+        }
+        setError(`${message}. Choose another stream and try again.`);
+        _sync({ buffering: false });
+      } finally {
+        playbackStallHandling.current = false;
+      }
+    },
+    [_sync]
+  );
+
+  const schedulePlaybackStall = useCallback(() => {
+    _sync({ buffering: true });
+    const request = directRequestRef.current;
+    const video = videoRef.current;
+    if (!request || !video || playbackStallHandling.current) return;
+    const requestId = request.id;
+    const startedAt = video.currentTime;
+    clearTimeout(playbackStallTimer.current);
+    playbackStallTimer.current = setTimeout(() => {
+      const activeVideo = videoRef.current;
+      const activeRequest = directRequestRef.current;
+      if (
+        !activeVideo ||
+        activeRequest?.id !== requestId ||
+        activeVideo.paused ||
+        activeVideo.currentTime > startedAt + 1
+      ) {
+        return;
+      }
+      void failoverPlaybackSource("This source stopped responding");
+    }, 20_000);
+  }, [_sync, failoverPlaybackSource]);
 
   useEffect(() => {
     _setControls({
@@ -784,8 +849,24 @@ export default function PlayerHost() {
               setCompatibilityStreamPaused(activeStreamHash, true).catch(() => {});
             }
           }}
-          onWaiting={() => _sync({ buffering: true })}
-          onPlaying={() => _sync({ buffering: false })}
+          onWaiting={schedulePlaybackStall}
+          onStalled={schedulePlaybackStall}
+          onPlaying={() => {
+            clearPlaybackStall();
+            _sync({ buffering: false });
+          }}
+          onCanPlay={(e) => {
+            const request = directRequestRef.current;
+            const target = request?.resumeSeconds ?? 0;
+            if (
+              request &&
+              !request.compatibility &&
+              target > 10 &&
+              e.currentTarget.currentTime < target - 2
+            ) {
+              e.currentTarget.currentTime = target;
+            }
+          }}
           onTimeUpdate={(e) => {
             const video = e.currentTarget;
             const request = directRequestRef.current;
@@ -814,7 +895,6 @@ export default function PlayerHost() {
             const video = e.currentTarget;
             const media = request ? directHistoryTitle(request) : null;
             if (!request || !media || directResumeAppliedRef.current === request.id) return;
-            directResumeAppliedRef.current = request.id;
             const profileId = useAuth.getState().activeProfileId ?? "akflix-local";
             const saved = useHistory.getState().entries.find(
               (entry) =>
@@ -827,17 +907,21 @@ export default function PlayerHost() {
                 !entry.completed
             );
             const mediaDuration = request.durationSeconds ?? video.duration;
-            if (saved && saved.position > 10 && saved.position < mediaDuration - 5) {
-              seekPlayback(saved.position);
+            const target = request.resumeSeconds ?? saved?.position ?? 0;
+            if (target > 10 && target < mediaDuration - 5) {
+              seekPlayback(target);
+              directResumeAppliedRef.current = request.id;
               toast.info("Resuming where you left off", {
-                description: `${formatClock(saved.position)} into ${request.title}`,
+                description: `${formatClock(target)} into ${request.title}`,
               });
+            } else {
+              directResumeAppliedRef.current = request.id;
             }
           }}
           onError={(e) => {
             const mediaError = e.currentTarget.error;
             const directRequest = directRequestRef.current;
-            if (session?.direct && directRequest && directRetryRef.current < 6) {
+            if (session?.direct && directRequest && directRetryRef.current < 2) {
               const attempt = ++directRetryRef.current;
               setError(null);
               _sync({ buffering: true });
@@ -856,6 +940,14 @@ export default function PlayerHost() {
                 video.load();
                 video.play().catch(() => {});
               }, Math.min(6_000, 1_250 * attempt));
+              return;
+            }
+            if (
+              session?.direct &&
+              directRequest &&
+              useTorrents.getState().activeStreamFallbacks.length
+            ) {
+              void failoverPlaybackSource("This source could not be played");
               return;
             }
             setError(
