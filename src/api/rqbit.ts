@@ -111,42 +111,36 @@ export class RqbitClient {
   ): Promise<void> {
     const hash = magnetHash(value);
     const existingMode = hash ? readModes()[hash] : undefined;
-    const candidates = hash
-      ? [
-          `https://itorrents.net/torrent/${hash.toUpperCase()}.torrent`,
-          `https://itorrents.org/torrent/${hash.toUpperCase()}.torrent`,
-          addFastTrackers(value),
-        ]
-      : [value];
-    const errors: string[] = [];
+    const source = hash ? addFastTrackers(value) : value;
+    if (signal?.aborted) throw new DOMException("Source search cancelled.", "AbortError");
 
-    for (const candidate of candidates) {
-      if (signal?.aborted) throw new DOMException("Source search cancelled.", "AbortError");
+    const response = await this.request("/torrents", {
+      method: "POST",
+      body: source,
+      signal,
+    });
+    if (!response.ok) {
+      const responseText = await response.text().catch(() => "");
+      let detail = responseText.trim();
       try {
-        const response = await this.request("/torrents", {
-          method: "POST",
-          body: candidate,
-          signal,
-        });
-        if (!response.ok) {
-          errors.push(`HTTP ${response.status}`);
-          continue;
-        }
-        const added = (await response.json()) as RqbitAddResponse;
-        const resolvedHash = added.details?.info_hash?.toLowerCase() ?? hash;
-        if (resolvedHash) writeMode(resolvedHash, existingMode ?? mode);
-        return;
-      } catch (error) {
-        if (signal?.aborted) throw new DOMException("Source search cancelled.", "AbortError");
-        errors.push(error instanceof Error ? error.message : String(error));
+        const parsed = JSON.parse(responseText) as {
+          human_readable?: string;
+          error?: string;
+        };
+        detail = parsed.human_readable ?? parsed.error ?? detail;
+      } catch {
+        // rqbit can return plain text for transport failures.
       }
+      throw new Error(
+        detail
+          ? `Embedded engine could not load this source: ${detail}`
+          : `Embedded engine could not load this source: HTTP ${response.status}`
+      );
     }
-    const detail = [...new Set(errors)].filter(Boolean).join(", ");
-    throw new Error(
-      detail
-        ? `Embedded engine could not load this source: ${detail}`
-        : "The source could not be added"
-    );
+
+    const added = (await response.json()) as RqbitAddResponse;
+    const resolvedHash = added.details?.info_hash?.toLowerCase() ?? hash;
+    if (resolvedHash) writeMode(resolvedHash, existingMode ?? mode);
   }
 
   async list(): Promise<QbtTorrent[]> {

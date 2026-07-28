@@ -259,6 +259,21 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     const before = await qbt.list();
     const beforeByHash = new Map(before.map((torrent) => [torrent.hash, torrent]));
     sourceRaceExistingHashes = new Set(beforeByHash.keys());
+    if (qbt.instantStreaming) {
+      const selected = candidates[0];
+      const fallbacks = eligibleResults.filter((result) => {
+        const link = result.magnetUrl ?? result.downloadUrl;
+        return !link || magnetInfoHash(link) !== selected.hash;
+      });
+      return get().addTorrent(
+        selected.result,
+        "stream",
+        fallbacks,
+        media,
+        controller.signal
+      );
+    }
+
     if (candidates.length === 1) {
       return get().addTorrent(
         candidates[0].result,
