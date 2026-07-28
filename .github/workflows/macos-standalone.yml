@@ -81,5 +81,5 @@ jobs:
             gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
               --title "Akflix $TAG" \
-              --notes "Akflix 1.0.12 makes streaming more reliable with cancellable source searches, automatic failover when a source freezes, stricter English and quality selection, cleaner player titles, and accurate movie and episode resume seeking. Use source features only for content you may lawfully access."
+              --notes "Akflix 1.0.13 starts peer streams more directly by opening one ranked source immediately, removing unreliable torrent metadata mirrors, retaining automatic failover, and tuning the embedded engine for faster connection attempts. Use source features only for content you may lawfully access."
           fi
