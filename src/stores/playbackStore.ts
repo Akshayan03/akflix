@@ -141,6 +141,7 @@ export const usePlayback = create<PlaybackState>()((set): PlaybackState => ({
       isPlaying: false,
       currentTime: 0,
       duration: 0,
+      buffering: false,
       hasNext: false,
     }),
 

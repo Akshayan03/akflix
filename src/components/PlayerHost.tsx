@@ -167,7 +167,10 @@ export default function PlayerHost() {
   const directRequestRef = useRef<DirectPlaybackRequest | null>(null);
   const directRetryRef = useRef(0);
   const directRetryTimer = useRef<ReturnType<typeof setTimeout>>();
+  const bufferingIndicatorTimer = useRef<ReturnType<typeof setTimeout>>();
   const playbackStallTimer = useRef<ReturnType<typeof setTimeout>>();
+  const playbackStallOpen = useRef(false);
+  const playbackStallHistory = useRef<number[]>([]);
   const playbackStallHandling = useRef(false);
   const compatibilitySeekTimer = useRef<ReturnType<typeof setTimeout>>();
   const compatibilitySeekSequence = useRef(0);
@@ -189,8 +192,11 @@ export default function PlayerHost() {
   const reportStopped = useCallback(() => {
     const v = videoRef.current;
     clearTimeout(directRetryTimer.current);
+    clearTimeout(bufferingIndicatorTimer.current);
     clearTimeout(playbackStallTimer.current);
     clearTimeout(compatibilitySeekTimer.current);
+    playbackStallOpen.current = false;
+    playbackStallHistory.current = [];
     const s = jfSessionRef.current;
     if (client && v && s) {
       client
@@ -344,6 +350,8 @@ export default function PlayerHost() {
       directRequestRef.current = request;
       directRetryRef.current = 0;
       directResumeAppliedRef.current = null;
+      playbackStallOpen.current = false;
+      playbackStallHistory.current = [];
       playbackStallHandling.current = false;
       lastLocalHistoryWrite.current = 0;
       setError(null);
@@ -587,7 +595,9 @@ export default function PlayerHost() {
   );
 
   const clearPlaybackStall = useCallback(() => {
+    clearTimeout(bufferingIndicatorTimer.current);
     clearTimeout(playbackStallTimer.current);
+    playbackStallOpen.current = false;
   }, []);
 
   const failoverPlaybackSource = useCallback(
@@ -622,13 +632,60 @@ export default function PlayerHost() {
   );
 
   const schedulePlaybackStall = useCallback(() => {
-    _sync({ buffering: true });
     const request = directRequestRef.current;
     const video = videoRef.current;
-    if (!request || !video || playbackStallHandling.current) return;
+    if (!video || video.paused || video.ended) return;
+    if (!request) {
+      // Jellyfin sessions manage recovery server-side, but the player should
+      // still report an actual wait to the user until `playing` or `canplay`.
+      _sync({ buffering: true });
+      return;
+    }
+    if (
+      playbackStallHandling.current ||
+      playbackStallOpen.current
+    ) {
+      return;
+    }
+
+    playbackStallOpen.current = true;
     const requestId = request.id;
     const startedAt = video.currentTime;
+    const now = Date.now();
+    playbackStallHistory.current = playbackStallHistory.current.filter(
+      (timestamp) => now - timestamp < 90_000
+    );
+    playbackStallHistory.current.push(now);
+    const repeatedlyStalling = playbackStallHistory.current.length >= 3;
+
+    clearTimeout(bufferingIndicatorTimer.current);
     clearTimeout(playbackStallTimer.current);
+    // WebKit emits brief `waiting` and `stalled` events while it switches
+    // ranges or catches up internally. Do not flash a spinner unless playback
+    // has genuinely stopped and there are no future frames ready.
+    bufferingIndicatorTimer.current = setTimeout(() => {
+      const activeVideo = videoRef.current;
+      const activeRequest = directRequestRef.current;
+      if (
+        !activeVideo ||
+        activeRequest?.id !== requestId ||
+        activeVideo.paused ||
+        activeVideo.ended
+      ) {
+        clearPlaybackStall();
+        return;
+      }
+      const recovered =
+        activeVideo.currentTime > startedAt + 0.15 ||
+        activeVideo.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA;
+      if (recovered) {
+        clearPlaybackStall();
+        _sync({ buffering: false });
+        return;
+      }
+      _sync({ buffering: true });
+    }, 700);
+
     playbackStallTimer.current = setTimeout(() => {
       const activeVideo = videoRef.current;
       const activeRequest = directRequestRef.current;
@@ -638,11 +695,13 @@ export default function PlayerHost() {
         activeVideo.paused ||
         activeVideo.currentTime > startedAt + 1
       ) {
+        clearPlaybackStall();
+        _sync({ buffering: false });
         return;
       }
       void failoverPlaybackSource("This source stopped responding");
-    }, 20_000);
-  }, [_sync, failoverPlaybackSource]);
+    }, repeatedlyStalling ? 7_000 : 15_000);
+  }, [_sync, clearPlaybackStall, failoverPlaybackSource]);
 
   useEffect(() => {
     _setControls({
@@ -856,6 +915,8 @@ export default function PlayerHost() {
             _sync({ buffering: false });
           }}
           onCanPlay={(e) => {
+            clearPlaybackStall();
+            _sync({ buffering: false });
             const request = directRequestRef.current;
             const target = request?.resumeSeconds ?? 0;
             if (
@@ -873,7 +934,14 @@ export default function PlayerHost() {
             const timelineTime = request?.compatibility
               ? request.compatibility.startSeconds + video.currentTime
               : video.currentTime;
-            _sync({ currentTime: timelineTime });
+            const recovered =
+              usePlayback.getState().buffering &&
+              video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA;
+            if (recovered) clearPlaybackStall();
+            _sync({
+              currentTime: timelineTime,
+              ...(recovered ? { buffering: false } : {}),
+            });
             if (
               directRequestRef.current &&
               Date.now() - lastLocalHistoryWrite.current >= LOCAL_HISTORY_INTERVAL_MS
