@@ -81,5 +81,5 @@ jobs:
             gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
               --title "Akflix $TAG" \
-              --notes "Akflix 1.0.13 starts peer streams more directly by opening one ranked source immediately, removing unreliable torrent metadata mirrors, retaining automatic failover, and tuning the embedded engine for faster connection attempts. Use source features only for content you may lawfully access."
+              --notes "Akflix 1.0.14 makes playback stalls less intrusive, improves automatic recovery from weak sources, restores native macOS fullscreen, and makes the main window draggable from the navigation and player headers. Use source features only for content you may lawfully access."
           fi
