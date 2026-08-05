@@ -755,6 +755,22 @@ export default function PlayerHost() {
     return () => clearInterval(timer);
   }, [client]);
 
+  const toggleFullscreen = useCallback(async () => {
+    if (mobileApple) return;
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const appWindow = getCurrentWindow();
+      await appWindow.setFullscreen(!(await appWindow.isFullscreen()));
+      return;
+    } catch {
+      // Browser preview fallback. The desktop app uses the native window API.
+    }
+
+    const surface = document.getElementById("player-surface");
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await surface?.requestFullscreen();
+  }, [mobileApple]);
+
   // ── Global keyboard shortcuts (active whenever something is loaded) ──
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -779,10 +795,7 @@ export default function PlayerHost() {
           if (expanded) ctrl.seekBy(10);
           break;
         case "f":
-          if (expanded)
-            document.fullscreenElement
-              ? document.exitFullscreen()
-              : document.getElementById("player-surface")?.requestFullscreen();
+          if (usePlayback.getState().mode === "expanded") void toggleFullscreen();
           break;
         case "m":
           ctrl.setMuted(!v.muted);
@@ -809,7 +822,7 @@ export default function PlayerHost() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [navigate, toggleFullscreen]);
 
   // ── Controls auto-hide ───────────────────────────────────────────────
   const poke = useCallback(() => {
@@ -1079,6 +1092,7 @@ export default function PlayerHost() {
           >
               {/* Top bar */}
               <div
+                data-tauri-drag-region
                 className={`flex items-center gap-3 px-4 pb-4 pt-[calc(env(safe-area-inset-top,0px)+12px)] transition-transform duration-300 md:gap-4 md:p-5 ${
                   controlsVisible ? "translate-y-0" : "-translate-y-3"
                 }`}
@@ -1285,17 +1299,18 @@ export default function PlayerHost() {
                       </AnimatePresence>
                     </div>
 
-                    {!mobileApple && <button
-                      onClick={() =>
-                        document.fullscreenElement
-                          ? document.exitFullscreen()
-                          : document.getElementById("player-surface")?.requestFullscreen()
-                      }
-                      aria-label="Fullscreen"
-                      className="text-zinc-300 transition hover:text-white"
-                    >
-                      <Maximize size={22} />
-                    </button>}
+                    {!mobileApple && (
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void toggleFullscreen();
+                        }}
+                        aria-label="Fullscreen"
+                        className="rounded-lg p-1 text-zinc-300 transition hover:bg-white/10 hover:text-white"
+                      >
+                        <Maximize size={22} />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

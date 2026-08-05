@@ -51,11 +51,14 @@ export default function Navbar() {
       data-tauri-drag-region
       className={`fixed inset-x-0 top-0 z-40 flex h-20 items-center px-5 transition-all duration-300 md:px-8 ${macOverlayPad}`}
     >
-      <div className={`flex h-14 w-full items-center rounded-2xl border px-3 transition-all md:px-4 ${
-        scrolled
-          ? "border-white/10 bg-[#0b0a08]/88 shadow-[0_14px_45px_rgba(0,0,0,.4)] backdrop-blur-2xl"
-          : "border-white/[0.07] bg-black/20 backdrop-blur-md"
-      }`}>
+      <div
+        data-tauri-drag-region
+        className={`flex h-14 w-full items-center rounded-2xl border px-3 transition-all md:px-4 ${
+          scrolled
+            ? "border-white/10 bg-[#0b0a08]/88 shadow-[0_14px_45px_rgba(0,0,0,.4)] backdrop-blur-2xl"
+            : "border-white/[0.07] bg-black/20 backdrop-blur-md"
+        }`}
+      >
       <Link to="/" className="mr-5"><Brand /></Link>
 
       <nav className="hidden items-center gap-1 md:flex">
