@@ -50,7 +50,14 @@ export async function requireMediaStorage(): Promise<MediaStorageStatus | null> 
     throw new Error(`${drive} is disconnected or read-only. Reconnect it before streaming.`);
   }
   if (!status.engineRunning) {
-    throw new Error("The media drive is connected again. Restart Akflix to restart the playback engine.");
+    try {
+      const restarted = await invokeStorage<MediaStorageStatus>("ensure_embedded_torrent_engine");
+      if (restarted.engineRunning) return restarted;
+    } catch (reason) {
+      const detail = reason instanceof Error ? reason.message : String(reason);
+      throw new Error(`The playback engine could not restart: ${detail}`);
+    }
+    throw new Error("The playback engine could not restart. Quit and reopen Akflix, then try again.");
   }
   return status;
 }

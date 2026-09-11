@@ -35,6 +35,7 @@ use std::{ffi::CString, os::unix::ffi::OsStrExt};
 const RQBIT_API: &str = "127.0.0.1:3031";
 static APP_MEDIA_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static RQBIT_PROCESS: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
+static RQBIT_START_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn header(name: &str, value: &str) -> Header {
     Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("valid HTTP header")
@@ -386,6 +387,13 @@ fn pause_persisted_torrents_once(state: &std::path::Path) -> Result<(), String> 
 }
 
 fn start_embedded_torrent_engine(app: &tauri::AppHandle) -> Result<(), String> {
+    // Storage checks and source racing can ask for the engine at the same
+    // time. Serialize startup so reconnecting a drive never launches two
+    // rqbit processes that compete for the same API and peer ports.
+    let _start_guard = RQBIT_START_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| "Torrent engine startup lock failed")?;
     let app_data = app
         .path()
         .app_data_dir()
@@ -463,6 +471,30 @@ fn stop_embedded_torrent_engine() {
             let _ = child.wait();
         }
     }
+}
+
+#[cfg(desktop)]
+fn monitor_embedded_torrent_engine(app: tauri::AppHandle) {
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(2));
+        if rqbit_ready() {
+            continue;
+        }
+
+        // Do not cross a pending storage change or write to a disconnected
+        // drive. Once the active location is ready again, recover rqbit
+        // automatically, including after a relaunch overlaps the previous
+        // engine's shutdown.
+        let Ok(status) = build_media_storage_status(&app) else {
+            continue;
+        };
+        if status.restart_required || !status.active_available || !status.writable {
+            continue;
+        }
+        if let Err(error) = start_embedded_torrent_engine(&app) {
+            eprintln!("Akflix embedded engine recovery warning: {error}");
+        }
+    });
 }
 
 fn safe_media_path(url: &str) -> Option<PathBuf> {
@@ -822,6 +854,12 @@ fn embedded_engine_status() -> EmbeddedEngineStatus {
 }
 
 #[tauri::command]
+fn ensure_embedded_torrent_engine(app: tauri::AppHandle) -> Result<MediaStorageStatus, String> {
+    start_embedded_torrent_engine(&app)?;
+    build_media_storage_status(&app)
+}
+
+#[tauri::command]
 fn stop_hls_stream(stream_id: String) -> Result<(), String> {
     let id = safe_stream_id(&stream_id).ok_or("Invalid stream id")?;
     stop_hls_process(&id);
@@ -982,6 +1020,7 @@ pub fn run() {
             stop_hls_stream,
             set_hls_stream_paused,
             embedded_engine_status,
+            ensure_embedded_torrent_engine,
             available_media_storage,
             media_storage_status,
             configure_media_storage,
@@ -995,6 +1034,7 @@ pub fn run() {
                 if let Err(error) = start_embedded_torrent_engine(app.handle()) {
                     eprintln!("Akflix embedded engine warning: {error}");
                 }
+                monitor_embedded_torrent_engine(app.handle().clone());
                 start_stream_gateway();
                 let open = MenuItem::with_id(app, "open", "Open Akflix", true, None::<&str>)?;
                 let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
