@@ -226,6 +226,9 @@ export default function PlayerHost() {
   const playbackStallOpen = useRef(false);
   const playbackStallHistory = useRef<number[]>([]);
   const playbackStallHandling = useRef(false);
+  // Source racing is only a startup optimization. After playback begins the
+  // chosen release must remain fixed for the rest of the episode.
+  const directSourceLockedRef = useRef(false);
   const compatibilitySeekTimer = useRef<ReturnType<typeof setTimeout>>();
   const compatibilitySeekSequence = useRef(0);
   const directResumeAppliedRef = useRef<string | null>(null);
@@ -289,6 +292,7 @@ export default function PlayerHost() {
     clearTimeout(seekFeedbackTimer.current);
     playbackStallOpen.current = false;
     playbackStallHistory.current = [];
+    directSourceLockedRef.current = false;
     const s = jfSessionRef.current;
     if (client && v && s) {
       client
@@ -456,6 +460,7 @@ export default function PlayerHost() {
       playbackStallOpen.current = false;
       playbackStallHistory.current = [];
       playbackStallHandling.current = false;
+      directSourceLockedRef.current = false;
       lastLocalHistoryWrite.current = 0;
       setError(null);
       setSubTracks([]);
@@ -854,6 +859,12 @@ export default function PlayerHost() {
       ) {
         clearPlaybackStall();
         _sync({ buffering: false });
+        return;
+      }
+      // A temporary peer slowdown is buffering, not permission to replace a
+      // release that the viewer is already watching.
+      if (directSourceLockedRef.current) {
+        playbackStallOpen.current = false;
         return;
       }
       void failoverPlaybackSource("This source stopped responding");
@@ -1339,6 +1350,7 @@ export default function PlayerHost() {
           onWaiting={schedulePlaybackStall}
           onStalled={schedulePlaybackStall}
           onPlaying={() => {
+            if (directRequestRef.current) directSourceLockedRef.current = true;
             clearPlaybackStall();
             _sync({ buffering: false });
           }}
@@ -1428,7 +1440,12 @@ export default function PlayerHost() {
           onError={(e) => {
             const mediaError = e.currentTarget.error;
             const directRequest = directRequestRef.current;
-            if (session?.direct && directRequest && directRetryRef.current < 2) {
+            if (
+              session?.direct &&
+              directRequest &&
+              !directSourceLockedRef.current &&
+              directRetryRef.current < 2
+            ) {
               const attempt = ++directRetryRef.current;
               setError(null);
               _sync({ buffering: true });
@@ -1452,14 +1469,17 @@ export default function PlayerHost() {
             if (
               session?.direct &&
               directRequest &&
+              !directSourceLockedRef.current &&
               useTorrents.getState().activeStreamFallbacks.length
             ) {
               void failoverPlaybackSource("This source could not be played");
               return;
             }
             setError(
-              mediaError?.message ||
-                "This file is not playable yet. Let it buffer longer or choose a smaller 1080p source."
+              directSourceLockedRef.current
+                ? "The selected source was interrupted. Akflix kept it locked so it would not switch releases mid-video. Choose another stream to continue."
+                : mediaError?.message ||
+                    "This file is not playable yet. Let it buffer longer or choose a smaller 1080p source."
             );
             _sync({ buffering: false });
           }}
