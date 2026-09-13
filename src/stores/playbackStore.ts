@@ -76,6 +76,7 @@ export interface PlayerControls {
   seek: (seconds: number) => void;
   seekBy: (delta: number) => void;
   setMuted: (muted: boolean) => void;
+  setVolume: (volume: number) => void;
   setPlaybackRate: (rate: number) => void;
   /** Play the next episode (episodes only). Resolves false if none. */
   next: () => Promise<boolean>;
@@ -91,6 +92,7 @@ interface PlaybackState {
   // Live state mirrored from the video element (for UI binding).
   isPlaying: boolean;
   muted: boolean;
+  volume: number;
   currentTime: number;
   duration: number;
   buffering: boolean;
@@ -109,7 +111,18 @@ interface PlaybackState {
   _setSession: (s: PlaybackSession | null) => void;
   _setControls: (c: PlayerControls | null) => void;
   _sync: (patch: Partial<Pick<PlaybackState,
-    "isPlaying" | "muted" | "currentTime" | "duration" | "buffering" | "hasNext" | "playbackRate">>) => void;
+    "isPlaying" | "muted" | "volume" | "currentTime" | "duration" | "buffering" | "hasNext" | "playbackRate">>) => void;
+}
+
+function savedVolume(): number {
+  try {
+    const saved = localStorage.getItem("akflix.player.volume");
+    if (saved === null) return 1;
+    const value = Number(saved);
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1;
+  } catch {
+    return 1;
+  }
 }
 
 export const usePlayback = create<PlaybackState>()((set): PlaybackState => ({
@@ -120,6 +133,7 @@ export const usePlayback = create<PlaybackState>()((set): PlaybackState => ({
 
   isPlaying: false,
   muted: false,
+  volume: savedVolume(),
   currentTime: 0,
   duration: 0,
   buffering: false,

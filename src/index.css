@@ -138,3 +138,65 @@ body {
 video {
   background: #000;
 }
+
+/* Player controls use a larger invisible hit area with a precise visual rail. */
+.akflix-range {
+  --range-progress: 0%;
+  --range-buffered: 0%;
+  height: 1.25rem;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.akflix-range:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.akflix-range::-webkit-slider-runnable-track {
+  height: 0.25rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    #e7c76f 0 var(--range-progress),
+    rgba(255, 255, 255, 0.38) var(--range-progress) var(--range-buffered),
+    rgba(255, 255, 255, 0.17) var(--range-buffered) 100%
+  );
+}
+
+.akflix-range::-webkit-slider-thumb {
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-top: -0.325rem;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #e7c76f;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.akflix-range:hover::-webkit-slider-thumb,
+.akflix-range:focus-visible::-webkit-slider-thumb {
+  transform: scale(1.18);
+  box-shadow: 0 0 0 5px rgba(231, 199, 111, 0.16), 0 2px 12px rgba(0, 0, 0, 0.55);
+}
+
+.akflix-range:focus-visible {
+  outline: none;
+}
+
+.akflix-volume::-webkit-slider-runnable-track {
+  height: 0.2rem;
+}
+
+.akflix-volume::-webkit-slider-thumb {
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-top: -0.275rem;
+}

@@ -13,7 +13,7 @@
  * is just a thin shim over this component.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import type Hls from "hls.js";
 import { AnimatePresence, motion } from "framer-motion";
@@ -27,6 +27,7 @@ import {
   RotateCw,
   SkipForward,
   Subtitles,
+  Volume1,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -55,6 +56,7 @@ import { useHistory, type HistoryTitle } from "@/stores/historyStore";
 const PROGRESS_INTERVAL_MS = 10_000;
 const LOCAL_HISTORY_INTERVAL_MS = 5_000;
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+const SEEK_SECONDS = 10;
 
 interface SubTrack {
   index: number;
@@ -70,6 +72,14 @@ const isTypingTarget = (t: EventTarget | null) => {
     (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable)
   );
 };
+
+function rememberVolume(volume: number) {
+  try {
+    localStorage.setItem("akflix.player.volume", String(volume));
+  } catch {
+    // Playback still works when storage is unavailable.
+  }
+}
 
 function directHistoryTitle(request: DirectPlaybackRequest): HistoryTitle | null {
   if (!request.catalogId || !request.mediaType) return null;
@@ -144,6 +154,7 @@ export default function PlayerHost() {
     mode,
     isPlaying,
     muted,
+    volume,
     currentTime,
     duration,
     buffering,
@@ -178,6 +189,8 @@ export default function PlayerHost() {
   const lastLocalHistoryWrite = useRef(0);
   const loadSeq = useRef(0);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>();
+  const seekFeedbackTimer = useRef<ReturnType<typeof setTimeout>>();
+  const scrubTimeRef = useRef<number | null>(null);
   const subtitleBlobUrlsRef = useRef<string[]>([]);
 
   const [subTracks, setSubTracks] = useState<SubTrack[]>([]);
@@ -185,7 +198,34 @@ export default function PlayerHost() {
   const [subMenuOpen, setSubMenuOpen] = useState(false);
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [scrubTime, setScrubTime] = useState<number | null>(null);
+  const [bufferedUntil, setBufferedUntil] = useState(0);
+  const [seekFeedback, setSeekFeedback] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // ── Controls auto-hide ───────────────────────────────────────────────
+  const poke = useCallback(() => {
+    setControlsVisible(true);
+    clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => {
+      // Keep controls up while paused, scrubbing, or using a menu.
+      const v = videoRef.current;
+      if (
+        v &&
+        !v.paused &&
+        scrubTimeRef.current === null &&
+        !subMenuOpen &&
+        !speedMenuOpen
+      ) {
+        setControlsVisible(false);
+      }
+    }, 3000);
+  }, [speedMenuOpen, subMenuOpen]);
+
+  useEffect(() => {
+    if (mode === "expanded") poke();
+    return () => clearTimeout(hideTimer.current);
+  }, [mode, poke]);
 
   // ── Teardown helpers ─────────────────────────────────────────────────
 
@@ -195,6 +235,7 @@ export default function PlayerHost() {
     clearTimeout(bufferingIndicatorTimer.current);
     clearTimeout(playbackStallTimer.current);
     clearTimeout(compatibilitySeekTimer.current);
+    clearTimeout(seekFeedbackTimer.current);
     playbackStallOpen.current = false;
     playbackStallHistory.current = [];
     const s = jfSessionRef.current;
@@ -236,6 +277,10 @@ export default function PlayerHost() {
       setError(null);
       setSubTracks([]);
       setActiveSub(-1);
+      setBufferedUntil(0);
+      setScrubTime(null);
+      setSeekFeedback(null);
+      scrubTimeRef.current = null;
       nextEpisodeRef.current = null;
       _sync({ buffering: true, hasNext: false, currentTime: 0, duration: 0 });
 
@@ -321,6 +366,8 @@ export default function PlayerHost() {
           video.src = url;
         }
         video.playbackRate = usePlayback.getState().playbackRate;
+        video.volume = usePlayback.getState().volume;
+        video.muted = usePlayback.getState().muted;
         // HLS transcodes already start server-side at the requested position.
         if (startAt > 5 && !isHls) video.currentTime = startAt;
 
@@ -357,6 +404,10 @@ export default function PlayerHost() {
       setError(null);
       setSubTracks([]);
       setActiveSub(-1);
+      setBufferedUntil(0);
+      setScrubTime(null);
+      setSeekFeedback(null);
+      scrubTimeRef.current = null;
       nextEpisodeRef.current = null;
       _sync({
         buffering: true,
@@ -379,6 +430,8 @@ export default function PlayerHost() {
       video.src = request.url;
       video.preload = "auto";
       video.playbackRate = usePlayback.getState().playbackRate;
+      video.volume = usePlayback.getState().volume;
+      video.muted = usePlayback.getState().muted;
       await video.play().catch(() => {});
       if (seq === loadSeq.current) _sync({ buffering: false });
 
@@ -525,13 +578,20 @@ export default function PlayerHost() {
       if (!video) return;
       const request = directRequestRef.current;
       const compatibility = request?.compatibility;
+      const knownDuration =
+        request?.durationSeconds ??
+        (Number.isFinite(video.duration) ? video.duration : usePlayback.getState().duration);
+      const target = Math.max(
+        0,
+        Math.min(seconds, knownDuration > 0 ? Math.max(0, knownDuration - 0.25) : seconds)
+      );
       if (!request || !compatibility) {
-        video.currentTime = Math.max(0, seconds);
+        video.currentTime = target;
+        _sync({ currentTime: target });
         return;
       }
 
-      const limit = request.durationSeconds ?? Number.POSITIVE_INFINITY;
-      const target = Math.max(0, Math.min(seconds, Math.max(0, limit - 1)));
+      const shouldResume = !video.paused;
       const sequence = ++compatibilitySeekSequence.current;
       clearTimeout(compatibilitySeekTimer.current);
       _sync({ currentTime: target, buffering: true });
@@ -580,7 +640,9 @@ export default function PlayerHost() {
             video.src = `${url}${url.includes("?") ? "&" : "?"}seek=${Date.now()}`;
             video.load();
             video.playbackRate = usePlayback.getState().playbackRate;
-            await video.play().catch(() => {});
+            video.volume = usePlayback.getState().volume;
+            video.muted = usePlayback.getState().muted;
+            if (shouldResume) await video.play().catch(() => {});
           } catch (reason) {
             _sync({ buffering: false });
             toast.error("Could not jump to that point", {
@@ -593,6 +655,35 @@ export default function PlayerHost() {
     },
     [_sync]
   );
+
+  const showSeekFeedback = useCallback((delta: number) => {
+    setSeekFeedback(delta);
+    clearTimeout(seekFeedbackTimer.current);
+    seekFeedbackTimer.current = setTimeout(() => setSeekFeedback(null), 700);
+  }, []);
+
+  const jumpBy = useCallback(
+    (delta: number) => {
+      usePlayback.getState().controls?.seekBy(delta);
+      showSeekFeedback(delta);
+      poke();
+    },
+    [poke, showSeekFeedback]
+  );
+
+  const previewSeek = useCallback((seconds: number) => {
+    scrubTimeRef.current = seconds;
+    setScrubTime(seconds);
+  }, []);
+
+  const commitSeek = useCallback((seconds?: number) => {
+    const target = seconds ?? scrubTimeRef.current;
+    scrubTimeRef.current = null;
+    setScrubTime(null);
+    if (target === null || !Number.isFinite(target)) return;
+    usePlayback.getState().controls?.seek(target);
+    poke();
+  }, [poke]);
 
   const clearPlaybackStall = useCallback(() => {
     clearTimeout(bufferingIndicatorTimer.current);
@@ -727,9 +818,22 @@ export default function PlayerHost() {
       setMuted: (m) => {
         const v = videoRef.current;
         if (v) {
+          if (!m && v.volume === 0) {
+            v.volume = 0.5;
+            rememberVolume(v.volume);
+          }
           v.muted = m;
-          _sync({ muted: m });
+          _sync({ muted: m, volume: v.volume });
         }
+      },
+      setVolume: (nextVolume) => {
+        const v = videoRef.current;
+        if (!v) return;
+        const clamped = Math.max(0, Math.min(1, nextVolume));
+        v.volume = clamped;
+        v.muted = clamped === 0;
+        rememberVolume(clamped);
+        _sync({ volume: clamped, muted: v.muted });
       },
       setPlaybackRate: (rate) => {
         const v = videoRef.current;
@@ -782,17 +886,57 @@ export default function PlayerHost() {
       const expanded = usePlayback.getState().mode === "expanded";
       if (expanded) poke();
 
-      switch (e.key) {
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      if (expanded && /^\d$/.test(key)) {
+        e.preventDefault();
+        const mediaDuration = usePlayback.getState().duration;
+        if (mediaDuration > 0) ctrl.seek((mediaDuration * Number(key)) / 10);
+        return;
+      }
+
+      switch (key) {
         case " ":
         case "k":
           e.preventDefault();
           ctrl.toggle();
           break;
         case "ArrowLeft":
-          if (expanded) ctrl.seekBy(-10);
+        case "j":
+          if (expanded) {
+            e.preventDefault();
+            jumpBy(e.shiftKey ? -30 : -SEEK_SECONDS);
+          }
           break;
         case "ArrowRight":
-          if (expanded) ctrl.seekBy(10);
+        case "l":
+          if (expanded) {
+            e.preventDefault();
+            jumpBy(e.shiftKey ? 30 : SEEK_SECONDS);
+          }
+          break;
+        case "ArrowUp":
+          if (expanded) {
+            e.preventDefault();
+            ctrl.setVolume(v.volume + 0.05);
+          }
+          break;
+        case "ArrowDown":
+          if (expanded) {
+            e.preventDefault();
+            ctrl.setVolume(v.volume - 0.05);
+          }
+          break;
+        case "Home":
+          if (expanded) {
+            e.preventDefault();
+            ctrl.seek(0);
+          }
+          break;
+        case "End":
+          if (expanded) {
+            e.preventDefault();
+            ctrl.seek(Math.max(0, usePlayback.getState().duration - 1));
+          }
           break;
         case "f":
           if (usePlayback.getState().mode === "expanded") void toggleFullscreen();
@@ -822,23 +966,7 @@ export default function PlayerHost() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigate, toggleFullscreen]);
-
-  // ── Controls auto-hide ───────────────────────────────────────────────
-  const poke = useCallback(() => {
-    setControlsVisible(true);
-    clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => {
-      // Keep controls up while paused or while a menu is open.
-      const v = videoRef.current;
-      if (v && !v.paused && !subMenuOpen && !speedMenuOpen) setControlsVisible(false);
-    }, 3000);
-  }, [speedMenuOpen, subMenuOpen]);
-
-  useEffect(() => {
-    if (mode === "expanded") poke();
-    return () => clearTimeout(hideTimer.current);
-  }, [mode, poke]);
+  }, [jumpBy, navigate, poke, toggleFullscreen]);
 
   // ── Subtitle track switching ─────────────────────────────────────────
   useEffect(() => {
@@ -854,6 +982,18 @@ export default function PlayerHost() {
   if (!session && !requestedItemId && !requestedDirect) return null;
 
   const expanded = mode === "expanded";
+  const displayedTime = scrubTime ?? currentTime;
+  const progressPercent = duration > 0 ? Math.min(100, (displayedTime / duration) * 100) : 0;
+  const bufferedPercent = duration > 0 ? Math.min(100, (bufferedUntil / duration) * 100) : 0;
+  const timelineStyle = {
+    "--range-progress": `${progressPercent}%`,
+    "--range-buffered": `${Math.max(progressPercent, bufferedPercent)}%`,
+  } as CSSProperties;
+  const volumePercent = muted ? 0 : volume * 100;
+  const volumeStyle = {
+    "--range-progress": `${volumePercent}%`,
+    "--range-buffered": `${volumePercent}%`,
+  } as CSSProperties;
   const onEnded = async () => {
     const finishedRequest = directRequestRef.current;
     const nextDirectEpisode = finishedRequest?.episodeQueue?.[0];
@@ -971,6 +1111,17 @@ export default function PlayerHost() {
                 : e.currentTarget.duration;
             _sync({ duration: Number.isFinite(mediaDuration) ? mediaDuration : 0 });
           }}
+          onProgress={(e) => {
+            const video = e.currentTarget;
+            let furthest = 0;
+            for (let index = 0; index < video.buffered.length; index += 1) {
+              furthest = Math.max(furthest, video.buffered.end(index));
+            }
+            const request = directRequestRef.current;
+            setBufferedUntil(
+              request?.compatibility ? request.compatibility.startSeconds + furthest : furthest
+            );
+          }}
           onLoadedMetadata={(e) => {
             const request = directRequestRef.current;
             const video = e.currentTarget;
@@ -1037,10 +1188,20 @@ export default function PlayerHost() {
             );
             _sync({ buffering: false });
           }}
-          onVolumeChange={(e) => _sync({ muted: e.currentTarget.muted })}
+          onVolumeChange={(e) => {
+            rememberVolume(e.currentTarget.volume);
+            _sync({ muted: e.currentTarget.muted, volume: e.currentTarget.volume });
+          }}
           onRateChange={(e) => _sync({ playbackRate: e.currentTarget.playbackRate })}
           onEnded={onEnded}
-          onDoubleClick={() => !mobileApple && expanded && usePlayback.getState().controls?.toggle()}
+          onDoubleClick={(event) => {
+            if (mobileApple || !expanded) return;
+            const bounds = event.currentTarget.getBoundingClientRect();
+            const position = (event.clientX - bounds.left) / bounds.width;
+            if (position < 0.35) jumpBy(-SEEK_SECONDS);
+            else if (position > 0.65) jumpBy(SEEK_SECONDS);
+            else void toggleFullscreen();
+          }}
         >
           {subTracks.map((s) => (
             <track
@@ -1060,6 +1221,25 @@ export default function PlayerHost() {
             <div className="h-12 w-12 animate-spin rounded-full border-2 border-white/20 border-t-brand" />
           </div>
         )}
+
+        <AnimatePresence>
+          {expanded && seekFeedback !== null && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.82 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ duration: 0.16 }}
+              className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 flex-col items-center gap-1 rounded-full bg-black/55 px-6 py-4 text-white shadow-2xl backdrop-blur-xl ${
+                seekFeedback < 0 ? "left-[22%]" : "right-[22%]"
+              }`}
+            >
+              {seekFeedback < 0 ? <RotateCcw size={27} /> : <RotateCw size={27} />}
+              <span className="text-xs font-bold tabular-nums">
+                {seekFeedback > 0 ? "+" : ""}{seekFeedback}s
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Error state */}
         {error && expanded && (
@@ -1123,31 +1303,68 @@ export default function PlayerHost() {
                 }`}
                 onClick={(e) => e.stopPropagation()}
               >
-                {/* Scrubber */}
+                {/* Seek preview stays local while dragging, then commits once on release. */}
                 <div className="mb-5 flex items-center gap-2 text-[10px] text-zinc-300 md:mb-3 md:gap-3 md:text-xs">
-                  <span className="w-10 text-right tabular-nums md:w-14">
-                    {formatClock(currentTime)}
+                  <span className="w-10 text-right font-medium tabular-nums md:w-14">
+                    {formatClock(displayedTime)}
                   </span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={duration || 0}
-                    step={1}
-                    value={currentTime}
-                    onChange={(e) =>
-                      usePlayback.getState().controls?.seek(Number(e.target.value))
-                    }
-                    className="h-1 flex-1 cursor-pointer accent-brand"
-                  />
-                  <span className="w-10 tabular-nums md:w-14">{formatClock(duration)}</span>
+                  <div className="group relative flex-1">
+                    <AnimatePresence>
+                      {scrubTime !== null && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 4, scale: 0.92 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 4, scale: 0.94 }}
+                          className="pointer-events-none absolute bottom-7 z-10 -translate-x-1/2 rounded-lg border border-white/10 bg-black/85 px-2.5 py-1.5 text-xs font-bold tabular-nums shadow-xl backdrop-blur-xl"
+                          style={{ left: `${Math.max(4, Math.min(96, progressPercent))}%` }}
+                        >
+                          {formatClock(scrubTime)}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                    <input
+                      type="range"
+                      min={0}
+                      max={duration || 0}
+                      step={0.25}
+                      value={displayedTime}
+                      disabled={duration <= 0}
+                      aria-label="Playback position"
+                      aria-valuetext={`${formatClock(displayedTime)} of ${formatClock(duration)}`}
+                      onPointerDown={(event) => {
+                        event.currentTarget.setPointerCapture(event.pointerId);
+                        previewSeek(Number(event.currentTarget.value));
+                      }}
+                      onChange={(event) => previewSeek(Number(event.currentTarget.value))}
+                      onPointerUp={(event) => {
+                        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                          event.currentTarget.releasePointerCapture(event.pointerId);
+                        }
+                        commitSeek(Number(event.currentTarget.value));
+                      }}
+                      onPointerCancel={() => {
+                        scrubTimeRef.current = null;
+                        setScrubTime(null);
+                      }}
+                      onKeyUp={(event) => commitSeek(Number(event.currentTarget.value))}
+                      onBlur={() => {
+                        if (scrubTimeRef.current !== null) commitSeek();
+                      }}
+                      style={timelineStyle}
+                      className="akflix-range w-full"
+                    />
+                  </div>
+                  <span className="w-10 font-medium tabular-nums text-zinc-400 md:w-14">
+                    {formatClock(duration)}
+                  </span>
                 </div>
 
-                <div className="flex items-center justify-center gap-6 md:justify-start md:gap-5">
+                <div className="flex items-center justify-center gap-5 md:justify-start md:gap-3">
                   <motion.button
                     whileTap={mobileApple ? { scale: 0.86 } : undefined}
                     onClick={() => usePlayback.getState().controls?.toggle()}
                     aria-label="Play/Pause"
-                    className={mobileApple ? "order-2 flex h-14 w-14 items-center justify-center rounded-full bg-white text-black" : "transition hover:text-brand"}
+                    className={mobileApple ? "order-2 flex h-14 w-14 items-center justify-center rounded-full bg-white text-black" : "flex h-11 w-11 items-center justify-center rounded-full bg-white text-black shadow-lg transition hover:scale-105 hover:bg-brand-light"}
                   >
                     {isPlaying ? (
                       <Pause size={mobileApple ? 25 : 28} fill={mobileApple ? "currentColor" : "none"} />
@@ -1157,17 +1374,19 @@ export default function PlayerHost() {
                   </motion.button>
                   <motion.button
                     whileTap={mobileApple ? { scale: 0.82 } : undefined}
-                    onClick={() => usePlayback.getState().controls?.seekBy(-10)}
-                    aria-label="Back 10s"
-                    className={mobileApple ? "order-1 flex h-11 w-11 items-center justify-center text-white" : "text-zinc-300 transition hover:text-white"}
+                    onClick={() => jumpBy(-SEEK_SECONDS)}
+                    aria-label="Back 10 seconds"
+                    title="Back 10 seconds"
+                    className={mobileApple ? "order-1 flex h-11 w-11 items-center justify-center text-white" : "flex h-10 w-10 items-center justify-center rounded-full text-zinc-200 transition hover:bg-white/10 hover:text-white"}
                   >
                     <RotateCcw size={mobileApple ? 27 : 22} />
                   </motion.button>
                   <motion.button
                     whileTap={mobileApple ? { scale: 0.82 } : undefined}
-                    onClick={() => usePlayback.getState().controls?.seekBy(10)}
-                    aria-label="Forward 10s"
-                    className={mobileApple ? "order-3 flex h-11 w-11 items-center justify-center text-white" : "text-zinc-300 transition hover:text-white"}
+                    onClick={() => jumpBy(SEEK_SECONDS)}
+                    aria-label="Forward 10 seconds"
+                    title="Forward 10 seconds"
+                    className={mobileApple ? "order-3 flex h-11 w-11 items-center justify-center text-white" : "flex h-10 w-10 items-center justify-center rounded-full text-zinc-200 transition hover:bg-white/10 hover:text-white"}
                   >
                     <RotateCw size={mobileApple ? 27 : 22} />
                   </motion.button>
@@ -1182,13 +1401,47 @@ export default function PlayerHost() {
                       <SkipForward size={24} />
                     </motion.button>
                   )}
-                  <button
-                    onClick={() => usePlayback.getState().controls?.setMuted(!muted)}
-                    aria-label="Mute"
-                    className={`${mobileApple ? "hidden" : ""} text-zinc-300 transition hover:text-white`}
-                  >
-                    {muted ? <VolumeX size={22} /> : <Volume2 size={22} />}
-                  </button>
+                  {!mobileApple && (
+                    <div
+                      className="group/volume ml-1 flex items-center gap-2 rounded-full px-2 py-1 transition hover:bg-white/[0.06]"
+                      onWheel={(event) => {
+                        event.preventDefault();
+                        usePlayback.getState().controls?.setVolume(
+                          usePlayback.getState().volume + (event.deltaY < 0 ? 0.05 : -0.05)
+                        );
+                      }}
+                    >
+                      <button
+                        onClick={() => usePlayback.getState().controls?.setMuted(!muted)}
+                        aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
+                        title={muted || volume === 0 ? "Unmute" : "Mute"}
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-200 transition hover:text-white"
+                      >
+                        {muted || volume === 0 ? (
+                          <VolumeX size={21} />
+                        ) : volume < 0.5 ? (
+                          <Volume1 size={21} />
+                        ) : (
+                          <Volume2 size={21} />
+                        )}
+                      </button>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={muted ? 0 : volume}
+                        onChange={(event) =>
+                          usePlayback.getState().controls?.setVolume(Number(event.target.value))
+                        }
+                        aria-label="Volume"
+                        aria-valuetext={`${Math.round(volumePercent)} percent`}
+                        title={`Volume ${Math.round(volumePercent)}%`}
+                        style={volumeStyle}
+                        className="akflix-range akflix-volume w-24"
+                      />
+                    </div>
+                  )}
 
                   <div className={mobileApple ? "absolute bottom-[calc(env(safe-area-inset-bottom,0px)+27px)] right-4 flex items-center gap-3" : "ml-auto flex items-center gap-5"}>
                     <div className="relative">
