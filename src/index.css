@@ -139,6 +139,15 @@ video {
   background: #000;
 }
 
+video::cue {
+  color: #fffdf8;
+  background: rgba(5, 5, 4, 0.82);
+  font-family: "Avenir Next", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 1.05rem;
+  line-height: 1.45;
+  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.95);
+}
+
 /* Player controls use a larger invisible hit area with a precise visual rail. */
 .akflix-range {
   --range-progress: 0%;

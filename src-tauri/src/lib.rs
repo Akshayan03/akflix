@@ -93,6 +93,55 @@ struct MediaStorageStatus {
     volume_name: Option<String>,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportedSubtitleFile {
+    name: String,
+    contents: String,
+}
+
+#[tauri::command]
+fn read_subtitle_file(path: String) -> Result<ImportedSubtitleFile, String> {
+    let path = PathBuf::from(path);
+    if !path.is_absolute() || !path.is_file() {
+        return Err("Choose a valid subtitle file".into());
+    }
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if extension != "srt" && extension != "vtt" {
+        return Err("Akflix supports SRT and VTT caption files".into());
+    }
+    let bytes = fs::read(&path).map_err(|error| error.to_string())?;
+    if bytes.len() > 2 * 1024 * 1024 {
+        return Err("This subtitle file is larger than 2 MB".into());
+    }
+
+    let contents = if bytes.starts_with(&[0xff, 0xfe]) {
+        let values = bytes[2..]
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect::<Vec<_>>();
+        String::from_utf16_lossy(&values)
+    } else if bytes.starts_with(&[0xfe, 0xff]) {
+        let values = bytes[2..]
+            .chunks_exact(2)
+            .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+            .collect::<Vec<_>>();
+        String::from_utf16_lossy(&values)
+    } else {
+        String::from_utf8_lossy(&bytes).into_owned()
+    };
+    let name = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("Custom captions")
+        .to_string();
+    Ok(ImportedSubtitleFile { name, contents })
+}
+
 fn default_media_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app
         .path()
@@ -1021,6 +1070,7 @@ pub fn run() {
             set_hls_stream_paused,
             embedded_engine_status,
             ensure_embedded_torrent_engine,
+            read_subtitle_file,
             available_media_storage,
             media_storage_status,
             configure_media_storage,

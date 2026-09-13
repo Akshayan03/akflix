@@ -1,4 +1,5 @@
 import { httpJson, httpRaw } from "@/lib/http";
+import { subtitleToVtt } from "@/lib/manualCaptions";
 import type { StremioMediaType } from "@/types/stremio";
 
 const OPEN_SUBTITLES_URL = "https://opensubtitles-v3.strem.io";
@@ -27,13 +28,6 @@ function languageLabel(language: string): string {
   } catch {
     return language.toUpperCase();
   }
-}
-
-function srtToVtt(value: string): string {
-  const body = value
-    .replace(/^\uFEFF/, "")
-    .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})\s+-->\s+(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2 --> $3.$4");
-  return body.startsWith("WEBVTT") ? body : `WEBVTT\n\n${body}`;
 }
 
 /** Fetch a small, useful caption set and convert SRT responses for native video tracks. */
@@ -72,7 +66,7 @@ export async function directSubtitleTracks(
       try {
         const response = await httpRaw(subtitle.url);
         if (!response.ok) return null;
-        const vtt = srtToVtt(await response.text());
+        const vtt = subtitleToVtt(await response.text());
         return {
           id: subtitle.id,
           language: subtitle.lang,

@@ -19,14 +19,18 @@ import type Hls from "hls.js";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowLeft,
+  FileUp,
   Gauge,
   Maximize,
+  Minus,
   Pause,
   Play,
+  Plus,
   RotateCcw,
   RotateCw,
   SkipForward,
   Subtitles,
+  Trash2,
   Volume1,
   Volume2,
   VolumeX,
@@ -35,12 +39,24 @@ import { toast } from "sonner";
 import { useAuth, useJellyfinClient } from "@/stores/authStore";
 import { useSettings } from "@/stores/settingsStore";
 import { usePlayback } from "@/stores/playbackStore";
-import type { DirectEpisodeTarget, DirectPlaybackRequest } from "@/stores/playbackStore";
+import type {
+  DirectEpisodeTarget,
+  DirectPlaybackRequest,
+  PlaybackSession,
+} from "@/stores/playbackStore";
 import { useTorrents } from "@/stores/torrentStore";
 import { useT } from "@/i18n";
 import { formatClock, ticksToSeconds } from "@/lib/utils";
 import { isAppleMobile } from "@/lib/platform";
 import { mediaDisplayFromRelease } from "@/lib/mediaTitle";
+import {
+  loadManualCaption,
+  offsetSubtitle,
+  removeManualCaption,
+  saveManualCaption,
+  subtitleToVtt,
+  type ManualCaption,
+} from "@/lib/manualCaptions";
 import {
   setCompatibilityStreamPaused,
   startCompatibilityStream,
@@ -57,12 +73,19 @@ const PROGRESS_INTERVAL_MS = 10_000;
 const LOCAL_HISTORY_INTERVAL_MS = 5_000;
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 const SEEK_SECONDS = 10;
+const MANUAL_SUBTITLE_INDEX = 900_000;
 
 interface SubTrack {
   index: number;
   label: string;
   language?: string;
   url: string;
+  manual?: boolean;
+}
+
+interface ImportedSubtitleFile {
+  name: string;
+  contents: string;
 }
 
 const isTypingTarget = (t: EventTarget | null) => {
@@ -79,6 +102,22 @@ function rememberVolume(volume: number) {
   } catch {
     // Playback still works when storage is unavailable.
   }
+}
+
+function manualCaptionKey(
+  session: PlaybackSession | null,
+  request: DirectPlaybackRequest | null
+): string | null {
+  if (!session) return null;
+  if (request?.catalogId) {
+    return [
+      request.mediaType ?? "video",
+      request.catalogId,
+      request.season ?? 0,
+      request.episode ?? 0,
+    ].join(":");
+  }
+  return `${session.direct ? "direct" : "jellyfin"}:${session.itemId}`;
 }
 
 function directHistoryTitle(request: DirectPlaybackRequest): HistoryTitle | null {
@@ -191,6 +230,7 @@ export default function PlayerHost() {
   const hideTimer = useRef<ReturnType<typeof setTimeout>>();
   const seekFeedbackTimer = useRef<ReturnType<typeof setTimeout>>();
   const scrubTimeRef = useRef<number | null>(null);
+  const manualCaptionRef = useRef<ManualCaption | null>(null);
   const subtitleBlobUrlsRef = useRef<string[]>([]);
 
   const [subTracks, setSubTracks] = useState<SubTrack[]>([]);
@@ -201,6 +241,9 @@ export default function PlayerHost() {
   const [scrubTime, setScrubTime] = useState<number | null>(null);
   const [bufferedUntil, setBufferedUntil] = useState(0);
   const [seekFeedback, setSeekFeedback] = useState<number | null>(null);
+  const [manualCaption, setManualCaption] = useState<ManualCaption | null>(null);
+  const [manualTrack, setManualTrack] = useState<SubTrack | null>(null);
+  const [captionBusy, setCaptionBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // ── Controls auto-hide ───────────────────────────────────────────────
@@ -459,7 +502,7 @@ export default function PlayerHost() {
             const preferred = prepared.find(
               (track) => track.language === subtitleLanguage
             );
-            if (preferred) setActiveSub(preferred.index);
+            if (preferred && !manualCaptionRef.current) setActiveSub(preferred.index);
           })
           .catch(() => {});
       }
@@ -968,6 +1011,100 @@ export default function PlayerHost() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jumpBy, navigate, poke, toggleFullscreen]);
 
+  // ── Episode-specific manual captions ─────────────────────────────────
+  const captionKey = manualCaptionKey(session, directRequestRef.current);
+
+  useEffect(() => {
+    const stored = captionKey ? loadManualCaption(captionKey) : null;
+    manualCaptionRef.current = stored;
+    setManualCaption(stored);
+    if (stored) setActiveSub(MANUAL_SUBTITLE_INDEX);
+  }, [captionKey]);
+
+  useEffect(() => {
+    if (!manualCaption) {
+      setManualTrack(null);
+      return;
+    }
+    const url = URL.createObjectURL(
+      new Blob([offsetSubtitle(manualCaption.vtt, manualCaption.offsetSeconds)], {
+        type: "text/vtt",
+      })
+    );
+    setManualTrack({
+      index: MANUAL_SUBTITLE_INDEX,
+      label: `${manualCaption.name} · Manual`,
+      language: subtitleLanguage,
+      url,
+      manual: true,
+    });
+    return () => URL.revokeObjectURL(url);
+  }, [manualCaption, subtitleLanguage]);
+
+  const importManualCaption = useCallback(async () => {
+    if (!captionKey || captionBusy) return;
+    setCaptionBusy(true);
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const choice = await open({
+        multiple: false,
+        directory: false,
+        title: "Choose captions for this episode",
+        filters: [{ name: "Subtitle files", extensions: ["srt", "vtt"] }],
+      });
+      const path = Array.isArray(choice) ? choice[0] : choice;
+      if (!path) return;
+      const { invoke } = await import("@tauri-apps/api/core");
+      const imported = await invoke<ImportedSubtitleFile>("read_subtitle_file", { path });
+      const caption: ManualCaption = {
+        name: imported.name,
+        vtt: subtitleToVtt(imported.contents),
+        offsetSeconds: 0,
+      };
+      saveManualCaption(captionKey, caption);
+      manualCaptionRef.current = caption;
+      setManualCaption(caption);
+      setActiveSub(MANUAL_SUBTITLE_INDEX);
+      toast.success("Custom captions added", {
+        description: "Saved for this episode on this Mac.",
+      });
+    } catch (reason) {
+      toast.error("Could not add captions", {
+        description: reason instanceof Error ? reason.message : String(reason),
+      });
+    } finally {
+      setCaptionBusy(false);
+    }
+  }, [captionBusy, captionKey]);
+
+  const adjustManualCaption = useCallback(
+    (delta: number) => {
+      if (!captionKey || !manualCaptionRef.current) return;
+      const next: ManualCaption = {
+        ...manualCaptionRef.current,
+        offsetSeconds: Math.max(
+          -30,
+          Math.min(30, Math.round((manualCaptionRef.current.offsetSeconds + delta) * 10) / 10)
+        ),
+      };
+      saveManualCaption(captionKey, next);
+      manualCaptionRef.current = next;
+      setManualCaption(next);
+      setActiveSub(MANUAL_SUBTITLE_INDEX);
+    },
+    [captionKey]
+  );
+
+  const deleteManualCaption = useCallback(() => {
+    if (!captionKey) return;
+    removeManualCaption(captionKey);
+    manualCaptionRef.current = null;
+    setManualCaption(null);
+    setManualTrack(null);
+    setActiveSub(-1);
+    toast.success("Custom captions removed");
+  }, [captionKey]);
+
   // ── Subtitle track switching ─────────────────────────────────────────
   useEffect(() => {
     const v = videoRef.current;
@@ -975,13 +1112,14 @@ export default function PlayerHost() {
     for (const track of Array.from(v.textTracks)) {
       track.mode = Number(track.id) === activeSub ? "showing" : "hidden";
     }
-  }, [activeSub, subTracks]);
+  }, [activeSub, manualTrack, subTracks]);
 
   // ── Render ───────────────────────────────────────────────────────────
 
   if (!session && !requestedItemId && !requestedDirect) return null;
 
   const expanded = mode === "expanded";
+  const allSubTracks = manualTrack ? [manualTrack, ...subTracks] : subTracks;
   const displayedTime = scrubTime ?? currentTime;
   const progressPercent = duration > 0 ? Math.min(100, (displayedTime / duration) * 100) : 0;
   const bufferedPercent = duration > 0 ? Math.min(100, (bufferedUntil / duration) * 100) : 0;
@@ -1203,7 +1341,7 @@ export default function PlayerHost() {
             else void toggleFullscreen();
           }}
         >
-          {subTracks.map((s) => (
+          {allSubTracks.map((s) => (
             <track
               key={s.index}
               id={String(s.index)}
@@ -1467,11 +1605,74 @@ export default function PlayerHost() {
                               animate={{ opacity: 1, y: 0, scale: 1 }}
                               exit={{ opacity: 0, y: 8, scale: 0.96 }}
                               transition={{ type: "spring", stiffness: 430, damping: 32 }}
-                              className="absolute bottom-10 right-0 w-56 origin-bottom-right overflow-hidden rounded-2xl border border-white/10 bg-[#15130f]/95 p-1.5 shadow-2xl backdrop-blur-xl"
+                              className="absolute bottom-10 right-0 max-h-[70vh] w-80 origin-bottom-right overflow-y-auto rounded-2xl border border-white/10 bg-[#15130f]/95 p-1.5 shadow-2xl backdrop-blur-xl"
                             >
                               <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">
                                 Captions
                               </p>
+                              <button
+                                onClick={() => void importManualCaption()}
+                                disabled={captionBusy || !captionKey}
+                                className="mb-1 flex w-full items-center gap-3 rounded-xl border border-brand/20 bg-brand/[0.08] px-3 py-2.5 text-left transition hover:bg-brand/[0.14] disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand/15 text-brand-light">
+                                  <FileUp size={16} />
+                                </span>
+                                <span className="min-w-0">
+                                  <span className="block text-sm font-semibold text-zinc-100">
+                                    {captionBusy ? "Opening file..." : "Add your captions"}
+                                  </span>
+                                  <span className="block text-[10px] text-zinc-500">SRT or VTT, saved for this episode</span>
+                                </span>
+                              </button>
+
+                              {manualCaption && (
+                                <div className="mb-1 rounded-xl border border-white/[0.08] bg-black/25 p-3">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="truncate text-xs font-semibold text-zinc-200">
+                                        {manualCaption.name}
+                                      </p>
+                                      <p className="mt-0.5 text-[10px] text-zinc-500">Manual caption timing</p>
+                                    </div>
+                                    <button
+                                      onClick={deleteManualCaption}
+                                      aria-label="Remove custom captions"
+                                      title="Remove custom captions"
+                                      className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-red-500/10 hover:text-red-300"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </div>
+                                  <div className="mt-3 flex items-center justify-between gap-2">
+                                    <button
+                                      onClick={() => adjustManualCaption(-0.5)}
+                                      className="flex h-8 items-center gap-1 rounded-lg bg-white/[0.06] px-2.5 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/10"
+                                    >
+                                      <Minus size={12} /> 0.5s
+                                    </button>
+                                    <button
+                                      onClick={() => adjustManualCaption(-manualCaption.offsetSeconds)}
+                                      title="Reset caption timing"
+                                      className="min-w-[72px] rounded-lg px-2 py-1 text-center text-[11px] font-bold tabular-nums text-brand-light transition hover:bg-white/[0.06]"
+                                    >
+                                      {manualCaption.offsetSeconds > 0 ? "+" : ""}
+                                      {manualCaption.offsetSeconds.toFixed(1)}s
+                                    </button>
+                                    <button
+                                      onClick={() => adjustManualCaption(0.5)}
+                                      className="flex h-8 items-center gap-1 rounded-lg bg-white/[0.06] px-2.5 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/10"
+                                    >
+                                      <Plus size={12} /> 0.5s
+                                    </button>
+                                  </div>
+                                  <p className="mt-2 text-[9px] leading-4 text-zinc-600">
+                                    Minus shows captions earlier. Plus delays them.
+                                  </p>
+                                </div>
+                              )}
+
+                              <div className="my-1 border-t border-white/[0.06]" />
                               <button
                                 onClick={() => {
                                   setActiveSub(-1);
@@ -1483,7 +1684,7 @@ export default function PlayerHost() {
                               >
                                 {t("player.subtitlesOff")}
                               </button>
-                              {subTracks.map((s) => (
+                              {allSubTracks.map((s) => (
                                 <button
                                   key={s.index}
                                   onClick={() => {
@@ -1494,10 +1695,17 @@ export default function PlayerHost() {
                                     activeSub === s.index ? "text-brand" : ""
                                   }`}
                                 >
-                                  {s.label}
+                                  <span className="flex items-center justify-between gap-2">
+                                    <span className="truncate">{s.label}</span>
+                                    {s.manual && (
+                                      <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-brand-light">
+                                        Yours
+                                      </span>
+                                    )}
+                                  </span>
                                 </button>
                               ))}
-                              {!subTracks.length && (
+                              {!allSubTracks.length && (
                                 <p className="px-3 py-2 text-xs leading-5 text-zinc-500">
                                   No captions are available for this source.
                                 </p>
