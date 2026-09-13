@@ -17,6 +17,12 @@ export interface MediaStorageStatus {
   volumeName: string | null;
 }
 
+export interface EmbeddedEngineStatus {
+  torrentEngine: boolean;
+  ffmpeg: boolean;
+  mediaPath: string | null;
+}
+
 async function invokeStorage<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(command, args);
@@ -25,6 +31,11 @@ async function invokeStorage<T>(command: string, args?: Record<string, unknown>)
 export async function getMediaStorageStatus(): Promise<MediaStorageStatus | null> {
   if (!isTauri()) return null;
   return invokeStorage<MediaStorageStatus>("media_storage_status");
+}
+
+export async function getEmbeddedEngineStatus(): Promise<EmbeddedEngineStatus | null> {
+  if (!isTauri()) return null;
+  return invokeStorage<EmbeddedEngineStatus>("embedded_engine_status");
 }
 
 export async function configureMediaStorage(selectedPath: string): Promise<MediaStorageStatus> {

@@ -1081,9 +1081,15 @@ pub fn run() {
             #[cfg(desktop)]
             {
                 let app = _app;
-                if let Err(error) = start_embedded_torrent_engine(app.handle()) {
-                    eprintln!("Akflix embedded engine warning: {error}");
-                }
+                // Let the window appear immediately. The frontend readiness
+                // screen follows this startup and explains any real action the
+                // user needs to take instead of leaving a blank launch window.
+                let startup_app = app.handle().clone();
+                thread::spawn(move || {
+                    if let Err(error) = start_embedded_torrent_engine(&startup_app) {
+                        eprintln!("Akflix embedded engine warning: {error}");
+                    }
+                });
                 monitor_embedded_torrent_engine(app.handle().clone());
                 start_stream_gateway();
                 let open = MenuItem::with_id(app, "open", "Open Akflix", true, None::<&str>)?;

@@ -127,6 +127,24 @@ export default function StreamController() {
     return () => clearTimeout(timer);
   }, [failoverPendingStream, pendingStreamFallbacks.length, pendingStreamHash, pendingStreamStartedAt]);
 
+  // A single unhealthy source used to leave the progress card spinning
+  // forever because there was no fallback to trigger the race logic. End the
+  // attempt cleanly and return control to the user instead.
+  useEffect(() => {
+    if (!pendingStreamHash || pendingStreamFallbacks.length || !pendingStreamStartedAt) return;
+    const wait = Math.max(0, pendingStreamStartedAt + 30_000 - Date.now());
+    const timer = setTimeout(() => {
+      const state = useTorrents.getState();
+      if (state.pendingStreamHash !== pendingStreamHash) return;
+      void cancelPendingStream().finally(() => {
+        toast.error("This source could not start", {
+          description: "Choose another stream or try again. Akflix cleared the unfinished temporary cache.",
+        });
+      });
+    }, wait);
+    return () => clearTimeout(timer);
+  }, [cancelPendingStream, pendingStreamFallbacks.length, pendingStreamHash, pendingStreamStartedAt]);
+
   useEffect(() => {
     if (!pendingStreamHash || !torrent || !pendingStreamFileName) return;
     const selectedSize = pendingStreamFileSize || torrent.size;

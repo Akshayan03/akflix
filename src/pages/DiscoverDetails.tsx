@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { ChevronRight, Clock3, ListFilter, LoaderCircle, Play, Sparkles, Star } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { cinemeta } from "@/api/cinemeta";
-import Spinner from "@/components/Spinner";
+import { TitleSkeleton } from "@/components/Skeletons";
 import TorrentModal from "@/components/TorrentModal";
 import Artwork from "@/components/Artwork";
 import DiscoverCard from "@/components/DiscoverCard";
@@ -135,12 +135,17 @@ export default function DiscoverDetails() {
   const [selectedSeason, setSelectedSeason] = useState(1);
   const [selectedEpisode, setSelectedEpisode] = useState<StremioVideo | null>(null);
   const [starting, setStarting] = useState(false);
+  const [startPhase, setStartPhase] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [related, setRelated] = useState<StremioMeta[]>([]);
+  const watchAbortRef = useRef<AbortController | null>(null);
   const mobileApple = isAppleMobile();
 
   useEffect(() => {
     if (!type || !imdbId) return;
     const ctrl = new AbortController();
+    setMeta(null);
+    setError(null);
     cinemeta
       .meta(type, imdbId, ctrl.signal)
       .then((value) => {
@@ -166,7 +171,9 @@ export default function DiscoverDetails() {
           setError(reason instanceof Error ? reason.message : String(reason));
       });
     return () => ctrl.abort();
-  }, [type, imdbId]);
+  }, [type, imdbId, loadAttempt]);
+
+  useEffect(() => () => watchAbortRef.current?.abort(), []);
 
   useEffect(() => {
     if (!meta) {
@@ -197,9 +204,26 @@ export default function DiscoverDetails() {
   );
   const episodes = meta?.videos?.filter((video) => video.season === selectedSeason) ?? [];
 
-  if (error) return <p className="p-24 text-center text-sm text-red-400">{error}</p>;
-  if (!meta || !type || !imdbId)
-    return <div className="pt-40"><Spinner label="Loading title…" /></div>;
+  if (error)
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-surface px-6 text-center">
+        <div className="glass-panel max-w-md rounded-3xl p-8">
+          <h1 className="text-xl font-bold">This title could not load</h1>
+          <p className="mt-3 text-sm leading-6 text-zinc-400">Check your connection and try again. Your saved progress is safe.</p>
+          <button
+            onClick={() => {
+              setError(null);
+              setMeta(null);
+              setLoadAttempt((value) => value + 1);
+            }}
+            className="mt-6 rounded-xl bg-gradient-to-r from-brand-light to-brand px-5 py-3 text-sm font-black text-[#090806]"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  if (!meta || !type || !imdbId) return <TitleSkeleton />;
 
   const lookup =
     type === "movie"
@@ -246,7 +270,13 @@ export default function DiscoverDetails() {
   };
 
   const watchNow = async (episode = selectedEpisode) => {
-    if (starting) return;
+    if (starting) {
+      watchAbortRef.current?.abort();
+      await useTorrents.getState().cancelSourceRace().catch(() => {});
+      setStarting(false);
+      setStartPhase(null);
+      return;
+    }
     const targetLookup =
       type === "movie"
         ? { imdbId, type: "movie" as const }
@@ -277,13 +307,25 @@ export default function DiscoverDetails() {
       resumeSeconds,
       ...catalogMetadata,
     };
+    const controller = new AbortController();
+    watchAbortRef.current?.abort();
+    watchAbortRef.current = controller;
+    let timedOut = false;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 12_000);
     setStarting(true);
+    setStartPhase("Finding available sources");
     try {
-      const results = await searchSources(query, undefined, targetLookup);
+      const results = await searchSources(query, controller.signal, targetLookup);
+      window.clearTimeout(timeout);
       if (!results.length) throw new Error("No playable sources were found for this title.");
+      setStartPhase("Choosing the quickest option");
       const preferredResults = automaticSafeSources(results);
       const hosted = preferredResults.find((result) => result.streamUrl);
       if (hosted?.streamUrl) {
+        setStartPhase("Opening player");
         openDirect({ id: hosted.guid, url: hosted.streamUrl, ...media });
         navigate("/stream");
         toast.success("Playing now", { description: "Using an instant hosted source." });
@@ -300,22 +342,28 @@ export default function DiscoverDetails() {
         });
         return;
       }
+      setStartPhase("Testing the fastest sources");
       await raceStreamSources(preferredResults, media);
       toast.success("Opening the fastest source", {
         description: "Akflix will switch sources automatically if this one stalls.",
       });
     } catch (reason) {
       if (
-        (reason instanceof DOMException && reason.name === "AbortError") ||
-        (reason instanceof Error && /cancelled/i.test(reason.message))
+        !timedOut && ((reason instanceof DOMException && reason.name === "AbortError") ||
+        (reason instanceof Error && /cancelled/i.test(reason.message)))
       ) {
         return;
       }
       toast.error("Couldn’t start playback", {
-        description: reason instanceof Error ? reason.message : String(reason),
+        description: timedOut
+          ? "Source lookup took too long. Try again or choose a stream manually."
+          : reason instanceof Error ? reason.message : String(reason),
       });
     } finally {
+      window.clearTimeout(timeout);
+      if (watchAbortRef.current === controller) watchAbortRef.current = null;
       setStarting(false);
+      setStartPhase(null);
     }
   };
 
@@ -387,11 +435,11 @@ export default function DiscoverDetails() {
             <motion.button
               whileTap={{ scale: 0.965 }}
               onClick={() => void watchNow()}
-              disabled={!lookup || starting}
+              disabled={!lookup}
               className="flex h-[52px] items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-brand-light to-brand px-5 text-sm font-black text-[#090806] shadow-[0_14px_38px_rgba(152,117,47,.24)] disabled:opacity-40"
             >
               {starting ? <LoaderCircle size={18} className="animate-spin" /> : <Play size={18} fill="currentColor" />}
-              {starting ? "Finding stream" : resumeActionLabel}
+              {starting ? "Cancel" : resumeActionLabel}
             </motion.button>
             <motion.button
               whileTap={{ scale: 0.9 }}
@@ -404,7 +452,7 @@ export default function DiscoverDetails() {
             </motion.button>
           </div>
           <p className="mt-2.5 text-center text-[10px] font-medium text-zinc-600">
-            Watch uses the best compatible hosted source. Tap the filter to choose.
+            {starting ? startPhase : "Watch uses the best compatible hosted source. Tap the filter to choose."}
           </p>
 
           <div className="mt-6 flex flex-wrap gap-2">
@@ -639,7 +687,7 @@ export default function DiscoverDetails() {
                 className="prism-border flex items-center gap-2 rounded-2xl bg-gradient-to-r from-brand-light to-brand px-6 py-3.5 text-sm font-bold text-[#090806] shadow-[0_14px_40px_rgba(152,117,47,.24)] transition hover:-translate-y-0.5 hover:brightness-110 disabled:opacity-40"
               >
                 {starting ? <LoaderCircle size={18} className="animate-spin" /> : <Play size={18} fill="currentColor" />}
-                {starting ? "Opening…" : resumeActionLabel}
+                {starting ? "Cancel" : resumeActionLabel}
               </button>
               <button
                 onClick={() => setSourceOpen(true)}
@@ -649,7 +697,7 @@ export default function DiscoverDetails() {
                 <ListFilter size={18} /> {mobileApple ? "Choose hosted stream" : "Choose stream"}
               </button>
               <span className="text-[11px] text-zinc-500">
-                {mobileApple ? "Direct hosted playback with no local download" : "Auto pick or choose quality, language and size"}
+                {starting ? startPhase : mobileApple ? "Direct hosted playback with no local download" : "Auto pick or choose quality, language and size"}
               </span>
             </div>
           </div>

@@ -50,6 +50,37 @@ export function HeroSkeleton() {
   );
 }
 
+/** Title details placeholder that keeps the poster, copy, and controls stable. */
+export function TitleSkeleton() {
+  return (
+    <div className="relative min-h-screen overflow-hidden bg-surface">
+      <div className="skeleton absolute inset-x-0 top-0 h-[78vh] !rounded-none opacity-70" />
+      <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/55 to-black/30" />
+      <div className="absolute bottom-20 left-6 right-6 flex items-end gap-8 md:left-12">
+        <div className="skeleton hidden aspect-[2/3] w-44 shrink-0 rounded-2xl lg:block" />
+        <div className="w-full max-w-2xl">
+          <div className="skeleton mb-5 h-3 w-36" />
+          <div className="skeleton mb-4 h-16 w-[min(560px,80vw)]" />
+          <div className="mb-5 flex gap-2">
+            <div className="skeleton h-7 w-16 rounded-full" />
+            <div className="skeleton h-7 w-20 rounded-full" />
+            <div className="skeleton h-7 w-24 rounded-full" />
+          </div>
+          <div className="skeleton mb-2 h-4 w-full" />
+          <div className="skeleton mb-7 h-4 w-3/4" />
+          <div className="flex gap-3">
+            <div className="skeleton h-12 w-36 rounded-2xl" />
+            <div className="skeleton h-12 w-40 rounded-2xl" />
+          </div>
+        </div>
+      </div>
+      <p className="absolute bottom-8 left-0 right-0 text-center text-xs font-medium text-zinc-500">
+        Loading title details
+      </p>
+    </div>
+  );
+}
+
 /** Full home-page skeleton: hero + a few rows. */
 export function HomeSkeleton() {
   return (

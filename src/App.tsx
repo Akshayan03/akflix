@@ -15,6 +15,7 @@ import Downloads from "@/pages/Downloads";
 import Settings from "@/pages/Settings";
 import DiscoverDetails from "@/pages/DiscoverDetails";
 import StreamController from "@/components/StreamController";
+import StartupExperience from "@/components/StartupExperience";
 import DirectPlayer from "@/pages/DirectPlayer";
 import Browse from "@/pages/Browse";
 import { isAppleMobile } from "@/lib/platform";
@@ -66,6 +67,7 @@ export default function App() {
 
   return (
     <div className={mobileApple ? "ios-app-shell min-h-full" : "min-h-full"}>
+      {!mobileApple && <StartupExperience />}
       {/* The player and login are immersive full-screen pages — no navbar. */}
       {!isPlayer && !isLogin && <Navbar />}
 
