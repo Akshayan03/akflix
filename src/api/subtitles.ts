@@ -19,6 +19,7 @@ export interface PreparedSubtitle {
   language: string;
   label: string;
   url: string;
+  vtt: string;
 }
 
 function languageLabel(language: string): string {
@@ -72,6 +73,7 @@ export async function directSubtitleTracks(
           language: subtitle.lang,
           label: `${languageLabel(subtitle.lang)}${index ? ` ${index + 1}` : ""}`,
           url: URL.createObjectURL(new Blob([vtt], { type: "text/vtt" })),
+          vtt,
         } satisfies PreparedSubtitle;
       } catch {
         return null;

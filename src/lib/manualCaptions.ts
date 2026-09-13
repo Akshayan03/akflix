@@ -4,12 +4,18 @@ export interface ManualCaption {
   offsetSeconds: number;
   kind?: "generated" | "synced";
   generatedUntil?: number;
+  generatedRanges?: CaptionRange[];
 }
 
 export interface CaptionCue {
   start: number;
   end: number;
   text: string;
+}
+
+export interface CaptionRange {
+  start: number;
+  end: number;
 }
 
 const STORAGE_PREFIX = "akflix.manual-caption.";
@@ -49,6 +55,18 @@ function shiftedTimestamp(
 
 export function offsetSubtitle(vtt: string, offsetSeconds: number): string {
   if (Math.abs(offsetSeconds) < 0.001) return vtt;
+  if (offsetSeconds < 0) {
+    return cuesToVtt(
+      parseVttCues(vtt)
+        .map((cue) => ({
+          ...cue,
+          start: cue.start + offsetSeconds,
+          end: cue.end + offsetSeconds,
+        }))
+        .filter((cue) => cue.end > 0)
+        .map((cue) => ({ ...cue, start: Math.max(0, cue.start) }))
+    );
+  }
   return vtt.replace(
     /(?:(\d{1,2}):)?(\d{2}):(\d{2})[.,](\d{3})/g,
     (match, hours, minutes, seconds, milliseconds) =>
@@ -106,6 +124,32 @@ export function cuesToVtt(cues: CaptionCue[]): string {
   return `WEBVTT\n\n${ordered
     .map((cue, index) => `${index + 1}\n${formatTimestamp(cue.start)} --> ${formatTimestamp(cue.end)}\n${cue.text}`)
     .join("\n\n")}\n`;
+}
+
+export function mergeCaptionRanges(ranges: CaptionRange[]): CaptionRange[] {
+  const ordered = ranges
+    .filter((range) => Number.isFinite(range.start) && Number.isFinite(range.end) && range.end > range.start)
+    .map((range) => ({ start: Math.max(0, range.start), end: range.end }))
+    .sort((a, b) => a.start - b.start);
+  const merged: CaptionRange[] = [];
+  for (const range of ordered) {
+    const previous = merged[merged.length - 1];
+    if (previous && range.start <= previous.end + 2.1) {
+      previous.end = Math.max(previous.end, range.end);
+    } else {
+      merged.push({ ...range });
+    }
+  }
+  return merged;
+}
+
+export function inferredCaptionRanges(cues: CaptionCue[]): CaptionRange[] {
+  return mergeCaptionRanges(
+    cues.map((cue) => ({
+      start: Math.max(0, cue.start - 2),
+      end: cue.end + 2,
+    }))
+  );
 }
 
 const STOP_WORDS = new Set([
@@ -175,6 +219,9 @@ export function loadManualCaption(key: string): ManualCaption | null {
       offsetSeconds: Number.isFinite(caption.offsetSeconds) ? caption.offsetSeconds! : 0,
       kind: caption.kind,
       generatedUntil: Number.isFinite(caption.generatedUntil) ? caption.generatedUntil : undefined,
+      generatedRanges: Array.isArray(caption.generatedRanges)
+        ? mergeCaptionRanges(caption.generatedRanges)
+        : undefined,
     };
   } catch {
     return null;

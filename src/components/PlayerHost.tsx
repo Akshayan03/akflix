@@ -53,7 +53,9 @@ import { mediaDisplayFromRelease } from "@/lib/mediaTitle";
 import {
   cuesToVtt,
   estimateCaptionOffset,
+  inferredCaptionRanges,
   loadManualCaption,
+  mergeCaptionRanges,
   offsetSubtitle,
   parseVttCues,
   removeManualCaption,
@@ -87,6 +89,7 @@ interface SubTrack {
   language?: string;
   url: string;
   manual?: boolean;
+  vtt?: string;
 }
 
 const isTypingTarget = (t: EventTarget | null) => {
@@ -237,6 +240,7 @@ export default function PlayerHost() {
   const captionGenerationRef = useRef(0);
 
   const [subTracks, setSubTracks] = useState<SubTrack[]>([]);
+  const [playbackSubTracks, setPlaybackSubTracks] = useState<SubTrack[]>([]);
   const [activeSub, setActiveSub] = useState(-1);
   const [subMenuOpen, setSubMenuOpen] = useState(false);
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
@@ -247,6 +251,7 @@ export default function PlayerHost() {
   const [manualCaption, setManualCaption] = useState<ManualCaption | null>(null);
   const [manualTrack, setManualTrack] = useState<SubTrack | null>(null);
   const [captionTask, setCaptionTask] = useState<"generating" | "syncing" | null>(null);
+  const [compatibilityStartSeconds, setCompatibilityStartSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   // ── Controls auto-hide ───────────────────────────────────────────────
@@ -297,6 +302,7 @@ export default function PlayerHost() {
     captionGenerationRef.current += 1;
     captionInputRef.current = null;
     setCaptionTask(null);
+    setCompatibilityStartSeconds(0);
     saveDirectProgress(directRequestRef.current, videoRef.current);
     directRequestRef.current = null;
     reportStopped();
@@ -481,6 +487,7 @@ export default function PlayerHost() {
         ?? (request.compatibility?.filename
           ? `media://Streaming Cache/${request.compatibility.filename}`
           : request.url);
+      setCompatibilityStartSeconds(request.compatibility?.startSeconds ?? 0);
       video.src = request.url;
       video.preload = "auto";
       video.playbackRate = usePlayback.getState().playbackRate;
@@ -508,6 +515,7 @@ export default function PlayerHost() {
               label: track.label,
               language: track.language,
               url: track.url,
+              vtt: track.vtt,
             }));
             setSubTracks(prepared);
             const preferred = prepared.find(
@@ -575,6 +583,7 @@ export default function PlayerHost() {
       id: _id,
       url: _url,
       compatibility: _compatibility,
+      resumeSeconds: _resumeSeconds,
       episodeQueue = [],
       ...base
     } = current;
@@ -587,6 +596,8 @@ export default function PlayerHost() {
     };
 
     try {
+      captionGenerationRef.current += 1;
+      setCaptionTask(null);
       videoRef.current?.pause();
       _sync({ buffering: true, hasNext: false, currentTime: 0, duration: 0 });
       toast.info("Loading the next episode", {
@@ -688,6 +699,7 @@ export default function PlayerHost() {
             }
 
             source.startSeconds = target;
+            setCompatibilityStartSeconds(target);
             activeRequest.url = url;
             directRetryRef.current = 0;
             setError(null);
@@ -1033,12 +1045,31 @@ export default function PlayerHost() {
   }, [captionKey]);
 
   useEffect(() => {
+    const ownedUrls: string[] = [];
+    const prepared = subTracks.map((track) => {
+      if (!track.vtt || compatibilityStartSeconds <= 0.05) return track;
+      const url = URL.createObjectURL(
+        new Blob([offsetSubtitle(track.vtt, -compatibilityStartSeconds)], {
+          type: "text/vtt",
+        })
+      );
+      ownedUrls.push(url);
+      return { ...track, url };
+    });
+    setPlaybackSubTracks(prepared);
+    return () => ownedUrls.forEach((url) => URL.revokeObjectURL(url));
+  }, [compatibilityStartSeconds, subTracks]);
+
+  useEffect(() => {
     if (!manualCaption) {
       setManualTrack(null);
       return;
     }
     const url = URL.createObjectURL(
-      new Blob([offsetSubtitle(manualCaption.vtt, manualCaption.offsetSeconds)], {
+      new Blob([offsetSubtitle(
+        manualCaption.vtt,
+        manualCaption.offsetSeconds - compatibilityStartSeconds
+      )], {
         type: "text/vtt",
       })
     );
@@ -1050,7 +1081,7 @@ export default function PlayerHost() {
       manual: true,
     });
     return () => URL.revokeObjectURL(url);
-  }, [manualCaption, subtitleLanguage]);
+  }, [compatibilityStartSeconds, manualCaption, subtitleLanguage]);
 
   const toggleGeneratedCaptions = useCallback(async () => {
     if (captionTask === "generating") {
@@ -1072,11 +1103,11 @@ export default function PlayerHost() {
     const generation = ++captionGenerationRef.current;
     const current = manualCaptionRef.current;
     let generated: CaptionCue[] = current?.kind === "generated" ? parseVttCues(current.vtt) : [];
-    let nextStart = Math.max(
-      0,
-      usePlayback.getState().currentTime - 1,
-      current?.kind === "generated" ? (current.generatedUntil ?? 0) - 1 : 0
-    );
+    let generatedRanges = current?.kind === "generated"
+      ? current.generatedRanges?.length
+        ? mergeCaptionRanges(current.generatedRanges)
+        : inferredCaptionRanges(generated)
+      : [];
     setCaptionTask("generating");
     setActiveSub(MANUAL_SUBTITLE_INDEX);
     toast.success("Live captions started", {
@@ -1089,27 +1120,38 @@ export default function PlayerHost() {
         manualCaptionKey(usePlayback.getState().session, directRequestRef.current) === captionKey
       ) {
         const playbackTime = usePlayback.getState().currentTime;
-        if (nextStart > playbackTime + 24) {
+        const activeRange = generatedRanges.find(
+          (range) => playbackTime >= range.start - 1 && playbackTime <= range.end
+        );
+        if (activeRange && activeRange.end >= playbackTime + 24) {
           await new Promise((resolve) => window.setTimeout(resolve, 1_200));
           continue;
         }
-        if (playbackTime > nextStart + 26) nextStart = Math.max(0, playbackTime - 1);
+        const nextStart = activeRange
+          ? Math.max(playbackTime - 1, activeRange.end - 2)
+          : Math.max(0, playbackTime - 1);
         const cues = await transcribeCaptionChunk(input, nextStart, 20, "eng");
         if (captionGenerationRef.current !== generation) return;
+        const playbackAfterRecognition = usePlayback.getState().currentTime;
+        if (Math.abs(playbackAfterRecognition - nextStart) > 28) continue;
         generated = [...generated, ...cues];
         const generatedUntil = nextStart + 20;
+        generatedRanges = mergeCaptionRanges([
+          ...generatedRanges,
+          { start: nextStart, end: generatedUntil },
+        ]);
         const caption: ManualCaption = {
           name: "English · Generated by Akflix",
           vtt: cuesToVtt(generated),
           offsetSeconds: manualCaptionRef.current?.offsetSeconds ?? 0,
           kind: "generated",
           generatedUntil,
+          generatedRanges,
         };
         saveManualCaption(captionKey, caption);
         manualCaptionRef.current = caption;
         setManualCaption(caption);
         setActiveSub(MANUAL_SUBTITLE_INDEX);
-        nextStart += 18;
       }
     } catch (reason) {
       if (captionGenerationRef.current !== generation) return;
@@ -1214,7 +1256,7 @@ export default function PlayerHost() {
   if (!session && !requestedItemId && !requestedDirect) return null;
 
   const expanded = mode === "expanded";
-  const allSubTracks = manualTrack ? [manualTrack, ...subTracks] : subTracks;
+  const allSubTracks = manualTrack ? [manualTrack, ...playbackSubTracks] : playbackSubTracks;
   const displayedTime = scrubTime ?? currentTime;
   const progressPercent = duration > 0 ? Math.min(100, (displayedTime / duration) * 100) : 0;
   const bufferedPercent = duration > 0 ? Math.min(100, (bufferedUntil / duration) * 100) : 0;
@@ -1438,7 +1480,7 @@ export default function PlayerHost() {
         >
           {allSubTracks.map((s) => (
             <track
-              key={s.index}
+              key={`${s.index}:${s.url}`}
               id={String(s.index)}
               kind="subtitles"
               label={s.label}

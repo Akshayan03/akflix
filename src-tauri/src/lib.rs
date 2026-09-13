@@ -356,12 +356,7 @@ fn rqbit_ready() -> bool {
         .is_some()
 }
 
-fn pause_persisted_torrents_once(state: &std::path::Path) -> Result<(), String> {
-    let marker = state.join("cleanup-v1.0.3");
-    if marker.exists() {
-        return Ok(());
-    }
-
+fn pause_persisted_torrents(state: &std::path::Path) -> Result<(), String> {
     let session_path = state.join("session.json");
     if session_path.is_file() {
         let contents = fs::read_to_string(&session_path).map_err(|error| error.to_string())?;
@@ -386,8 +381,21 @@ fn pause_persisted_torrents_once(state: &std::path::Path) -> Result<(), String> 
         fs::rename(temporary, session_path).map_err(|error| error.to_string())?;
     }
 
-    fs::write(marker, b"Old sessions paused for Akflix cleanup\n")
-        .map_err(|error| error.to_string())
+    Ok(())
+}
+
+fn rqbit_process_running() -> bool {
+    let Ok(mut process) = rqbit_process().lock() else {
+        return false;
+    };
+    let running = process
+        .as_mut()
+        .and_then(|child| child.try_wait().ok())
+        .is_some_and(|status| status.is_none());
+    if !running {
+        process.take();
+    }
+    running
 }
 
 fn start_embedded_torrent_engine(app: &tauri::AppHandle) -> Result<(), String> {
@@ -419,43 +427,45 @@ fn start_embedded_torrent_engine(app: &tauri::AppHandle) -> Result<(), String> {
         return Err("The selected Akflix media location is read-only".into());
     }
     fs::create_dir_all(&state).map_err(|error| error.to_string())?;
-    // rqbit normally resumes persisted sessions before the frontend can
-    // classify them. Pause them once during this migration, then the frontend
-    // removes temporary sessions and explicitly resumes real offline jobs.
-    if let Err(error) = pause_persisted_torrents_once(&state) {
-        eprintln!("Akflix session cleanup warning: {error}");
-    }
     if rqbit_ready() {
         return Ok(());
     }
-    let executable = find_bundled_binary("rqbit")
-        .ok_or("The bundled torrent engine is missing from this Akflix build")?;
-    let child = Command::new(executable)
-        .args([
-            "--http-api-listen-addr",
-            RQBIT_API,
-            "--peer-limit",
-            "55",
-            "--peer-connect-timeout",
-            "2s",
-            "--peer-read-write-timeout",
-            "4s",
-            "--listen-port",
-            "4240",
-            "server",
-            "start",
-            "--fastresume",
-            "--persistence-location",
-        ])
-        .arg(&state)
-        .arg(&media)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|error| format!("Could not start the embedded torrent engine: {error}"))?;
-    *rqbit_process()
-        .lock()
-        .map_err(|_| "Torrent engine process lock failed")? = Some(child);
+    if !rqbit_process_running() {
+        // Never let a stale temporary stream or season pack block the HTTP API
+        // while rqbit verifies its files. The frontend removes temporary
+        // sessions and resumes intentional offline downloads once the API is up.
+        if let Err(error) = pause_persisted_torrents(&state) {
+            eprintln!("Akflix session cleanup warning: {error}");
+        }
+        let executable = find_bundled_binary("rqbit")
+            .ok_or("The bundled torrent engine is missing from this Akflix build")?;
+        let child = Command::new(executable)
+            .args([
+                "--http-api-listen-addr",
+                RQBIT_API,
+                "--peer-limit",
+                "55",
+                "--peer-connect-timeout",
+                "2s",
+                "--peer-read-write-timeout",
+                "4s",
+                "--listen-port",
+                "4240",
+                "server",
+                "start",
+                "--fastresume",
+                "--persistence-location",
+            ])
+            .arg(&state)
+            .arg(&media)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| format!("Could not start the embedded torrent engine: {error}"))?;
+        *rqbit_process()
+            .lock()
+            .map_err(|_| "Torrent engine process lock failed")? = Some(child);
+    }
 
     let started = Instant::now();
     // Restoring several saved sessions from an external drive can take longer
@@ -467,8 +477,11 @@ fn start_embedded_torrent_engine(app: &tauri::AppHandle) -> Result<(), String> {
         }
         thread::sleep(Duration::from_millis(100));
     }
-    stop_embedded_torrent_engine();
-    Err("The embedded torrent engine did not start in time".into())
+    if rqbit_process_running() {
+        Err("The embedded torrent engine is still restoring saved downloads".into())
+    } else {
+        Err("The embedded torrent engine stopped before it became ready".into())
+    }
 }
 
 fn stop_embedded_torrent_engine() {
@@ -1316,7 +1329,7 @@ mod tests {
     }
 
     #[test]
-    fn pauses_persisted_torrents_only_once() {
+    fn pauses_persisted_torrents_on_every_launch() {
         let state = unique_test_folder("session-migration");
         fs::create_dir_all(&state).expect("create state folder");
         let session_path = state.join("session.json");
@@ -1326,23 +1339,21 @@ mod tests {
         )
         .expect("write session");
 
-        pause_persisted_torrents_once(&state).expect("pause session");
+        pause_persisted_torrents(&state).expect("pause session");
         let migrated: serde_json::Value =
             serde_json::from_slice(&fs::read(&session_path).expect("read migrated session"))
                 .expect("parse migrated session");
         assert_eq!(migrated["torrents"]["1"]["is_paused"], true);
-        assert!(state.join("cleanup-v1.0.3").is_file());
-
         fs::write(
             &session_path,
             br#"{"torrents":{"1":{"info_hash":"abc","is_paused":false}}}"#,
         )
         .expect("restore session");
-        pause_persisted_torrents_once(&state).expect("skip completed migration");
-        let unchanged: serde_json::Value =
-            serde_json::from_slice(&fs::read(&session_path).expect("read unchanged session"))
-                .expect("parse unchanged session");
-        assert_eq!(unchanged["torrents"]["1"]["is_paused"], false);
+        pause_persisted_torrents(&state).expect("pause restored session");
+        let paused_again: serde_json::Value =
+            serde_json::from_slice(&fs::read(&session_path).expect("read restored session"))
+                .expect("parse restored session");
+        assert_eq!(paused_again["torrents"]["1"]["is_paused"], true);
 
         fs::remove_dir_all(state).expect("remove test folder");
     }
