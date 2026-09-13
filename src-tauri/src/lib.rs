@@ -922,7 +922,6 @@ fn start_hls_input(
             "-loglevel",
             "warning",
             "-nostdin",
-            "-re",
             "-fflags",
             "+genpts",
         ]);

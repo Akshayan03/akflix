@@ -25,6 +25,7 @@ import {
   Maximize,
   Minus,
   Pause,
+  PictureInPicture2,
   Play,
   Plus,
   RotateCcw,
@@ -92,6 +93,12 @@ interface SubTrack {
   vtt?: string;
 }
 
+type WebKitVideoElement = HTMLVideoElement & {
+  webkitPresentationMode?: "inline" | "fullscreen" | "picture-in-picture";
+  webkitSupportsPresentationMode?: (mode: string) => boolean;
+  webkitSetPresentationMode?: (mode: "inline" | "fullscreen" | "picture-in-picture") => void;
+};
+
 const isTypingTarget = (t: EventTarget | null) => {
   const el = t as HTMLElement | null;
   return (
@@ -106,6 +113,12 @@ function rememberVolume(volume: number) {
   } catch {
     // Playback still works when storage is unavailable.
   }
+}
+
+function applyPlaybackRate(video: HTMLVideoElement, rate: number) {
+  const safeRate = Math.max(0.5, Math.min(2, rate));
+  video.defaultPlaybackRate = safeRate;
+  video.playbackRate = safeRate;
 }
 
 function manualCaptionKey(
@@ -221,6 +234,7 @@ export default function PlayerHost() {
   const directIdRef = useRef<string | null>(null);
   const directRequestRef = useRef<DirectPlaybackRequest | null>(null);
   const directRetryRef = useRef(0);
+  const requestedPlaybackRateRef = useRef(usePlayback.getState().playbackRate);
   const directRetryTimer = useRef<ReturnType<typeof setTimeout>>();
   const bufferingIndicatorTimer = useRef<ReturnType<typeof setTimeout>>();
   const playbackStallTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -249,6 +263,7 @@ export default function PlayerHost() {
   const [activeSub, setActiveSub] = useState(-1);
   const [subMenuOpen, setSubMenuOpen] = useState(false);
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
+  const [pictureInPicture, setPictureInPicture] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [scrubTime, setScrubTime] = useState<number | null>(null);
   const [bufferedUntil, setBufferedUntil] = useState(0);
@@ -429,7 +444,7 @@ export default function PlayerHost() {
         } else {
           video.src = url;
         }
-        video.playbackRate = usePlayback.getState().playbackRate;
+        applyPlaybackRate(video, requestedPlaybackRateRef.current);
         video.volume = usePlayback.getState().volume;
         video.muted = usePlayback.getState().muted;
         // HLS transcodes already start server-side at the requested position.
@@ -499,7 +514,7 @@ export default function PlayerHost() {
       setCompatibilityStartSeconds(request.compatibility?.startSeconds ?? 0);
       video.src = request.url;
       video.preload = "auto";
-      video.playbackRate = usePlayback.getState().playbackRate;
+      applyPlaybackRate(video, requestedPlaybackRateRef.current);
       video.volume = usePlayback.getState().volume;
       video.muted = usePlayback.getState().muted;
       await video.play().catch(() => {});
@@ -714,7 +729,7 @@ export default function PlayerHost() {
             setError(null);
             video.src = `${url}${url.includes("?") ? "&" : "?"}seek=${Date.now()}`;
             video.load();
-            video.playbackRate = usePlayback.getState().playbackRate;
+            applyPlaybackRate(video, requestedPlaybackRateRef.current);
             video.volume = usePlayback.getState().volume;
             video.muted = usePlayback.getState().muted;
             if (shouldResume) await video.play().catch(() => {});
@@ -941,8 +956,9 @@ export default function PlayerHost() {
       setPlaybackRate: (rate) => {
         const v = videoRef.current;
         if (!v) return;
-        v.playbackRate = rate;
-        _sync({ playbackRate: rate });
+        requestedPlaybackRateRef.current = Math.max(0.5, Math.min(2, rate));
+        applyPlaybackRate(v, requestedPlaybackRateRef.current);
+        _sync({ playbackRate: requestedPlaybackRateRef.current });
       },
       next: playNext,
     });
@@ -977,6 +993,52 @@ export default function PlayerHost() {
     if (document.fullscreenElement) await document.exitFullscreen();
     else await surface?.requestFullscreen();
   }, [mobileApple]);
+
+  const togglePictureInPicture = useCallback(async () => {
+    const video = videoRef.current as WebKitVideoElement | null;
+    if (!video) return;
+    try {
+      if (
+        video.webkitSetPresentationMode &&
+        video.webkitSupportsPresentationMode?.("picture-in-picture")
+      ) {
+        const entering = video.webkitPresentationMode !== "picture-in-picture";
+        video.webkitSetPresentationMode(entering ? "picture-in-picture" : "inline");
+        setPictureInPicture(entering);
+        return;
+      }
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else if (document.pictureInPictureEnabled) {
+        await video.requestPictureInPicture();
+      } else {
+        throw new Error("Picture in picture is unavailable for this video.");
+      }
+    } catch (reason) {
+      toast.error("Could not open picture in picture", {
+        description: reason instanceof Error ? reason.message : String(reason),
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    const video = videoRef.current as WebKitVideoElement | null;
+    if (!video) return;
+    const update = () => {
+      setPictureInPicture(
+        document.pictureInPictureElement === video ||
+          video.webkitPresentationMode === "picture-in-picture"
+      );
+    };
+    video.addEventListener("enterpictureinpicture", update);
+    video.addEventListener("leavepictureinpicture", update);
+    video.addEventListener("webkitpresentationmodechanged", update);
+    return () => {
+      video.removeEventListener("enterpictureinpicture", update);
+      video.removeEventListener("leavepictureinpicture", update);
+      video.removeEventListener("webkitpresentationmodechanged", update);
+    };
+  }, [session?.itemId]);
 
   // ── Global keyboard shortcuts (active whenever something is loaded) ──
   useEffect(() => {
@@ -1438,6 +1500,7 @@ export default function PlayerHost() {
           onLoadedMetadata={(e) => {
             const request = directRequestRef.current;
             const video = e.currentTarget;
+            applyPlaybackRate(video, requestedPlaybackRateRef.current);
             const media = request ? directHistoryTitle(request) : null;
             if (!request || !media || directResumeAppliedRef.current === request.id) return;
             const profileId = useAuth.getState().activeProfileId ?? "akflix-local";
@@ -1513,7 +1576,15 @@ export default function PlayerHost() {
             rememberVolume(e.currentTarget.volume);
             _sync({ muted: e.currentTarget.muted, volume: e.currentTarget.volume });
           }}
-          onRateChange={(e) => _sync({ playbackRate: e.currentTarget.playbackRate })}
+          onRateChange={(e) => {
+            const video = e.currentTarget;
+            const requested = requestedPlaybackRateRef.current;
+            if (Math.abs(video.playbackRate - requested) > 0.01) {
+              applyPlaybackRate(video, requested);
+              return;
+            }
+            _sync({ playbackRate: requested });
+          }}
           onEnded={onEnded}
           onDoubleClick={(event) => {
             if (mobileApple || !expanded) return;
@@ -1979,6 +2050,20 @@ export default function PlayerHost() {
                         )}
                       </AnimatePresence>
                     </div>
+
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void togglePictureInPicture();
+                      }}
+                      aria-label={pictureInPicture ? "Close picture in picture" : "Picture in picture"}
+                      title={pictureInPicture ? "Close picture in picture" : "Picture in picture"}
+                      className={`rounded-lg p-1 transition hover:bg-white/10 hover:text-white ${
+                        pictureInPicture ? "text-brand" : "text-zinc-300"
+                      }`}
+                    >
+                      <PictureInPicture2 size={22} />
+                    </button>
 
                     {!mobileApple && (
                       <button
