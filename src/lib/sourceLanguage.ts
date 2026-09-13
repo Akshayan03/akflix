@@ -11,6 +11,37 @@ const NON_ENGLISH = new RegExp(
   "i"
 );
 
+const PREFERRED_LANGUAGE_TAGS: Record<string, RegExp> = {
+  eng: /\beng\b|\benglish[\s._-]*(?:audio|dub)\b|🇬🇧|🇺🇸|🇨🇦/i,
+  spa: /\b(?:spa|spanish|castellano|latino)[\s._-]*(?:audio|dub)?\b|🇪🇸|🇲🇽/i,
+  fra: /\b(?:fra|fre|french|truefrench)[\s._-]*(?:audio|dub)?\b|🇫🇷/i,
+  deu: /\b(?:deu|ger|german)[\s._-]*(?:audio|dub)?\b|🇩🇪/i,
+  ita: /\b(?:ita|italian)[\s._-]*(?:audio|dub)?\b|🇮🇹/i,
+  por: /\b(?:por|portuguese|brazilian)[\s._-]*(?:audio|dub)?\b|🇵🇹|🇧🇷/i,
+  hin: /\b(?:hin|hindi)[\s._-]*(?:audio|dub)?\b|🇮🇳/i,
+  jpn: /\b(?:jpn|japanese)[\s._-]*(?:audio|dub)?\b|🇯🇵/i,
+  kor: /\b(?:kor|korean)[\s._-]*(?:audio|dub)?\b|🇰🇷/i,
+  zho: /\b(?:zho|chi|chinese|mandarin|cantonese)[\s._-]*(?:audio|dub)?\b|🇨🇳|🇭🇰/i,
+  rus: /\b(?:rus|russian)[\s._-]*(?:audio|dub)?\b|🇷🇺/i,
+};
+
+function sourceText(result: TorrentResult): string {
+  let magnet = result.magnetUrl ?? "";
+  try {
+    magnet = decodeURIComponent(magnet);
+  } catch {
+    // The visible provider metadata is still enough for classification.
+  }
+  return `${result.category ?? ""} ${result.title} ${magnet}`.replace(/[._]+/g, " ");
+}
+
+export function matchesPreferredAudio(result: TorrentResult, preferredLanguage: string): boolean {
+  const preferred = preferredLanguage.trim().toLowerCase();
+  if (!preferred || preferred === "und" || preferred === "any") return true;
+  if (preferred === "eng") return sourceLanguage(result) === "english";
+  return PREFERRED_LANGUAGE_TAGS[preferred]?.test(sourceText(result)) ?? false;
+}
+
 /** Classify only explicit release language tags; unlabelled releases stay neutral. */
 export function classifySourceLanguage(text: string): SourceLanguage {
   const normalized = text.replace(/[._]+/g, " ");
@@ -44,20 +75,40 @@ const LOW_GRADE_RELEASE =
  * captures with embedded ads or an explicitly foreign-only audio track when
  * a normal release is available.
  */
-export function automaticSafeSources(results: TorrentResult[]): TorrentResult[] {
+export function automaticSafeSources(
+  results: TorrentResult[],
+  preferredLanguage = "eng"
+): TorrentResult[] {
   const languageSafe = englishSafeSources(results);
-  const clean = languageSafe.filter((result) => {
+  const clean = results.filter((result) => {
     const text = `${result.title} ${result.category ?? ""}`;
     return !LOW_GRADE_RELEASE.test(text.replace(/[._-]+/g, " "));
   });
-  const pool = clean.length ? clean : languageSafe;
+  const pool = clean.length ? clean : results;
+
+  // Correct audio beats a faster peer. Race only confirmed preferred-language
+  // releases when they exist, preventing an unlabelled or multilingual backup
+  // from winning purely because it returned bytes first.
+  const preferred = pool.filter((result) => matchesPreferredAudio(result, preferredLanguage));
+  if (preferred.length && !["", "und", "any"].includes(preferredLanguage.trim().toLowerCase())) {
+    return preferred;
+  }
+
+  // If no confirmed match exists, prefer neutral releases, then multilingual
+  // ones, and use an explicitly conflicting release only as a last resort.
+  const neutral = pool.filter((result) => sourceLanguage(result) === "unknown");
+  if (neutral.length) return neutral;
+  const multilingual = pool.filter((result) => sourceLanguage(result) === "multi");
+  if (multilingual.length) return multilingual;
+
+  const fallbackPool = preferredLanguage.trim().toLowerCase() === "eng" ? languageSafe : pool;
   const priority: Record<SourceLanguage, number> = {
     english: 0,
     unknown: 1,
     multi: 2,
     "non-english": 3,
   };
-  return [...pool].sort(
+  return [...fallbackPool].sort(
     (a, b) => priority[sourceLanguage(a)] - priority[sourceLanguage(b)]
   );
 }

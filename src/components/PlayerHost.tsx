@@ -187,6 +187,7 @@ export default function PlayerHost() {
   // here caused an infinite re-register loop with the controls effect).
   const client = useJellyfinClient();
   const subtitleLanguage = useSettings((s) => s.subtitleLanguage);
+  const preferredAudioLanguage = useSettings((s) => s.audioLanguage);
   const activeStreamHash = useTorrents((s) => s.activeStreamHash);
   const finishActiveStream = useTorrents((s) => s.finishActiveStream);
 
@@ -618,7 +619,7 @@ export default function PlayerHost() {
         season: next.season,
         episode: next.episode,
       });
-      let eligible = automaticSafeSources(results);
+      let eligible = automaticSafeSources(results, preferredAudioLanguage);
       if (mobileApple) eligible = iosNativeSources(eligible);
       if (!eligible.length) throw new Error("No compatible source was found for the next episode.");
 
@@ -643,7 +644,7 @@ export default function PlayerHost() {
       });
       return false;
     }
-  }, [finishActiveStream, load, mobileApple, navigate, _sync]);
+  }, [finishActiveStream, load, mobileApple, navigate, preferredAudioLanguage, _sync]);
 
   const seekPlayback = useCallback(
     (seconds: number) => {

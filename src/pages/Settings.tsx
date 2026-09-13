@@ -49,6 +49,20 @@ const inputCls =
   "w-full rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-sm outline-none transition focus:border-brand/60";
 const labelCls = "mb-1 mt-4 block text-xs text-zinc-400";
 
+const MEDIA_LANGUAGE_OPTIONS = [
+  ["eng", "English"],
+  ["spa", "Spanish"],
+  ["fra", "French"],
+  ["deu", "German"],
+  ["ita", "Italian"],
+  ["por", "Portuguese"],
+  ["hin", "Hindi"],
+  ["jpn", "Japanese"],
+  ["kor", "Korean"],
+  ["zho", "Chinese"],
+  ["rus", "Russian"],
+] as const;
+
 export default function Settings() {
   const t = useT();
   const location = useLocation();
@@ -596,21 +610,31 @@ export default function Settings() {
           </div>
           <div>
             <label className={labelCls}>{t("settings.subtitleLang")}</label>
-            <input
+            <select
               value={draft.subtitleLanguage}
               onChange={(e) => set("subtitleLanguage", e.target.value)}
-              placeholder="eng / spa / fra (ISO 639-2)"
               className={inputCls}
-            />
+            >
+              {MEDIA_LANGUAGE_OPTIONS.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
           </div>
           <div>
             <label className={labelCls}>{t("settings.audioLang")}</label>
-            <input
+            <select
               value={draft.audioLanguage}
               onChange={(e) => set("audioLanguage", e.target.value)}
-              placeholder="eng (ISO 639-2)"
               className={inputCls}
-            />
+            >
+              <option value="und">Any available language</option>
+              {MEDIA_LANGUAGE_OPTIONS.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+            <p className="mt-2 text-[11px] leading-4 text-zinc-500">
+              Watch now prioritizes this language before speed or source size.
+            </p>
           </div>
         </div>
       </section>

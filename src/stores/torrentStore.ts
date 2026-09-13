@@ -241,7 +241,9 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     sourceRaceExistingHashes = new Set();
     set({ sourceRaceActive: true, sourceRaceMedia: media ?? null });
     try {
-    const eligibleResults = await sourcesThatFitStorage(automaticSafeSources(results));
+    const eligibleResults = await sourcesThatFitStorage(
+      automaticSafeSources(results, useSettings.getState().audioLanguage)
+    );
     const unique = new Map<string, TorrentResult>();
     for (const result of eligibleResults) {
       const link = result.magnetUrl ?? result.downloadUrl;

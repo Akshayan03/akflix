@@ -15,6 +15,7 @@ import { isAppleMobile } from "@/lib/platform";
 import { automaticSafeSources } from "@/lib/sourceLanguage";
 import RatingControl from "@/components/RatingControl";
 import { useAuth } from "@/stores/authStore";
+import { useSettings } from "@/stores/settingsStore";
 import {
   historyMediaKey,
   useHistory,
@@ -128,6 +129,7 @@ export default function DiscoverDetails() {
   const historyEntries = useHistory((state) => state.entries);
   const ratings = useHistory((state) => state.ratings);
   const setRating = useHistory((state) => state.setRating);
+  const preferredAudioLanguage = useSettings((state) => state.audioLanguage);
   const { type, imdbId } = useParams<{ type: StremioMediaType; imdbId: string }>();
   const [meta, setMeta] = useState<StremioMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -322,7 +324,7 @@ export default function DiscoverDetails() {
       window.clearTimeout(timeout);
       if (!results.length) throw new Error("No playable sources were found for this title.");
       setStartPhase("Choosing the quickest option");
-      const preferredResults = automaticSafeSources(results);
+      const preferredResults = automaticSafeSources(results, preferredAudioLanguage);
       const hosted = preferredResults.find((result) => result.streamUrl);
       if (hosted?.streamUrl) {
         setStartPhase("Opening player");
@@ -345,7 +347,7 @@ export default function DiscoverDetails() {
       setStartPhase("Testing the fastest sources");
       await raceStreamSources(preferredResults, media);
       toast.success("Opening the fastest source", {
-        description: "Akflix will switch sources automatically if this one stalls.",
+        description: "Audio preference applied. The selected source stays locked during playback.",
       });
     } catch (reason) {
       if (
