@@ -17,6 +17,7 @@ src-tauri/binaries/ffmpeg-*-apple-darwin
 src-tauri/binaries/ffmpeg-*-pc-windows-msvc.exe
 src-tauri/binaries/ffmpeg-*-unknown-linux-gnu
 src-tauri/binaries/*-universal-apple-darwin
+src-tauri/models/*.bin
 
 # Docker runtime data
 docker/config

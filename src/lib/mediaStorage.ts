@@ -20,6 +20,7 @@ export interface MediaStorageStatus {
 export interface EmbeddedEngineStatus {
   torrentEngine: boolean;
   ffmpeg: boolean;
+  captionModel: boolean;
   mediaPath: string | null;
 }
 

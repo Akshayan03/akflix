@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Akflix",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "identifier": "com.akshayan.akflix",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "node scripts/prepare-caption-model.mjs && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -48,7 +48,9 @@
     "resources": [
       "binaries/rqbit.LICENSE.txt",
       "binaries/ffmpeg.LICENSE.txt",
-      "binaries/ffmpeg.BUILD.txt"
+      "binaries/ffmpeg.BUILD.txt",
+      "models/ggml-base.en-q5_1.bin",
+      "models/WHISPER_MODEL_LICENSE.txt"
     ],
     "category": "Entertainment",
     "shortDescription": "Standalone movie and series streaming app",

@@ -36,6 +36,10 @@ const RQBIT_API: &str = "127.0.0.1:3031";
 static APP_MEDIA_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static RQBIT_PROCESS: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
 static RQBIT_START_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static WHISPER_CONTEXT: OnceLock<whisper_rs::WhisperContext> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static WHISPER_WORKER_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn header(name: &str, value: &str) -> Header {
     Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("valid HTTP header")
@@ -91,55 +95,6 @@ struct MediaStorageStatus {
     restart_required: bool,
     engine_running: bool,
     volume_name: Option<String>,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ImportedSubtitleFile {
-    name: String,
-    contents: String,
-}
-
-#[tauri::command]
-fn read_subtitle_file(path: String) -> Result<ImportedSubtitleFile, String> {
-    let path = PathBuf::from(path);
-    if !path.is_absolute() || !path.is_file() {
-        return Err("Choose a valid subtitle file".into());
-    }
-    let extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    if extension != "srt" && extension != "vtt" {
-        return Err("Akflix supports SRT and VTT caption files".into());
-    }
-    let bytes = fs::read(&path).map_err(|error| error.to_string())?;
-    if bytes.len() > 2 * 1024 * 1024 {
-        return Err("This subtitle file is larger than 2 MB".into());
-    }
-
-    let contents = if bytes.starts_with(&[0xff, 0xfe]) {
-        let values = bytes[2..]
-            .chunks_exact(2)
-            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-            .collect::<Vec<_>>();
-        String::from_utf16_lossy(&values)
-    } else if bytes.starts_with(&[0xfe, 0xff]) {
-        let values = bytes[2..]
-            .chunks_exact(2)
-            .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
-            .collect::<Vec<_>>();
-        String::from_utf16_lossy(&values)
-    } else {
-        String::from_utf8_lossy(&bytes).into_owned()
-    };
-    let name = path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or("Custom captions")
-        .to_string();
-    Ok(ImportedSubtitleFile { name, contents })
 }
 
 fn default_media_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -503,7 +458,10 @@ fn start_embedded_torrent_engine(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|_| "Torrent engine process lock failed")? = Some(child);
 
     let started = Instant::now();
-    while started.elapsed() < Duration::from_secs(6) {
+    // Restoring several saved sessions from an external drive can take longer
+    // than a cold, empty launch. Give rqbit time to finish recovery instead of
+    // killing it just before its HTTP API becomes ready and retrying forever.
+    while started.elapsed() < Duration::from_secs(25) {
         if rqbit_ready() {
             return Ok(());
         }
@@ -594,6 +552,211 @@ fn find_ffmpeg() -> Option<PathBuf> {
             .map(PathBuf::from)
             .find(|path| path.is_file())
         })
+}
+
+fn caption_model_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path()
+        .resource_dir()
+        .ok()
+        .map(|path| path.join("models/ggml-base.en-q5_1.bin"))
+        .filter(|path| path.is_file())
+        .or_else(|| {
+            let development = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("models/ggml-base.en-q5_1.bin");
+            development.is_file().then_some(development)
+        })
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptionCue {
+    start: f64,
+    end: f64,
+    text: String,
+}
+
+fn caption_input(value: &str) -> Result<String, String> {
+    if let Some(relative) = value.strip_prefix("media://") {
+        let relative = PathBuf::from(relative);
+        if relative.as_os_str().is_empty()
+            || relative
+                .components()
+                .any(|part| !matches!(part, Component::Normal(_)))
+        {
+            return Err("Invalid local caption source".into());
+        }
+        let path = downloads_root()
+            .ok_or("Could not locate media storage")?
+            .join(relative);
+        if !path.is_file() {
+            return Err("The video is not ready for caption generation yet".into());
+        }
+        return Ok(path.to_string_lossy().into_owned());
+    }
+    if value.starts_with("http://") || value.starts_with("https://") {
+        return Ok(value.to_string());
+    }
+    Err("This playback source cannot be transcribed".into())
+}
+
+#[cfg(target_os = "macos")]
+fn whisper_context(app: &tauri::AppHandle) -> Result<&'static whisper_rs::WhisperContext, String> {
+    if let Some(context) = WHISPER_CONTEXT.get() {
+        return Ok(context);
+    }
+    let model = caption_model_path(app)
+        .ok_or("The bundled Akflix caption model is missing. Reinstall the latest version.")?;
+    // Route whisper.cpp and GGML diagnostics through Rust's disabled-by-default
+    // logging hook instead of flooding the app's stderr during first use.
+    whisper_rs::install_logging_hooks();
+    let mut parameters = whisper_rs::WhisperContextParameters::default();
+    parameters.use_gpu = true;
+    parameters.flash_attn = true;
+    let context = whisper_rs::WhisperContext::new_with_params(model, parameters)
+        .map_err(|error| format!("Could not load the caption model: {error}"))?;
+    let _ = WHISPER_CONTEXT.set(context);
+    WHISPER_CONTEXT
+        .get()
+        .ok_or_else(|| "Could not initialize the caption model".into())
+}
+
+#[cfg(target_os = "macos")]
+fn transcribe_caption_chunk_sync(
+    app: &tauri::AppHandle,
+    input: String,
+    start_seconds: f64,
+    duration_seconds: f64,
+    audio_language: Option<String>,
+) -> Result<Vec<CaptionCue>, String> {
+    use whisper_rs::{FullParams, SamplingStrategy};
+
+    let _worker = WHISPER_WORKER_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| "Caption worker lock failed")?;
+    let input = caption_input(&input)?;
+    let start_seconds = if start_seconds.is_finite() {
+        start_seconds.max(0.0)
+    } else {
+        0.0
+    };
+    let duration_seconds = if duration_seconds.is_finite() {
+        duration_seconds.clamp(6.0, 30.0)
+    } else {
+        20.0
+    };
+    let ffmpeg =
+        find_ffmpeg().ok_or("The bundled FFmpeg executable is missing from this Akflix build")?;
+    let audio_map = preferred_audio_map(&ffmpeg, &input, audio_language.as_deref());
+    let mut command = Command::new(ffmpeg);
+    command.args(["-hide_banner", "-loglevel", "error", "-nostdin"]);
+    if input.starts_with("http://") || input.starts_with("https://") {
+        command.args(["-rw_timeout", "10000000"]);
+    }
+    if start_seconds > 0.05 {
+        command.args(["-ss", &format!("{start_seconds:.3}")]);
+    }
+    let output = command
+        .arg("-i")
+        .arg(&input)
+        .args(["-map", &audio_map, "-t", &format!("{duration_seconds:.3}")])
+        .args([
+            "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-f", "s16le", "pipe:1",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| format!("Could not read the video audio: {error}"))?;
+    if !output.status.success() && output.stdout.is_empty() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "The audio could not be prepared for captions: {}",
+            detail.lines().last().unwrap_or("unknown FFmpeg error")
+        ));
+    }
+    let samples = output
+        .stdout
+        .chunks_exact(2)
+        .map(|bytes| i16::from_le_bytes([bytes[0], bytes[1]]) as f32 / i16::MAX as f32)
+        .collect::<Vec<_>>();
+    if samples.len() < 16_000 {
+        return Err("Not enough dialogue audio is available yet".into());
+    }
+
+    let context = whisper_context(app)?;
+    let mut state = context
+        .create_state()
+        .map_err(|error| format!("Could not start speech recognition: {error}"))?;
+    let mut params = FullParams::new(SamplingStrategy::BeamSearch {
+        beam_size: 4,
+        patience: -1.0,
+    });
+    let threads = thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(4)
+        .clamp(2, 6) as i32;
+    params.set_n_threads(threads);
+    params.set_language(Some("en"));
+    params.set_translate(false);
+    params.set_no_context(true);
+    params.set_split_on_word(true);
+    params.set_max_len(72);
+    params.set_print_special(false);
+    params.set_print_progress(false);
+    params.set_print_realtime(false);
+    params.set_print_timestamps(false);
+    state
+        .full(params, &samples)
+        .map_err(|error| format!("Caption generation failed: {error}"))?;
+
+    let mut cues = Vec::new();
+    for segment in state.as_iter() {
+        let text = segment
+            .to_str_lossy()
+            .map_err(|error| error.to_string())?
+            .trim()
+            .to_string();
+        if text.is_empty() {
+            continue;
+        }
+        let start = start_seconds + segment.start_timestamp() as f64 / 100.0;
+        let end = start_seconds + segment.end_timestamp() as f64 / 100.0;
+        cues.push(CaptionCue {
+            start,
+            end: end.max(start + 0.4),
+            text,
+        });
+    }
+    Ok(cues)
+}
+
+#[tauri::command]
+async fn transcribe_caption_chunk(
+    app: tauri::AppHandle,
+    input: String,
+    start_seconds: f64,
+    duration_seconds: f64,
+    audio_language: Option<String>,
+) -> Result<Vec<CaptionCue>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        return tauri::async_runtime::spawn_blocking(move || {
+            transcribe_caption_chunk_sync(
+                &app,
+                input,
+                start_seconds,
+                duration_seconds,
+                audio_language,
+            )
+        })
+        .await
+        .map_err(|error| format!("Caption worker stopped: {error}"))?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, input, start_seconds, duration_seconds, audio_language);
+        Err("Live caption generation is currently available in Akflix for Mac".into())
+    }
 }
 
 fn stop_hls_process(id: &str) {
@@ -890,14 +1053,16 @@ fn start_hls_url(
 struct EmbeddedEngineStatus {
     torrent_engine: bool,
     ffmpeg: bool,
+    caption_model: bool,
     media_path: Option<String>,
 }
 
 #[tauri::command]
-fn embedded_engine_status() -> EmbeddedEngineStatus {
+fn embedded_engine_status(app: tauri::AppHandle) -> EmbeddedEngineStatus {
     EmbeddedEngineStatus {
         torrent_engine: rqbit_ready(),
         ffmpeg: find_ffmpeg().is_some(),
+        caption_model: caption_model_path(&app).is_some(),
         media_path: downloads_root().map(|path| path.to_string_lossy().into_owned()),
     }
 }
@@ -1068,9 +1233,9 @@ pub fn run() {
             start_hls_url,
             stop_hls_stream,
             set_hls_stream_paused,
+            transcribe_caption_chunk,
             embedded_engine_status,
             ensure_embedded_torrent_engine,
-            read_subtitle_file,
             available_media_storage,
             media_storage_status,
             configure_media_storage,

@@ -81,5 +81,5 @@ jobs:
             gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
               --title "Akflix $TAG" \
-              --notes "Akflix 1.0.14 makes playback stalls less intrusive, improves automatic recovery from weak sources, restores native macOS fullscreen, and makes the main window draggable from the navigation and player headers. Use source features only for content you may lawfully access."
+              --notes "Akflix 1.0.15 generates private local captions from playback audio, automatically synchronizes loaded captions to spoken dialogue, streamlines first launch and source loading, and improves embedded-engine recovery for external media drives. Use source features only for content you may lawfully access."
           fi

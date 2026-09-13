@@ -89,6 +89,9 @@ export default function StartupExperience() {
       if (engine && !engine.ffmpeg) {
         throw new Error("The bundled compatibility player is missing. Reinstall the latest Akflix download.");
       }
+      if (engine && !engine.captionModel) {
+        throw new Error("The bundled caption model is missing. Reinstall the latest Akflix download.");
+      }
       if (engine && !engine.torrentEngine) {
         throw new Error("The playback engine did not become ready. Try again in a moment.");
       }

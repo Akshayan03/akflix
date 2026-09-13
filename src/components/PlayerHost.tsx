@@ -19,8 +19,9 @@ import type Hls from "hls.js";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowLeft,
-  FileUp,
+  AudioLines,
   Gauge,
+  LoaderCircle,
   Maximize,
   Minus,
   Pause,
@@ -50,13 +51,18 @@ import { formatClock, ticksToSeconds } from "@/lib/utils";
 import { isAppleMobile } from "@/lib/platform";
 import { mediaDisplayFromRelease } from "@/lib/mediaTitle";
 import {
+  cuesToVtt,
+  estimateCaptionOffset,
   loadManualCaption,
   offsetSubtitle,
+  parseVttCues,
   removeManualCaption,
   saveManualCaption,
-  subtitleToVtt,
+  type CaptionCue,
   type ManualCaption,
 } from "@/lib/manualCaptions";
+import { transcribeCaptionChunk } from "@/lib/liveCaptions";
+import { httpRaw } from "@/lib/http";
 import {
   setCompatibilityStreamPaused,
   startCompatibilityStream,
@@ -81,11 +87,6 @@ interface SubTrack {
   language?: string;
   url: string;
   manual?: boolean;
-}
-
-interface ImportedSubtitleFile {
-  name: string;
-  contents: string;
 }
 
 const isTypingTarget = (t: EventTarget | null) => {
@@ -232,6 +233,8 @@ export default function PlayerHost() {
   const scrubTimeRef = useRef<number | null>(null);
   const manualCaptionRef = useRef<ManualCaption | null>(null);
   const subtitleBlobUrlsRef = useRef<string[]>([]);
+  const captionInputRef = useRef<string | null>(null);
+  const captionGenerationRef = useRef(0);
 
   const [subTracks, setSubTracks] = useState<SubTrack[]>([]);
   const [activeSub, setActiveSub] = useState(-1);
@@ -243,7 +246,7 @@ export default function PlayerHost() {
   const [seekFeedback, setSeekFeedback] = useState<number | null>(null);
   const [manualCaption, setManualCaption] = useState<ManualCaption | null>(null);
   const [manualTrack, setManualTrack] = useState<SubTrack | null>(null);
-  const [captionBusy, setCaptionBusy] = useState(false);
+  const [captionTask, setCaptionTask] = useState<"generating" | "syncing" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // ── Controls auto-hide ───────────────────────────────────────────────
@@ -291,6 +294,9 @@ export default function PlayerHost() {
   }, [client]);
 
   const teardown = useCallback(() => {
+    captionGenerationRef.current += 1;
+    captionInputRef.current = null;
+    setCaptionTask(null);
     saveDirectProgress(directRequestRef.current, videoRef.current);
     directRequestRef.current = null;
     reportStopped();
@@ -392,6 +398,7 @@ export default function PlayerHost() {
 
         // Attach the stream.
         const { url, isHls } = client.streamUrl(itemId, source as MediaSource, info.PlaySessionId);
+        captionInputRef.current = url;
         // hls.js is the largest frontend dependency. Load it only when the
         // negotiated source actually needs Media Source Extensions; direct
         // play sessions should not pay that startup/download cost.
@@ -470,6 +477,10 @@ export default function PlayerHost() {
         isEpisode: request.isEpisode ?? false,
         direct: true,
       });
+      captionInputRef.current = request.compatibility?.inputUrl
+        ?? (request.compatibility?.filename
+          ? `media://Streaming Cache/${request.compatibility.filename}`
+          : request.url);
       video.src = request.url;
       video.preload = "auto";
       video.playbackRate = usePlayback.getState().playbackRate;
@@ -1011,7 +1022,7 @@ export default function PlayerHost() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jumpBy, navigate, poke, toggleFullscreen]);
 
-  // ── Episode-specific manual captions ─────────────────────────────────
+  // ── Episode-specific generated and automatically aligned captions ────
   const captionKey = manualCaptionKey(session, directRequestRef.current);
 
   useEffect(() => {
@@ -1033,7 +1044,7 @@ export default function PlayerHost() {
     );
     setManualTrack({
       index: MANUAL_SUBTITLE_INDEX,
-      label: `${manualCaption.name} · Manual`,
+      label: manualCaption.name,
       language: subtitleLanguage,
       url,
       manual: true,
@@ -1041,41 +1052,123 @@ export default function PlayerHost() {
     return () => URL.revokeObjectURL(url);
   }, [manualCaption, subtitleLanguage]);
 
-  const importManualCaption = useCallback(async () => {
-    if (!captionKey || captionBusy) return;
-    setCaptionBusy(true);
-    try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const choice = await open({
-        multiple: false,
-        directory: false,
-        title: "Choose captions for this episode",
-        filters: [{ name: "Subtitle files", extensions: ["srt", "vtt"] }],
+  const toggleGeneratedCaptions = useCallback(async () => {
+    if (captionTask === "generating") {
+      captionGenerationRef.current += 1;
+      setCaptionTask(null);
+      toast.info("Live caption generation paused", {
+        description: "Everything generated so far remains saved for this episode.",
       });
-      const path = Array.isArray(choice) ? choice[0] : choice;
-      if (!path) return;
-      const { invoke } = await import("@tauri-apps/api/core");
-      const imported = await invoke<ImportedSubtitleFile>("read_subtitle_file", { path });
+      return;
+    }
+    const input = captionInputRef.current;
+    if (!captionKey || !input) {
+      toast.error("Captions are not ready yet", {
+        description: "Start the video, then try Generate live captions again.",
+      });
+      return;
+    }
+
+    const generation = ++captionGenerationRef.current;
+    const current = manualCaptionRef.current;
+    let generated: CaptionCue[] = current?.kind === "generated" ? parseVttCues(current.vtt) : [];
+    let nextStart = Math.max(
+      0,
+      usePlayback.getState().currentTime - 1,
+      current?.kind === "generated" ? (current.generatedUntil ?? 0) - 1 : 0
+    );
+    setCaptionTask("generating");
+    setActiveSub(MANUAL_SUBTITLE_INDEX);
+    toast.success("Live captions started", {
+      description: "Akflix is listening privately and preparing dialogue a little ahead of playback.",
+    });
+
+    try {
+      while (
+        captionGenerationRef.current === generation &&
+        manualCaptionKey(usePlayback.getState().session, directRequestRef.current) === captionKey
+      ) {
+        const playbackTime = usePlayback.getState().currentTime;
+        if (nextStart > playbackTime + 24) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1_200));
+          continue;
+        }
+        if (playbackTime > nextStart + 26) nextStart = Math.max(0, playbackTime - 1);
+        const cues = await transcribeCaptionChunk(input, nextStart, 20, "eng");
+        if (captionGenerationRef.current !== generation) return;
+        generated = [...generated, ...cues];
+        const generatedUntil = nextStart + 20;
+        const caption: ManualCaption = {
+          name: "English · Generated by Akflix",
+          vtt: cuesToVtt(generated),
+          offsetSeconds: manualCaptionRef.current?.offsetSeconds ?? 0,
+          kind: "generated",
+          generatedUntil,
+        };
+        saveManualCaption(captionKey, caption);
+        manualCaptionRef.current = caption;
+        setManualCaption(caption);
+        setActiveSub(MANUAL_SUBTITLE_INDEX);
+        nextStart += 18;
+      }
+    } catch (reason) {
+      if (captionGenerationRef.current !== generation) return;
+      toast.error("Live captions paused", {
+        description: reason instanceof Error ? reason.message : String(reason),
+      });
+    } finally {
+      if (captionGenerationRef.current === generation) setCaptionTask(null);
+    }
+  }, [captionKey, captionTask]);
+
+  const autoSyncCurrentCaption = useCallback(async () => {
+    const input = captionInputRef.current;
+    const selected = subTracks.find((track) => track.index === activeSub);
+    if (!captionKey || !input || !selected || captionTask) {
+      toast.info("Select a caption track first", {
+        description: "Choose one of the loaded captions, then press Auto sync.",
+      });
+      return;
+    }
+    captionGenerationRef.current += 1;
+    setCaptionTask("syncing");
+    try {
+      const response = selected.url.startsWith("blob:")
+        ? await fetch(selected.url)
+        : await httpRaw(selected.url);
+      if (!response.ok) throw new Error(`Could not read this caption track (HTTP ${response.status})`);
+      const vtt = await response.text();
+      const subtitleCues = parseVttCues(vtt);
+      const sampleStart = Math.max(
+        0,
+        Math.min(usePlayback.getState().currentTime - 3, Math.max(0, usePlayback.getState().duration - 30))
+      );
+      const speechCues = await transcribeCaptionChunk(input, sampleStart, 30, "eng");
+      const offsetSeconds = estimateCaptionOffset(subtitleCues, speechCues);
+      if (offsetSeconds === null) {
+        throw new Error("Akflix could not confidently match enough spoken words. Try again during a dialogue-heavy scene.");
+      }
       const caption: ManualCaption = {
-        name: imported.name,
-        vtt: subtitleToVtt(imported.contents),
-        offsetSeconds: 0,
+        name: `${selected.label} · Auto synced`,
+        vtt,
+        offsetSeconds,
+        kind: "synced",
       };
       saveManualCaption(captionKey, caption);
       manualCaptionRef.current = caption;
       setManualCaption(caption);
       setActiveSub(MANUAL_SUBTITLE_INDEX);
-      toast.success("Custom captions added", {
-        description: "Saved for this episode on this Mac.",
+      toast.success("Captions synchronized", {
+        description: `Akflix matched the dialogue and applied a ${offsetSeconds > 0 ? "+" : ""}${offsetSeconds.toFixed(1)} second correction.`,
       });
     } catch (reason) {
-      toast.error("Could not add captions", {
+      toast.error("Could not synchronize captions", {
         description: reason instanceof Error ? reason.message : String(reason),
       });
     } finally {
-      setCaptionBusy(false);
+      setCaptionTask(null);
     }
-  }, [captionBusy, captionKey]);
+  }, [activeSub, captionKey, captionTask, subTracks]);
 
   const adjustManualCaption = useCallback(
     (delta: number) => {
@@ -1083,8 +1176,8 @@ export default function PlayerHost() {
       const next: ManualCaption = {
         ...manualCaptionRef.current,
         offsetSeconds: Math.max(
-          -30,
-          Math.min(30, Math.round((manualCaptionRef.current.offsetSeconds + delta) * 10) / 10)
+          -120,
+          Math.min(120, Math.round((manualCaptionRef.current.offsetSeconds + delta) * 10) / 10)
         ),
       };
       saveManualCaption(captionKey, next);
@@ -1097,12 +1190,14 @@ export default function PlayerHost() {
 
   const deleteManualCaption = useCallback(() => {
     if (!captionKey) return;
+    captionGenerationRef.current += 1;
+    setCaptionTask(null);
     removeManualCaption(captionKey);
     manualCaptionRef.current = null;
     setManualCaption(null);
     setManualTrack(null);
     setActiveSub(-1);
-    toast.success("Custom captions removed");
+    toast.success("Akflix captions removed");
   }, [captionKey]);
 
   // ── Subtitle track switching ─────────────────────────────────────────
@@ -1611,18 +1706,38 @@ export default function PlayerHost() {
                                 Captions
                               </p>
                               <button
-                                onClick={() => void importManualCaption()}
-                                disabled={captionBusy || !captionKey}
+                                onClick={() => void toggleGeneratedCaptions()}
+                                disabled={captionTask === "syncing" || !captionKey}
                                 className="mb-1 flex w-full items-center gap-3 rounded-xl border border-brand/20 bg-brand/[0.08] px-3 py-2.5 text-left transition hover:bg-brand/[0.14] disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand/15 text-brand-light">
-                                  <FileUp size={16} />
+                                  <AudioLines size={16} className={captionTask === "generating" ? "animate-pulse" : ""} />
                                 </span>
                                 <span className="min-w-0">
                                   <span className="block text-sm font-semibold text-zinc-100">
-                                    {captionBusy ? "Opening file..." : "Add your captions"}
+                                    {captionTask === "generating" ? "Pause live captions" : "Generate live captions"}
                                   </span>
-                                  <span className="block text-[10px] text-zinc-500">SRT or VTT, saved for this episode</span>
+                                  <span className="block text-[10px] text-zinc-500">
+                                    Private speech recognition, saved for this episode
+                                  </span>
+                                </span>
+                              </button>
+
+                              <button
+                                onClick={() => void autoSyncCurrentCaption()}
+                                disabled={!!captionTask || !subTracks.some((track) => track.index === activeSub)}
+                                className="mb-1 flex w-full items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-2.5 text-left transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-zinc-300">
+                                  {captionTask === "syncing" ? <LoaderCircle size={16} className="animate-spin" /> : <RotateCw size={16} />}
+                                </span>
+                                <span className="min-w-0">
+                                  <span className="block text-sm font-semibold text-zinc-200">
+                                    {captionTask === "syncing" ? "Matching dialogue..." : "Auto sync selected captions"}
+                                  </span>
+                                  <span className="block text-[10px] text-zinc-500">
+                                    Listens and corrects the caption timing
+                                  </span>
                                 </span>
                               </button>
 
@@ -1633,12 +1748,14 @@ export default function PlayerHost() {
                                       <p className="truncate text-xs font-semibold text-zinc-200">
                                         {manualCaption.name}
                                       </p>
-                                      <p className="mt-0.5 text-[10px] text-zinc-500">Manual caption timing</p>
+                                      <p className="mt-0.5 text-[10px] text-zinc-500">
+                                        {manualCaption.kind === "generated" ? "Generated from the video audio" : "Timing matched to spoken dialogue"}
+                                      </p>
                                     </div>
                                     <button
                                       onClick={deleteManualCaption}
-                                      aria-label="Remove custom captions"
-                                      title="Remove custom captions"
+                                      aria-label="Remove Akflix captions"
+                                      title="Remove Akflix captions"
                                       className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-red-500/10 hover:text-red-300"
                                     >
                                       <Trash2 size={14} />
@@ -1667,7 +1784,7 @@ export default function PlayerHost() {
                                     </button>
                                   </div>
                                   <p className="mt-2 text-[9px] leading-4 text-zinc-600">
-                                    Minus shows captions earlier. Plus delays them.
+                                    Timing is automatic. Minus and plus are available for a final personal adjustment.
                                   </p>
                                 </div>
                               )}
@@ -1699,7 +1816,7 @@ export default function PlayerHost() {
                                     <span className="truncate">{s.label}</span>
                                     {s.manual && (
                                       <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-brand-light">
-                                        Yours
+                                        Akflix
                                       </span>
                                     )}
                                   </span>

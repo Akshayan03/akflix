@@ -387,7 +387,7 @@
             <a class="button primary" href="downloads/Akflix_latest_aarch64.dmg" download>Download for macOS <span class="arrow">↓</span></a>
             <a class="button ghost" href="#how">See how it works <span class="arrow">→</span></a>
           </div>
-          <p class="micro">About 25 MB · macOS 11+ · M1, M2, M3 and M4 · free and open source</p>
+          <p class="micro">About 80 MB · macOS 11+ · M1, M2, M3 and M4 · free and open source</p>
         </div>
 
         <div class="app-stage" aria-label="Preview of the Akflix desktop interface">
@@ -472,7 +472,7 @@
           <article class="feature"><span class="feature-mark">◫</span><h3>Embedded playback engine</h3><p>Akflix starts and stops its private streaming engine with the app and stores its temporary data in the correct macOS folder.</p></article>
           <article class="feature"><span class="feature-mark">▶</span><h3>Bundled media compatibility</h3><p>An official LGPL FFmpeg build is included for compatible HLS playback. No package manager required.</p></article>
           <article class="feature"><span class="feature-mark">⌁</span><h3>Source choices, simplified</h3><p>Every option keeps the real title visible. Compare quality, source, codec, language, size, seeders and health, then filter or sort the list in seconds.</p></article>
-          <article class="feature"><span class="feature-mark">◉</span><h3>Playback your way</h3><p>Choose captions, switch from 0.5x to 2x speed, seek precisely, and move between controls with smooth responsive animations.</p></article>
+          <article class="feature"><span class="feature-mark">◉</span><h3>Captions that listen</h3><p>Generate private English captions from the playing audio or automatically match a loaded caption track to the spoken dialogue. Nothing is uploaded.</p></article>
           <article class="feature"><span class="feature-mark">»</span><h3>Episodes keep moving</h3><p>When an episode ends, Akflix finds the next English-safe source and continues automatically, including across season boundaries.</p></article>
           <article class="feature"><span class="feature-mark">◎</span><h3>Local-first profile</h3><p>Open directly into Akflix. Jellyfin is an optional library connection, not a login wall.</p></article>
           <article class="feature"><span class="feature-mark">★</span><h3>A home that learns your taste</h3><p>Continue Watching remembers the exact movie or episode. Finished titles move to Watched, and five-star ratings improve your personal recommendations.</p></article>
@@ -488,13 +488,13 @@
           <div class="download-copy">
             <p class="kicker">Now showing on your Mac</p>
             <h2>Your next watch is one app away.</h2>
-            <p>Download Akflix 1.0.14 for Apple silicon. This update reduces distracting loading indicators, recovers faster from weak sources, restores native macOS fullscreen, and lets you move the window from the navigation or player header.</p>
+            <p>Download Akflix 1.0.15 for Apple silicon. This update generates captions locally from playback audio, automatically synchronizes loaded captions to spoken dialogue, speeds up first launch and source loading, and recovers external-drive playback reliably.</p>
           </div>
           <div class="download-meta">
             <dl>
-              <dt>File</dt><dd>Akflix 1.0.14 DMG</dd>
+              <dt>File</dt><dd>Akflix 1.0.15 DMG</dd>
               <dt>Platform</dt><dd>Apple silicon</dd>
-              <dt>Size</dt><dd>About 25 MB</dd>
+              <dt>Size</dt><dd>About 80 MB</dd>
               <dt>Requires</dt><dd>macOS 11+</dd>
               <dt>Extra services</dt><dd>None</dd>
             </dl>
@@ -517,6 +517,7 @@
           <details><summary>Does Watch Now download the whole movie first?</summary><p>No. Akflix prioritizes the selected video and streams it through a seekable local URL. Temporary pieces are cached during playback and removed afterward. Download is a separate option.</p></details>
           <details><summary>Can playback always be Netflix-instant?</summary><p>A hosted or debrid-cached HTTP link can start almost immediately. A public peer source cannot be guaranteed instant because its speed depends on metadata, reachable peers, seeders, and your connection. Akflix removes avoidable waiting, but it cannot manufacture a healthy peer.</p></details>
           <details><summary>Does it support shows?</summary><p>Yes. Choose any season and episode before Watch Now. When an episode finishes, Akflix can automatically find and start the next one, including the first episode of the following season.</p></details>
+          <details><summary>Can Akflix fix bad captions?</summary><p>Yes. Generate fresh English captions privately from the video audio, or select a loaded caption track and let Auto sync match its timing to spoken dialogue. Manual timing controls remain available for a final adjustment.</p></details>
           <details><summary>What about Intel, Windows, and Linux?</summary><p>The new zero-setup package is currently available for Apple-silicon Macs. Earlier cross-platform builds remain on GitHub Releases while standalone packaging is completed for those systems.</p></details>
         </div>
       </div>

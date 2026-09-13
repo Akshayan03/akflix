@@ -1,6 +1,6 @@
 [package]
 name = "akflix"
-version = "1.0.14"
+version = "1.0.15"
 description = "Standalone movie and series streaming app"
 authors = ["Akshayan"]
 edition = "2021"
@@ -29,6 +29,9 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "0.16", features = ["metal"] }
 
 [profile.release]
 panic = "abort"
