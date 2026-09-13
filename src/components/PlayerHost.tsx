@@ -237,6 +237,7 @@ export default function PlayerHost() {
   const hideTimer = useRef<ReturnType<typeof setTimeout>>();
   const seekFeedbackTimer = useRef<ReturnType<typeof setTimeout>>();
   const scrubTimeRef = useRef<number | null>(null);
+  const scrubPointerActiveRef = useRef(false);
   const manualCaptionRef = useRef<ManualCaption | null>(null);
   const subtitleBlobUrlsRef = useRef<string[]>([]);
   const captionInputRef = useRef<string | null>(null);
@@ -293,6 +294,7 @@ export default function PlayerHost() {
     playbackStallOpen.current = false;
     playbackStallHistory.current = [];
     directSourceLockedRef.current = false;
+    scrubPointerActiveRef.current = false;
     const s = jfSessionRef.current;
     if (client && v && s) {
       client
@@ -340,6 +342,7 @@ export default function PlayerHost() {
       setScrubTime(null);
       setSeekFeedback(null);
       scrubTimeRef.current = null;
+      scrubPointerActiveRef.current = false;
       nextEpisodeRef.current = null;
       _sync({ buffering: true, hasNext: false, currentTime: 0, duration: 0 });
 
@@ -755,6 +758,28 @@ export default function PlayerHost() {
     usePlayback.getState().controls?.seek(target);
     poke();
   }, [poke]);
+
+  useEffect(() => {
+    // WebKit can send pointerup outside the native range input after a fast
+    // click or drag. Always finish the scrub at window level so its preview
+    // cannot remain pinned while the video continues underneath it.
+    const finishScrub = () => {
+      if (!scrubPointerActiveRef.current) return;
+      scrubPointerActiveRef.current = false;
+      commitSeek();
+    };
+    const cancelScrub = () => {
+      scrubPointerActiveRef.current = false;
+      scrubTimeRef.current = null;
+      setScrubTime(null);
+    };
+    window.addEventListener("pointerup", finishScrub);
+    window.addEventListener("pointercancel", cancelScrub);
+    return () => {
+      window.removeEventListener("pointerup", finishScrub);
+      window.removeEventListener("pointercancel", cancelScrub);
+    };
+  }, [commitSeek]);
 
   const clearPlaybackStall = useCallback(() => {
     clearTimeout(bufferingIndicatorTimer.current);
@@ -1627,19 +1652,34 @@ export default function PlayerHost() {
                       aria-label="Playback position"
                       aria-valuetext={`${formatClock(displayedTime)} of ${formatClock(duration)}`}
                       onPointerDown={(event) => {
+                        scrubPointerActiveRef.current = true;
                         event.currentTarget.setPointerCapture(event.pointerId);
                         previewSeek(Number(event.currentTarget.value));
                       }}
-                      onChange={(event) => previewSeek(Number(event.currentTarget.value))}
+                      onChange={(event) => {
+                        const value = Number(event.currentTarget.value);
+                        if (scrubPointerActiveRef.current) previewSeek(value);
+                        else commitSeek(value);
+                      }}
                       onPointerUp={(event) => {
                         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
                           event.currentTarget.releasePointerCapture(event.pointerId);
                         }
-                        commitSeek(Number(event.currentTarget.value));
+                        if (scrubPointerActiveRef.current) {
+                          scrubPointerActiveRef.current = false;
+                          commitSeek(Number(event.currentTarget.value));
+                        }
                       }}
                       onPointerCancel={() => {
+                        scrubPointerActiveRef.current = false;
                         scrubTimeRef.current = null;
                         setScrubTime(null);
+                      }}
+                      onLostPointerCapture={() => {
+                        if (scrubPointerActiveRef.current) {
+                          scrubPointerActiveRef.current = false;
+                          commitSeek();
+                        }
                       }}
                       onKeyUp={(event) => commitSeek(Number(event.currentTarget.value))}
                       onBlur={() => {
