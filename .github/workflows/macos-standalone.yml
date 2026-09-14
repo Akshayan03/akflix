@@ -81,5 +81,5 @@ jobs:
             gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
               --title "Akflix $TAG" \
-              --notes "Akflix 1.0.15 generates private local captions from playback audio, automatically synchronizes loaded captions to spoken dialogue, streamlines first launch and source loading, and improves embedded-engine recovery for external media drives. Use source features only for content you may lawfully access."
+              --notes "Akflix 1.0.16 locks the selected source for the full movie or episode, fixes next-episode handoff and caption seeking, respects preferred audio language, and adds Picture in Picture with reliable playback speeds. Use source features only for content you may lawfully access."
           fi
