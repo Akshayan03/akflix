@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { useAuth } from "@/stores/authStore";
@@ -66,6 +66,7 @@ export default function App() {
   );
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className={mobileApple ? "ios-app-shell min-h-full" : "min-h-full"}>
       {!mobileApple && <StartupExperience />}
       {/* The player and login are immersive full-screen pages — no navbar. */}
@@ -80,10 +81,10 @@ export default function App() {
         <AnimatePresence initial={false} mode="sync">
           <motion.div
             key={location.key}
-            initial={{ opacity: 0, x: 14, filter: "blur(3px)" }}
-            animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
-            exit={{ opacity: 0, x: -10, filter: "blur(2px)" }}
-            transition={{ type: "spring", stiffness: 330, damping: 31, mass: 0.72 }}
+            initial={{ opacity: 0, y: 8, scale: 0.997 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.998 }}
+            transition={{ type: "spring", stiffness: 360, damping: 34, mass: 0.7 }}
             className="min-h-[100svh]"
           >
             {routes}
@@ -102,6 +103,10 @@ export default function App() {
         theme="dark"
         position={mobileApple ? "bottom-center" : "bottom-right"}
         offset={{ bottom: mobileApple ? 104 : 96 }}
+        visibleToasts={mobileApple ? 2 : 4}
+        duration={3600}
+        gap={8}
+        closeButton={!mobileApple}
         toastOptions={{
           style: {
             background: "rgba(21,19,15,.96)",
@@ -109,9 +114,11 @@ export default function App() {
             color: "#fff",
             borderRadius: "16px",
             backdropFilter: "blur(20px)",
+            ...(mobileApple ? { width: "calc(100vw - 24px)", fontSize: "13px" } : {}),
           },
         }}
       />
     </div>
+    </MotionConfig>
   );
 }

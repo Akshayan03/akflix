@@ -231,22 +231,15 @@ export default function PlayerHost() {
     playSessionId: string;
   } | null>(null);
   const nextEpisodeRef = useRef<string | null>(null);
-  const directIdRef = useRef<string | null>(null);
+  const directIdRef = useRef<number | null>(null);
   const directRequestRef = useRef<DirectPlaybackRequest | null>(null);
-  const directRetryRef = useRef(0);
   const requestedPlaybackRateRef = useRef(usePlayback.getState().playbackRate);
-  const directRetryTimer = useRef<ReturnType<typeof setTimeout>>();
   const bufferingIndicatorTimer = useRef<ReturnType<typeof setTimeout>>();
   const playbackStallTimer = useRef<ReturnType<typeof setTimeout>>();
   const playbackStallOpen = useRef(false);
-  const playbackStallHistory = useRef<number[]>([]);
-  const playbackStallHandling = useRef(false);
-  // Source racing is only a startup optimization. After playback begins the
-  // chosen release must remain fixed for the rest of the episode.
-  const directSourceLockedRef = useRef(false);
   const compatibilitySeekTimer = useRef<ReturnType<typeof setTimeout>>();
   const compatibilitySeekSequence = useRef(0);
-  const directResumeAppliedRef = useRef<string | null>(null);
+  const directResumeAppliedRef = useRef<number | null>(null);
   const lastLocalHistoryWrite = useRef(0);
   const loadSeq = useRef(0);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -302,14 +295,11 @@ export default function PlayerHost() {
 
   const reportStopped = useCallback(() => {
     const v = videoRef.current;
-    clearTimeout(directRetryTimer.current);
     clearTimeout(bufferingIndicatorTimer.current);
     clearTimeout(playbackStallTimer.current);
     clearTimeout(compatibilitySeekTimer.current);
     clearTimeout(seekFeedbackTimer.current);
     playbackStallOpen.current = false;
-    playbackStallHistory.current = [];
-    directSourceLockedRef.current = false;
     scrubPointerActiveRef.current = false;
     const s = jfSessionRef.current;
     if (client && v && s) {
@@ -472,14 +462,12 @@ export default function PlayerHost() {
       if (!video) return;
       const seq = ++loadSeq.current;
       teardown();
-      directIdRef.current = request.id;
+      directIdRef.current = request.playbackRequestId ?? null;
       directRequestRef.current = request;
-      directRetryRef.current = 0;
       directResumeAppliedRef.current = null;
       playbackStallOpen.current = false;
-      playbackStallHistory.current = [];
-      playbackStallHandling.current = false;
-      directSourceLockedRef.current = false;
+      // Watch Now selects before this handoff. From this point onward the
+      // release is immutable: buffering can pause playback, never replace it.
       lastLocalHistoryWrite.current = 0;
       setError(null);
       setSubTracks([]);
@@ -496,7 +484,7 @@ export default function PlayerHost() {
         duration: request.durationSeconds ?? 0,
       });
       if ((request.compatibility?.startSeconds ?? 0) > 10) {
-        directResumeAppliedRef.current = request.id;
+        directResumeAppliedRef.current = request.playbackRequestId ?? null;
       }
       const display = mediaDisplayFromRelease(request.title);
       _setSession({
@@ -563,7 +551,7 @@ export default function PlayerHost() {
 
   useEffect(() => {
     if (!requestedDirect) return;
-    if (directIdRef.current === requestedDirect.id) return;
+    if (directIdRef.current === requestedDirect.playbackRequestId) return;
     loadDirect(requestedDirect);
   }, [loadDirect, requestedDirect]);
 
@@ -628,17 +616,18 @@ export default function PlayerHost() {
         description: nextMedia.subtitle,
       });
       const torrentState = useTorrents.getState();
+      const requestId = await torrentState.beginStreamRequest(nextMedia);
       const results = await torrentState.search(current.title, undefined, {
         imdbId: current.catalogId,
         type: "series",
         season: next.season,
         episode: next.episode,
       });
+      if (useTorrents.getState().streamRequestId !== requestId) return false;
       let eligible = automaticSafeSources(results, preferredAudioLanguage);
       if (mobileApple) eligible = iosNativeSources(eligible);
       if (!eligible.length) throw new Error("No compatible source was found for the next episode.");
 
-      await finishActiveStream().catch(() => {});
       const hosted = eligible.find((result) => result.streamUrl);
       if (hosted?.streamUrl) {
         usePlayback.getState().openDirect({
@@ -647,7 +636,7 @@ export default function PlayerHost() {
           url: hosted.streamUrl,
         });
       } else {
-        await torrentState.raceStreamSources(eligible, nextMedia);
+        await torrentState.raceStreamSources(eligible, nextMedia, requestId);
       }
       if (usePlayback.getState().mode === "expanded") {
         navigate("/stream", { replace: true });
@@ -659,7 +648,7 @@ export default function PlayerHost() {
       });
       return false;
     }
-  }, [finishActiveStream, load, mobileApple, navigate, preferredAudioLanguage, _sync]);
+  }, [load, mobileApple, navigate, preferredAudioLanguage, _sync]);
 
   const seekPlayback = useCallback(
     (seconds: number) => {
@@ -689,8 +678,9 @@ export default function PlayerHost() {
         const restart = async () => {
           const activeRequest = directRequestRef.current;
           if (
+            !activeRequest ||
             sequence !== compatibilitySeekSequence.current ||
-            activeRequest?.id !== request.id ||
+            activeRequest.playbackRequestId !== request.playbackRequestId ||
             !activeRequest.compatibility
           ) {
             return;
@@ -717,7 +707,7 @@ export default function PlayerHost() {
             if (!url) throw new Error("The conversion source is unavailable.");
             if (
               sequence !== compatibilitySeekSequence.current ||
-              directRequestRef.current?.id !== request.id
+              directRequestRef.current?.playbackRequestId !== request.playbackRequestId
             ) {
               return;
             }
@@ -725,7 +715,6 @@ export default function PlayerHost() {
             source.startSeconds = target;
             setCompatibilityStartSeconds(target);
             activeRequest.url = url;
-            directRetryRef.current = 0;
             setError(null);
             video.src = `${url}${url.includes("?") ? "&" : "?"}seek=${Date.now()}`;
             video.load();
@@ -803,37 +792,6 @@ export default function PlayerHost() {
     playbackStallOpen.current = false;
   }, []);
 
-  const failoverPlaybackSource = useCallback(
-    async (message: string) => {
-      if (playbackStallHandling.current) return;
-      const activeRequest = directRequestRef.current;
-      const activeVideo = videoRef.current;
-      if (!activeRequest || !activeVideo) return;
-      playbackStallHandling.current = true;
-      saveDirectProgress(activeRequest, activeVideo);
-      const timelineTime = activeRequest.compatibility
-        ? activeRequest.compatibility.startSeconds + activeVideo.currentTime
-        : activeVideo.currentTime;
-      activeVideo.pause();
-      activeVideo.removeAttribute("src");
-      activeVideo.load();
-      try {
-        const next = await useTorrents.getState().failoverActiveStream(timelineTime);
-        if (next) {
-          toast.info(message, {
-            description: "Switching to the next healthy source automatically.",
-          });
-          return;
-        }
-        setError(`${message}. Choose another stream and try again.`);
-        _sync({ buffering: false });
-      } finally {
-        playbackStallHandling.current = false;
-      }
-    },
-    [_sync]
-  );
-
   const schedulePlaybackStall = useCallback(() => {
     const request = directRequestRef.current;
     const video = videoRef.current;
@@ -844,23 +802,11 @@ export default function PlayerHost() {
       _sync({ buffering: true });
       return;
     }
-    if (
-      playbackStallHandling.current ||
-      playbackStallOpen.current
-    ) {
-      return;
-    }
+    if (playbackStallOpen.current) return;
 
     playbackStallOpen.current = true;
-    const requestId = request.id;
+    const requestId = request.playbackRequestId;
     const startedAt = video.currentTime;
-    const now = Date.now();
-    playbackStallHistory.current = playbackStallHistory.current.filter(
-      (timestamp) => now - timestamp < 90_000
-    );
-    playbackStallHistory.current.push(now);
-    const repeatedlyStalling = playbackStallHistory.current.length >= 3;
-
     clearTimeout(bufferingIndicatorTimer.current);
     clearTimeout(playbackStallTimer.current);
     // WebKit emits brief `waiting` and `stalled` events while it switches
@@ -871,7 +817,7 @@ export default function PlayerHost() {
       const activeRequest = directRequestRef.current;
       if (
         !activeVideo ||
-        activeRequest?.id !== requestId ||
+        activeRequest?.playbackRequestId !== requestId ||
         activeVideo.paused ||
         activeVideo.ended
       ) {
@@ -894,7 +840,7 @@ export default function PlayerHost() {
       const activeRequest = directRequestRef.current;
       if (
         !activeVideo ||
-        activeRequest?.id !== requestId ||
+        activeRequest?.playbackRequestId !== requestId ||
         activeVideo.paused ||
         activeVideo.currentTime > startedAt + 1
       ) {
@@ -902,15 +848,12 @@ export default function PlayerHost() {
         _sync({ buffering: false });
         return;
       }
-      // A temporary peer slowdown is buffering, not permission to replace a
-      // release that the viewer is already watching.
-      if (directSourceLockedRef.current) {
-        playbackStallOpen.current = false;
-        return;
-      }
-      void failoverPlaybackSource("This source stopped responding");
-    }, repeatedlyStalling ? 7_000 : 15_000);
-  }, [_sync, clearPlaybackStall, failoverPlaybackSource]);
+      // A temporary peer slowdown is buffering, not permission to replace or
+      // reload the release. Keep the same timeline and wait for more data.
+      playbackStallOpen.current = false;
+      _sync({ buffering: true });
+    }, 15_000);
+  }, [_sync, clearPlaybackStall]);
 
   useEffect(() => {
     _setControls({
@@ -1438,7 +1381,6 @@ export default function PlayerHost() {
           onWaiting={schedulePlaybackStall}
           onStalled={schedulePlaybackStall}
           onPlaying={() => {
-            if (directRequestRef.current) directSourceLockedRef.current = true;
             clearPlaybackStall();
             _sync({ buffering: false });
           }}
@@ -1502,7 +1444,11 @@ export default function PlayerHost() {
             const video = e.currentTarget;
             applyPlaybackRate(video, requestedPlaybackRateRef.current);
             const media = request ? directHistoryTitle(request) : null;
-            if (!request || !media || directResumeAppliedRef.current === request.id) return;
+            if (
+              !request ||
+              !media ||
+              directResumeAppliedRef.current === request.playbackRequestId
+            ) return;
             const profileId = useAuth.getState().activeProfileId ?? "akflix-local";
             const saved = useHistory.getState().entries.find(
               (entry) =>
@@ -1518,55 +1464,20 @@ export default function PlayerHost() {
             const target = request.resumeSeconds ?? saved?.position ?? 0;
             if (target > 10 && target < mediaDuration - 5) {
               seekPlayback(target);
-              directResumeAppliedRef.current = request.id;
+              directResumeAppliedRef.current = request.playbackRequestId ?? null;
               toast.info("Resuming where you left off", {
                 description: `${formatClock(target)} into ${request.title}`,
               });
             } else {
-              directResumeAppliedRef.current = request.id;
+              directResumeAppliedRef.current = request.playbackRequestId ?? null;
             }
           }}
           onError={(e) => {
             const mediaError = e.currentTarget.error;
             const directRequest = directRequestRef.current;
-            if (
-              session?.direct &&
-              directRequest &&
-              !directSourceLockedRef.current &&
-              directRetryRef.current < 2
-            ) {
-              const attempt = ++directRetryRef.current;
-              setError(null);
-              _sync({ buffering: true });
-              clearTimeout(directRetryTimer.current);
-              directRetryTimer.current = setTimeout(() => {
-                const video = videoRef.current;
-                if (!video || directRequestRef.current?.id !== directRequest.id) return;
-                // Hosted playback URLs are often signed. Appending a query
-                // parameter invalidates their signature, so only cache-bust
-                // Akflix's own local stream gateway.
-                video.src = /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?\//i.test(
-                  directRequest.url
-                )
-                  ? `${directRequest.url}${directRequest.url.includes("?") ? "&" : "?"}retry=${attempt}`
-                  : directRequest.url;
-                video.load();
-                video.play().catch(() => {});
-              }, Math.min(6_000, 1_250 * attempt));
-              return;
-            }
-            if (
-              session?.direct &&
-              directRequest &&
-              !directSourceLockedRef.current &&
-              useTorrents.getState().activeStreamFallbacks.length
-            ) {
-              void failoverPlaybackSource("This source could not be played");
-              return;
-            }
             setError(
-              directSourceLockedRef.current
-                ? "The selected source was interrupted. Akflix kept it locked so it would not switch releases mid-video. Choose another stream to continue."
+              session?.direct && directRequest
+                ? "The selected source was interrupted. Akflix kept the same release and playback position. Wait for it to recover or choose another stream yourself."
                 : mediaError?.message ||
                     "This file is not playable yet. Let it buffer longer or choose a smaller 1080p source."
             );

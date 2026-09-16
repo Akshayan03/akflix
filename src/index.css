@@ -40,6 +40,12 @@ body {
 .ios-mobile-header {
   padding-top: env(safe-area-inset-top, 0px);
   background: linear-gradient(180deg, rgba(9, 8, 6, 0.82), rgba(9, 8, 6, 0));
+  transition: background 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+
+.ios-mobile-header[data-scrolled="true"] {
+  background: rgba(9, 8, 6, 0.94);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.38);
 }
 
 .ios-circle-button {
@@ -65,6 +71,39 @@ body {
   background: linear-gradient(145deg, rgba(24, 21, 16, 0.94), rgba(9, 8, 6, 0.9));
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55), inset 0 1px rgba(255, 255, 255, 0.04);
   backdrop-filter: blur(28px) saturate(165%);
+}
+
+.ios-tab-bar a {
+  transition: color 180ms ease, background-color 180ms ease;
+}
+
+.ios-page-top {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 4.75rem);
+}
+
+.ios-bottom-sheet {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+}
+
+.ios-pressable {
+  min-height: 44px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button,
+a,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid rgba(240, 213, 138, 0.9);
+  outline-offset: 3px;
 }
 
 @media (hover: none) and (pointer: coarse) {
@@ -109,6 +148,23 @@ body {
   background-size: 400px 100%;
 }
 
+.akflix-artwork {
+  animation: akflix-artwork-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes akflix-artwork-in {
+  from {
+    opacity: 0;
+    transform: scale(1.018);
+    filter: saturate(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: saturate(1);
+  }
+}
+
 /* Netflix-style text shadow for hero copy */
 .hero-shadow {
   text-shadow: 0 8px 38px rgba(0, 0, 0, 0.75);
@@ -137,6 +193,21 @@ body {
 /* Native video: fill and letterbox */
 video {
   background: #000;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 video::cue {

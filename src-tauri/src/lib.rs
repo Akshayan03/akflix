@@ -36,6 +36,7 @@ const RQBIT_API: &str = "127.0.0.1:3031";
 static APP_MEDIA_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static RQBIT_PROCESS: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
 static RQBIT_START_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static HLS_STARTUP_CLEANED: OnceLock<()> = OnceLock::new();
 #[cfg(target_os = "macos")]
 static WHISPER_CONTEXT: OnceLock<whisper_rs::WhisperContext> = OnceLock::new();
 #[cfg(target_os = "macos")]
@@ -426,6 +427,11 @@ fn start_embedded_torrent_engine(app: &tauri::AppHandle) -> Result<(), String> {
     if !path_is_writable(&media) {
         return Err("The selected Akflix media location is read-only".into());
     }
+    if HLS_STARTUP_CLEANED.set(()).is_ok() {
+        // A forced quit can leave completed rolling playlists behind. They are
+        // never resumable across launches and can confuse a new player request.
+        let _ = fs::remove_dir_all(media.join("Streaming Cache/.akflix-hls"));
+    }
     fs::create_dir_all(&state).map_err(|error| error.to_string())?;
     if rqbit_ready() {
         return Ok(());
@@ -781,6 +787,49 @@ fn stop_hls_process(id: &str) {
     }
 }
 
+fn stop_all_hls_processes() {
+    if let Ok(mut processes) = hls_processes().lock() {
+        for (_, mut child) in processes.drain() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+/// FFmpeg is a child process, so a crash or force quit can leave an older
+/// converter alive after Akflix relaunches. Kill only converters writing into
+/// Akflix's private HLS directory; unrelated FFmpeg jobs are never touched.
+#[cfg(unix)]
+fn stop_orphaned_hls_processes() {
+    let Ok(output) = Command::new("ps").args(["-axo", "pid=,command="]).output() else {
+        return;
+    };
+    let report = String::from_utf8_lossy(&output.stdout);
+    for line in report.lines() {
+        let trimmed = line.trim();
+        let Some((pid, command)) = trimmed.split_once(char::is_whitespace) else {
+            continue;
+        };
+        let Ok(pid) = pid.parse::<i32>() else {
+            continue;
+        };
+        let executable_is_ffmpeg = command
+            .split_whitespace()
+            .next()
+            .and_then(|value| PathBuf::from(value).file_name().map(|name| name.to_owned()))
+            .and_then(|name| name.to_str().map(str::to_owned))
+            .is_some_and(|name| name == "ffmpeg" || name.starts_with("ffmpeg-"));
+        if executable_is_ffmpeg && command.contains(".akflix-hls") {
+            unsafe {
+                libc::kill(pid, libc::SIGTERM);
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn stop_orphaned_hls_processes() {}
+
 #[cfg(unix)]
 fn set_hls_process_paused(id: &str, paused: bool) -> Result<(), String> {
     let mut processes = hls_processes()
@@ -925,6 +974,10 @@ fn start_hls_input(
             "-fflags",
             "+genpts",
         ]);
+    // Keep the converter at the viewer's real playback rate. Without `-re`,
+    // VideoToolbox can race minutes ahead, advance the live HLS window, and
+    // make WebKit jump forward or backward as segments disappear underneath it.
+    command.arg("-re");
     if start_seconds > 0.05 {
         // Input-side seeking makes FFmpeg issue a byte-range request near the
         // requested timestamp instead of converting every preceding minute.
@@ -935,6 +988,10 @@ fn start_hls_input(
         .arg(&input)
         .args(["-map", "0:v:0", "-map"])
         .arg(audio_map)
+        // Normalize imperfect torrent timestamps into one monotonic timeline.
+        // This also guarantees that a seek-restarted conversion begins at zero;
+        // the frontend adds its requested timeline offset exactly once.
+        .args(["-vf", "setpts=PTS-STARTPTS", "-af", "asetpts=PTS-STARTPTS"])
         .arg("-c:v");
 
     if cfg!(target_os = "macos") {
@@ -975,9 +1032,11 @@ fn start_hls_input(
             "-hls_time",
             "1",
             "-hls_list_size",
-            "600",
+            "0",
+            "-hls_playlist_type",
+            "event",
             "-hls_flags",
-            "delete_segments+independent_segments+temp_file",
+            "independent_segments+temp_file",
             "-hls_segment_filename",
         ])
         .arg(&segment_pattern)
@@ -1258,6 +1317,7 @@ pub fn run() {
             #[cfg(desktop)]
             {
                 let app = _app;
+                stop_orphaned_hls_processes();
                 // Let the window appear immediately. The frontend readiness
                 // screen follows this startup and explains any real action the
                 // user needs to take instead of leaving a blank launch window.
@@ -1281,6 +1341,7 @@ pub fn run() {
                     .on_menu_event(|app, event| match event.id.as_ref() {
                         "open" => show_main_window(app),
                         "quit" => {
+                            stop_all_hls_processes();
                             stop_embedded_torrent_engine();
                             app.exit(0);
                         }
@@ -1309,6 +1370,7 @@ pub fn run() {
         #[cfg(desktop)]
         {
             if matches!(_event, tauri::RunEvent::Exit) {
+                stop_all_hls_processes();
                 stop_embedded_torrent_engine();
             }
         }

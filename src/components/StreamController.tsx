@@ -61,21 +61,28 @@ export default function StreamController() {
     pendingStreamFallbacks,
     pendingStreamStartedAt,
     pendingStreamMedia,
+    streamRequestId,
     failoverPendingStream,
     streamUrl,
     sourceRaceActive,
     sourceRaceMedia,
     cancelSourceRace,
+    streamLaunchPhase,
+    streamLaunchMedia,
   } = useTorrents();
-  const priorityBusy = useRef(false);
-  const handoffBusy = useRef(false);
+  const priorityBusy = useRef<number | null>(null);
+  const handoffBusy = useRef<number | null>(null);
   const retryAfter = useRef(0);
-  const failoverBusy = useRef(false);
+  const failoverBusy = useRef<number | null>(null);
 
   useEffect(() => {
     startPolling();
     return stopPolling;
   }, [startPolling, stopPolling]);
+
+  useEffect(() => {
+    retryAfter.current = 0;
+  }, [streamRequestId]);
 
   const torrent = pendingStreamHash
     ? torrents.find((entry) => entry.hash === pendingStreamHash)
@@ -87,32 +94,35 @@ export default function StreamController() {
   const fallbackMedia = mediaDisplayFromRelease(
     pendingStreamFileName || torrent?.name || ""
   );
-  const displayMedia = pendingStreamMedia ?? sourceRaceMedia;
+  const displayMedia = pendingStreamMedia ?? sourceRaceMedia ?? streamLaunchMedia;
   const displayTitle = displayMedia?.title?.trim() || fallbackMedia.title;
   const displaySubtitle = displayMedia?.subtitle?.trim() || fallbackMedia.subtitle;
 
   useEffect(() => {
-    if (!pendingStreamHash || pendingStreamFileName || priorityBusy.current) return;
-    priorityBusy.current = true;
-    prepareStreamFile()
+    if (!pendingStreamHash || pendingStreamFileName || priorityBusy.current === streamRequestId) return;
+    const requestId = streamRequestId;
+    priorityBusy.current = requestId;
+    prepareStreamFile(requestId)
       .catch(() => false)
       .finally(() => {
-        priorityBusy.current = false;
+        if (priorityBusy.current === requestId) priorityBusy.current = null;
       });
-  }, [pendingStreamFileName, pendingStreamHash, prepareStreamFile, torrent]);
+  }, [pendingStreamFileName, pendingStreamHash, prepareStreamFile, streamRequestId, torrent]);
 
   // A source that cannot deliver metadata or a single opening byte should
   // never spin forever. Try the next ranked Torrentio release automatically.
   useEffect(() => {
     if (!pendingStreamHash || !pendingStreamFallbacks.length || !pendingStreamStartedAt) return;
+    const requestId = streamRequestId;
     const wait = Math.max(0, pendingStreamStartedAt + 10_000 - Date.now());
     const timer = setTimeout(() => {
       const state = useTorrents.getState();
+      if (state.streamRequestId !== requestId) return;
       const current = state.torrents.find((entry) => entry.hash === state.pendingStreamHash);
       const stalled = !current || (current.dlspeed <= 0 && state.pendingStreamHeadBytes === 0);
-      if (!stalled || failoverBusy.current) return;
-      failoverBusy.current = true;
-      failoverPendingStream()
+      if (!stalled || failoverBusy.current === requestId) return;
+      failoverBusy.current = requestId;
+      failoverPendingStream(requestId)
         .then((next) => {
           if (next) {
             toast.info("Switching to a healthier source", {
@@ -121,29 +131,30 @@ export default function StreamController() {
           }
         })
         .finally(() => {
-          failoverBusy.current = false;
+          if (failoverBusy.current === requestId) failoverBusy.current = null;
         });
     }, wait);
     return () => clearTimeout(timer);
-  }, [failoverPendingStream, pendingStreamFallbacks.length, pendingStreamHash, pendingStreamStartedAt]);
+  }, [failoverPendingStream, pendingStreamFallbacks.length, pendingStreamHash, pendingStreamStartedAt, streamRequestId]);
 
   // A single unhealthy source used to leave the progress card spinning
   // forever because there was no fallback to trigger the race logic. End the
   // attempt cleanly and return control to the user instead.
   useEffect(() => {
     if (!pendingStreamHash || pendingStreamFallbacks.length || !pendingStreamStartedAt) return;
+    const requestId = streamRequestId;
     const wait = Math.max(0, pendingStreamStartedAt + 30_000 - Date.now());
     const timer = setTimeout(() => {
       const state = useTorrents.getState();
-      if (state.pendingStreamHash !== pendingStreamHash) return;
-      void cancelPendingStream().finally(() => {
+      if (state.streamRequestId !== requestId || state.pendingStreamHash !== pendingStreamHash) return;
+      void cancelPendingStream(requestId).finally(() => {
         toast.error("This source could not start", {
           description: "Choose another stream or try again. Akflix cleared the unfinished temporary cache.",
         });
       });
     }, wait);
     return () => clearTimeout(timer);
-  }, [cancelPendingStream, pendingStreamFallbacks.length, pendingStreamHash, pendingStreamStartedAt]);
+  }, [cancelPendingStream, pendingStreamFallbacks.length, pendingStreamHash, pendingStreamStartedAt, streamRequestId]);
 
   useEffect(() => {
     if (!pendingStreamHash || !torrent || !pendingStreamFileName) return;
@@ -153,8 +164,14 @@ export default function StreamController() {
       !!embeddedUrl ||
       torrent.progress >= 1 ||
       pendingStreamHeadBytes >= openingBuffer(selectedSize, compatibility);
-    if (!bufferReady || handoffBusy.current || Date.now() < retryAfter.current) return;
-    handoffBusy.current = true;
+    if (!bufferReady || handoffBusy.current === streamRequestId || Date.now() < retryAfter.current) return;
+    const requestId = streamRequestId;
+    const handoffHash = pendingStreamHash;
+    const stillCurrent = () => {
+      const state = useTorrents.getState();
+      return state.streamRequestId === requestId && state.pendingStreamHash === handoffHash;
+    };
+    handoffBusy.current = requestId;
 
     const handoff = async () => {
       try {
@@ -186,10 +203,12 @@ export default function StreamController() {
                 resumeSeconds
               )
             : gatewayUrl(pendingStreamFileName);
+        if (!stillCurrent()) return;
         const fallback = mediaDisplayFromRelease(pendingStreamFileName);
+        if (!markStreamReady(handoffHash, requestId)) return;
         openDirect({
           ...pendingStreamMedia,
-          id: `torrent:${torrent.hash}`,
+          id: `torrent:${torrent.hash}:${requestId}`,
           url,
           title: pendingStreamMedia?.title?.trim() || fallback.title,
           subtitle: pendingStreamMedia?.subtitle?.trim() || fallback.subtitle,
@@ -197,10 +216,6 @@ export default function StreamController() {
           isEpisode: pendingStreamMedia?.isEpisode,
           compatibility: compatibilitySource,
         });
-        // Publish the player request before marking the torrent active. This
-        // prevents the cleanup effect from seeing a transient "active but no
-        // session" state and deleting the cache during handoff.
-        markStreamReady(torrent.hash);
         toast.success("Stream ready", {
           description: compatibility
             ? "Hardware compatibility stream ready."
@@ -210,18 +225,19 @@ export default function StreamController() {
         });
         navigate("/stream");
       } catch (reason) {
+        if (!stillCurrent()) return;
         retryAfter.current = Date.now() + 5_000;
         toast.error("Still preparing the player", {
           description: reason instanceof Error ? reason.message : String(reason),
         });
       } finally {
-        handoffBusy.current = false;
+        if (handoffBusy.current === requestId) handoffBusy.current = null;
       }
     };
     void handoff();
-  }, [audioLanguage, embeddedUrl, markStreamReady, navigate, openDirect, pendingStreamFileName, pendingStreamFileSize, pendingStreamHash, pendingStreamHeadBytes, pendingStreamMedia, torrent]);
+  }, [audioLanguage, embeddedUrl, markStreamReady, navigate, openDirect, pendingStreamFileName, pendingStreamFileSize, pendingStreamHash, pendingStreamHeadBytes, pendingStreamMedia, streamRequestId, torrent]);
 
-  if (!pendingStreamHash && !sourceRaceActive) return null;
+  if (!pendingStreamHash && !sourceRaceActive && !streamLaunchPhase) return null;
 
   const streamSize = pendingStreamFileSize || torrent?.size || 0;
   const compatibility = needsCompatibility(pendingStreamFileName);
@@ -250,7 +266,7 @@ export default function StreamController() {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <p className="text-sm font-semibold">
-                {sourceRaceActive
+                {streamLaunchPhase || (sourceRaceActive
                   ? "Checking the best sources"
                   : waitingForPeers
                   ? "Finding a fast peer"
@@ -258,7 +274,7 @@ export default function StreamController() {
                     ? "Opening instantly"
                     : compatibility
                     ? "Preparing compatibility stream"
-                    : "Fast-starting your stream"}
+                    : "Fast-starting your stream")}
               </p>
               <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400">
                 temporary
@@ -273,7 +289,7 @@ export default function StreamController() {
           </div>
           <button
             onClick={() =>
-              (sourceRaceActive ? cancelSourceRace() : cancelPendingStream()).catch(() => {})
+              (sourceRaceActive ? cancelSourceRace() : cancelPendingStream(streamRequestId)).catch(() => {})
             }
             aria-label="Cancel stream"
             title="Cancel and clear temporary cache"
@@ -287,12 +303,12 @@ export default function StreamController() {
           <motion.div
             className="h-full rounded-full bg-gradient-to-r from-brand-dark via-brand to-accent"
             animate={
-              sourceRaceActive
+              sourceRaceActive || (!pendingStreamHash && !!streamLaunchPhase)
                 ? { width: ["8%", "55%", "22%"], x: ["0%", "70%", "0%"] }
                 : { width: `${Math.max(3, bufferProgress)}%`, x: "0%" }
             }
             transition={
-              sourceRaceActive
+              sourceRaceActive || (!pendingStreamHash && !!streamLaunchPhase)
                 ? { duration: 1.6, repeat: Infinity, ease: "easeInOut" }
                 : undefined
             }
@@ -301,7 +317,11 @@ export default function StreamController() {
 
         <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-500">
           <span>
-            {sourceRaceActive
+            {streamLaunchPhase
+              ? pendingStreamHash
+                ? "Preparing the selected episode"
+                : "You can keep browsing while Akflix works"
+              : sourceRaceActive
               ? "Testing peer response and language"
               : embeddedUrl
               ? "Direct source ready"

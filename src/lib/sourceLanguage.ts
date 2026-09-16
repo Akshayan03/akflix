@@ -79,16 +79,25 @@ export function automaticSafeSources(
   results: TorrentResult[],
   preferredLanguage = "eng"
 ): TorrentResult[] {
-  const languageSafe = englishSafeSources(results);
   const clean = results.filter((result) => {
     const text = `${result.title} ${result.category ?? ""}`;
     return !LOW_GRADE_RELEASE.test(text.replace(/[._-]+/g, " "));
   });
   const pool = clean.length ? clean : results;
 
-  // Correct audio beats a faster peer. Race only confirmed preferred-language
-  // releases when they exist, preventing an unlabelled or multilingual backup
-  // from winning purely because it returned bytes first.
+  // Most English releases do not declare their language. Keep those neutral
+  // sources eligible instead of forcing Watch now onto a huge 4K season pack
+  // merely because it happens to contain an explicit "English" tag.
+  if (preferredLanguage.trim().toLowerCase() === "eng") {
+    const likelyEnglish = pool.filter((result) => {
+      const language = sourceLanguage(result);
+      return language === "english" || language === "unknown";
+    });
+    if (likelyEnglish.length) return likelyEnglish;
+  }
+
+  // For explicitly selected non-English audio, confirmed matches remain the
+  // safest automatic choice. Manual source selection still exposes everything.
   const preferred = pool.filter((result) => matchesPreferredAudio(result, preferredLanguage));
   if (preferred.length && !["", "und", "any"].includes(preferredLanguage.trim().toLowerCase())) {
     return preferred;
@@ -101,7 +110,7 @@ export function automaticSafeSources(
   const multilingual = pool.filter((result) => sourceLanguage(result) === "multi");
   if (multilingual.length) return multilingual;
 
-  const fallbackPool = preferredLanguage.trim().toLowerCase() === "eng" ? languageSafe : pool;
+  const fallbackPool = preferredLanguage.trim().toLowerCase() === "eng" ? englishSafeSources(pool) : pool;
   const priority: Record<SourceLanguage, number> = {
     english: 0,
     unknown: 1,

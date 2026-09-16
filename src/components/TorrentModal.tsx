@@ -173,7 +173,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
   const t = useT();
   const navigate = useNavigate();
   const openDirect = usePlayback((state) => state.openDirect);
-  const { search, addTorrent } = useTorrents();
+  const { search, addTorrent, beginStreamRequest, setStreamLaunchPhase } = useTorrents();
   const torrentSource = useSettings((state) => state.torrentSource);
   const mobileApple = isAppleMobile();
 
@@ -188,6 +188,20 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
   const [languageFilter, setLanguageFilter] = useState<LanguageFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [speedFilter, setSpeedFilter] = useState<SpeedFilter>("all");
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose, open]);
 
   const runSearch = async (value: string) => {
     if (!value.trim()) return;
@@ -285,11 +299,19 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
   const act = async (result: TorrentResult, mode: TorrentAddMode) => {
     if (actingGuid) return;
     setActingGuid(result.guid);
+    let requestId: number | undefined;
     try {
+      if (mode === "stream") usePlayback.getState().stop();
+      requestId =
+        mode === "stream"
+          ? await beginStreamRequest(media ?? null)
+          : undefined;
+      if (requestId !== undefined && useTorrents.getState().streamRequestId !== requestId) return;
       if (mobileApple && !result.streamUrl) {
         throw new Error("This iPhone source is not a hosted stream. Choose a hosted/debrid option.");
       }
       if (mode === "stream" && result.streamUrl) {
+        if (requestId !== undefined) setStreamLaunchPhase(requestId, "Opening player");
         openDirect({
           ...media,
           id: result.guid,
@@ -301,6 +323,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
           season: media?.season,
           episode: media?.episode,
         });
+        if (requestId !== undefined) setStreamLaunchPhase(requestId, null);
         toast.success("Direct stream ready", {
           description: "Using the hosted/debrid link. No peer discovery or torrent buffer.",
         });
@@ -309,7 +332,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
         return;
       }
       if (mode === "stream") {
-        await addTorrent(result, "stream", [], media);
+        await addTorrent(result, "stream", [], media, undefined, requestId);
       } else {
         await addTorrent(result, mode);
       }
@@ -326,10 +349,14 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
         });
       }
     } catch (reason) {
+      if (reason instanceof DOMException && reason.name === "AbortError") return;
       toast.error(t("common.error"), {
         description: reason instanceof Error ? reason.message : String(reason),
       });
     } finally {
+      if (requestId !== undefined && !useTorrents.getState().pendingStreamHash) {
+        setStreamLaunchPhase(requestId, null);
+      }
       setActingGuid(null);
     }
   };
@@ -358,6 +385,9 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
             exit={mobileApple ? { opacity: 0, y: "100%" } : { opacity: 0, scale: 0.98, y: 12 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
             onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Choose a source for ${mediaTitle}`}
             className={`glass-panel flex w-full max-w-5xl flex-col overflow-hidden shadow-[0_30px_120px_rgba(0,0,0,.8)] ${
               mobileApple
                 ? "max-h-[94svh] rounded-b-none rounded-t-[32px] border-x-0 border-b-0"

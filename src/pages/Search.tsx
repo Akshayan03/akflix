@@ -6,14 +6,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Download, PlayCircle, SearchIcon, X } from "lucide-react";
+import { Download, LoaderCircle, PlayCircle, SearchIcon, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/stores/authStore";
 import { useTorrents } from "@/stores/torrentStore";
 import { useT } from "@/i18n";
 import MediaCard from "@/components/MediaCard";
 import DiscoverCard from "@/components/DiscoverCard";
-import Spinner from "@/components/Spinner";
 import { cinemeta } from "@/api/cinemeta";
 import { formatBytes } from "@/lib/utils";
 import type { BaseItem } from "@/types/jellyfin";
@@ -104,7 +103,7 @@ export default function Search() {
         <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-accent">One search, every screen</p>
         <h1 className="mb-5 text-3xl font-black tracking-[-0.045em] md:mb-7 md:text-4xl">What are we watching?</h1>
       <div className="glass-panel flex items-center gap-3 rounded-2xl px-4 focus-within:border-brand/50 md:px-5">
-        <SearchIcon size={20} className="text-brand-light" />
+        {loading ? <LoaderCircle size={20} className="animate-spin text-brand-light" /> : <SearchIcon size={20} className="text-brand-light" />}
         <input
           autoFocus
           value={query}
@@ -123,8 +122,8 @@ export default function Search() {
           </motion.button>
         )}
       </div>
-        {!query && mobileApple && (
-          <div className="no-scrollbar mt-4 flex gap-2 overflow-x-auto pb-1 text-left">
+        {!query && (
+          <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className={`no-scrollbar mt-4 flex gap-2 overflow-x-auto pb-1 text-left ${mobileApple ? "" : "justify-center"}`}>
             {QUICK_SEARCHES.map((suggestion) => (
               <motion.button
                 key={suggestion}
@@ -135,11 +134,9 @@ export default function Search() {
                 {suggestion}
               </motion.button>
             ))}
-          </div>
+          </motion.div>
         )}
       </div>
-
-      {loading && <Spinner />}
 
       {/* Jellyfin library results */}
       {libResults.length > 0 && (
@@ -219,7 +216,11 @@ export default function Search() {
         !libResults.length &&
         !discoverResults.length &&
         !torResults.length && (
-        <p className="text-center text-zinc-500">{t("search.noResults")}</p>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mx-auto mt-14 max-w-sm text-center">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.035] text-zinc-500"><SearchIcon size={20} /></span>
+          <p className="mt-4 font-semibold text-zinc-300">{t("search.noResults")}</p>
+          <p className="mt-1 text-xs leading-5 text-zinc-600">Try a shorter title, another spelling, or the release year.</p>
+        </motion.div>
       )}
     </motion.main>
   );

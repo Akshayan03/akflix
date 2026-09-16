@@ -124,6 +124,8 @@ export default function DiscoverDetails() {
   const navigate = useNavigate();
   const searchSources = useTorrents((state) => state.search);
   const raceStreamSources = useTorrents((state) => state.raceStreamSources);
+  const beginStreamRequest = useTorrents((state) => state.beginStreamRequest);
+  const setStreamLaunchPhase = useTorrents((state) => state.setStreamLaunchPhase);
   const openDirect = usePlayback((state) => state.openDirect);
   const profileId = useAuth((state) => state.activeProfileId) ?? "akflix-local";
   const historyEntries = useHistory((state) => state.entries);
@@ -274,7 +276,10 @@ export default function DiscoverDetails() {
   const watchNow = async (episode = selectedEpisode) => {
     if (starting) {
       watchAbortRef.current?.abort();
-      await useTorrents.getState().cancelSourceRace().catch(() => {});
+      usePlayback.getState().stop();
+      const streamState = useTorrents.getState();
+      if (streamState.sourceRaceActive) await streamState.cancelSourceRace().catch(() => {});
+      else await streamState.cancelPendingStream(streamState.streamRequestId).catch(() => {});
       setStarting(false);
       setStartPhase(null);
       return;
@@ -313,22 +318,30 @@ export default function DiscoverDetails() {
     watchAbortRef.current?.abort();
     watchAbortRef.current = controller;
     let timedOut = false;
-    const timeout = window.setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, 12_000);
+    let timeout: number | null = null;
+    let requestId: number | null = null;
     setStarting(true);
     setStartPhase("Finding available sources");
+    usePlayback.getState().stop();
     try {
+      requestId = await beginStreamRequest(media);
+      timeout = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, 12_000);
       const results = await searchSources(query, controller.signal, targetLookup);
-      window.clearTimeout(timeout);
+      if (useTorrents.getState().streamRequestId !== requestId) return;
+      if (timeout !== null) window.clearTimeout(timeout);
       if (!results.length) throw new Error("No playable sources were found for this title.");
       setStartPhase("Choosing the quickest option");
+      setStreamLaunchPhase(requestId, "Choosing the quickest option");
       const preferredResults = automaticSafeSources(results, preferredAudioLanguage);
       const hosted = preferredResults.find((result) => result.streamUrl);
       if (hosted?.streamUrl) {
         setStartPhase("Opening player");
+        setStreamLaunchPhase(requestId, "Opening player");
         openDirect({ id: hosted.guid, url: hosted.streamUrl, ...media });
+        setStreamLaunchPhase(requestId, null);
         navigate("/stream");
         toast.success("Playing now", { description: "Using an instant hosted source." });
         return;
@@ -345,7 +358,8 @@ export default function DiscoverDetails() {
         return;
       }
       setStartPhase("Testing the fastest sources");
-      await raceStreamSources(preferredResults, media);
+      setStreamLaunchPhase(requestId, "Testing the fastest sources");
+      await raceStreamSources(preferredResults, media, requestId);
       toast.success("Opening the fastest source", {
         description: "Audio preference applied. The selected source stays locked during playback.",
       });
@@ -362,7 +376,8 @@ export default function DiscoverDetails() {
           : reason instanceof Error ? reason.message : String(reason),
       });
     } finally {
-      window.clearTimeout(timeout);
+      if (timeout !== null) window.clearTimeout(timeout);
+      if (requestId !== null) setStreamLaunchPhase(requestId, null);
       if (watchAbortRef.current === controller) watchAbortRef.current = null;
       setStarting(false);
       setStartPhase(null);

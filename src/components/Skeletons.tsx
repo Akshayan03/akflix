@@ -94,3 +94,16 @@ export function HomeSkeleton() {
     </div>
   );
 }
+
+/** Catalog placeholder with the same geometry as Movies and Shows pages. */
+export function CatalogSkeleton() {
+  return (
+    <div className="min-h-screen pb-20 pt-[calc(env(safe-area-inset-top,0px)+4.75rem)] md:pt-0">
+      <div className="skeleton mx-4 aspect-[16/11] rounded-[28px] md:mx-0 md:h-[72vh] md:min-h-[520px] md:aspect-auto md:!rounded-none" />
+      <div className="relative z-10 mt-7 md:-mt-20">
+        <RowSkeleton />
+        <RowSkeleton />
+      </div>
+    </div>
+  );
+}

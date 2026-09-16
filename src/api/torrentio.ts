@@ -60,8 +60,8 @@ function streamRank(result: TorrentResult): number {
 
   // Language correctness outranks a marginal peer-speed advantage. Untagged
   // releases remain neutral because most English releases omit a language tag.
-  if (result.sourceLanguage === "english") score += 180;
-  else if (result.sourceLanguage === "multi") score += 80;
+  if (result.sourceLanguage === "english") score += 70;
+  else if (result.sourceLanguage === "multi") score += 20;
   else if (result.sourceLanguage === "non-english") score -= 800;
 
   // 1080p is the fast-start sweet spot; 4K is kept available but ranked down

@@ -3,7 +3,8 @@
  * exactly like Netflix. Includes profile menu with server switching.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { Search, Download, Settings, ChevronDown, Home, RadioTower, Film, Tv } from "lucide-react";
 import { useAuth } from "@/stores/authStore";
@@ -22,6 +23,7 @@ export default function Navbar() {
   const navigate = useNavigate();
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const mobileApple = isAppleMobile();
 
   const profiles = useAuth((s) => s.profiles);
@@ -35,6 +37,22 @@ export default function Navbar() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
 
   if (mobileApple) return <MobileNavigation />;
 
@@ -77,44 +95,55 @@ export default function Navbar() {
       </nav>
 
       <div className="ml-auto flex items-center gap-1.5">
-        <button
+        <motion.button
+          whileTap={{ scale: 0.9 }}
           aria-label={t("nav.search")}
           onClick={() => navigate("/search")}
           className="rounded-xl p-2.5 text-zinc-400 transition hover:bg-white/[0.07] hover:text-white"
         >
           <Search size={20} />
-        </button>
-        <button
+        </motion.button>
+        <motion.button
+          whileTap={{ scale: 0.9 }}
           aria-label={t("nav.downloads")}
           onClick={() => navigate("/downloads")}
           className="rounded-xl p-2.5 text-zinc-400 transition hover:bg-white/[0.07] hover:text-white md:hidden"
         >
           <Download size={20} />
-        </button>
-        <button
+        </motion.button>
+        <motion.button
+          whileTap={{ scale: 0.9 }}
           aria-label={t("nav.settings")}
           onClick={() => navigate("/settings")}
           className="rounded-xl p-2.5 text-zinc-400 transition hover:bg-white/[0.07] hover:text-white"
         >
           <Settings size={20} />
-        </button>
+        </motion.button>
 
         {/* Profile menu */}
-        <div className="relative">
-          <button
+        <div ref={menuRef} className="relative">
+          <motion.button
+            whileTap={{ scale: 0.96 }}
             onClick={() => setMenuOpen((o) => !o)}
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
             className="ml-1 flex items-center gap-2 rounded-xl p-1 text-sm text-zinc-200 transition hover:bg-white/[0.06] hover:text-white"
           >
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand-light via-brand to-brand-dark font-bold uppercase text-[#090806] shadow-[0_0_20px_rgba(214,178,94,.18)]">
               {active?.userName?.[0] ?? "?"}
             </span>
             <ChevronDown size={14} className={menuOpen ? "rotate-180" : ""} />
-          </button>
+          </motion.button>
 
+          <AnimatePresence>
           {menuOpen && (
-            <div
+            <motion.div
+              initial={{ opacity: 0, y: -8, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -5, scale: 0.98 }}
+              transition={{ type: "spring", stiffness: 420, damping: 32 }}
+              role="menu"
               className="glass-panel absolute right-0 mt-3 w-60 overflow-hidden rounded-2xl p-1.5 shadow-2xl"
-              onMouseLeave={() => setMenuOpen(false)}
             >
               {profiles.map((p) => (
                 <button
@@ -145,8 +174,9 @@ export default function Navbar() {
                   {t("nav.logout")}
                 </button>
               </div>
-            </div>
+            </motion.div>
           )}
+          </AnimatePresence>
         </div>
       </div>
       </div>

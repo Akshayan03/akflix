@@ -36,14 +36,17 @@ interface TorrentState {
   pendingStreamFallbacks: TorrentResult[];
   pendingStreamStartedAt: number;
   pendingStreamMedia: DirectPlaybackMetadata | null;
+  /** Monotonic identity for the latest user playback choice. */
+  streamRequestId: number;
+  /** Human-readable progress shown from the instant Watch click onward. */
+  streamLaunchPhase: string | null;
+  streamLaunchMedia: DirectPlaybackMetadata | null;
   /** True while Watch now is measuring candidate sources. */
   sourceRaceActive: boolean;
   sourceRaceMedia: DirectPlaybackMetadata | null;
   /** Stream currently attached to the player. Temporary jobs are deleted on stop. */
   activeStreamHash: string | null;
   activeStreamTemporary: boolean;
-  activeStreamFallbacks: TorrentResult[];
-  activeStreamMedia: DirectPlaybackMetadata | null;
 
   qbt: () => TorrentClient;
   streamUrl: (hash: string, fileIndex: number) => string | null;
@@ -61,27 +64,31 @@ interface TorrentState {
     mode: TorrentAddMode,
     fallbacks?: TorrentResult[],
     media?: DirectPlaybackMetadata,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    requestId?: number
   ) => Promise<string | null>;
   /** Briefly race up to three sources and keep the one delivering real bytes fastest. */
   raceStreamSources: (
     results: TorrentResult[],
-    media?: DirectPlaybackMetadata
+    media?: DirectPlaybackMetadata,
+    requestId?: number
   ) => Promise<string | null>;
   addMagnet: (
     magnet: string,
     mode: TorrentAddMode,
     fileIndex?: number,
     media?: DirectPlaybackMetadata | null,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    requestId?: number
   ) => Promise<string | null>;
-  prepareStreamFile: () => Promise<boolean>;
+  beginStreamRequest: (media?: DirectPlaybackMetadata | null) => Promise<number>;
+  setStreamLaunchPhase: (requestId: number, phase: string | null) => void;
+  prepareStreamFile: (requestId?: number) => Promise<boolean>;
   setPendingStreamHash: (hash: string | null) => void;
-  markStreamReady: (hash: string) => void;
+  markStreamReady: (hash: string, requestId: number) => boolean;
   cancelSourceRace: () => Promise<void>;
-  cancelPendingStream: () => Promise<void>;
-  failoverPendingStream: () => Promise<TorrentResult | null>;
-  failoverActiveStream: (resumeSeconds?: number) => Promise<TorrentResult | null>;
+  cancelPendingStream: (requestId?: number) => Promise<void>;
+  failoverPendingStream: (requestId?: number) => Promise<TorrentResult | null>;
   finishActiveStream: () => Promise<void>;
   pause: (hash: string) => Promise<void>;
   resume: (hash: string) => Promise<void>;
@@ -98,6 +105,8 @@ type TorrentClient = QbtClient | RqbitClient;
 let sourceRaceController: AbortController | null = null;
 let sourceRaceHashes = new Set<string>();
 let sourceRaceExistingHashes = new Set<string>();
+let suppressStreamAdoptionUntil = 0;
+let streamCleanupQueue: Promise<void> = Promise.resolve();
 
 let cachedQbt: TorrentClient | null = null;
 let cachedQbtKey = "";
@@ -161,12 +170,13 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
   pendingStreamFallbacks: [],
   pendingStreamStartedAt: 0,
   pendingStreamMedia: null,
+  streamRequestId: 0,
+  streamLaunchPhase: null,
+  streamLaunchMedia: null,
   sourceRaceActive: false,
   sourceRaceMedia: null,
   activeStreamHash: null,
   activeStreamTemporary: false,
-  activeStreamFallbacks: [],
-  activeStreamMedia: null,
 
   qbt: () => {
     const s = useSettings.getState();
@@ -212,7 +222,17 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     return get().prowlarr().search(query, [2000, 5000], signal);
   },
 
-  addTorrent: async (result, mode, fallbacks = [], media, signal) => {
+  addTorrent: async (result, mode, fallbacks = [], media, signal, suppliedRequestId) => {
+    const requestId =
+      mode === "stream"
+        ? suppliedRequestId ?? (await get().beginStreamRequest(media ?? null))
+        : undefined;
+    if (requestId !== undefined && get().streamRequestId !== requestId) {
+      throw new DOMException("Stream request superseded.", "AbortError");
+    }
+    if (requestId !== undefined) {
+      get().setStreamLaunchPhase(requestId, "Checking device storage");
+    }
     if (mode === "stream") await sourcesThatFitStorage([result]);
     const link = result.magnetUrl ?? result.downloadUrl;
     if (!link) throw new Error("Result has no magnet or download link.");
@@ -221,9 +241,10 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       mode,
       result.fileIndex,
       mode === "stream" ? media ?? null : undefined,
-      signal
+      signal,
+      requestId
     );
-    if (mode === "stream") {
+    if (mode === "stream" && get().streamRequestId === requestId && get().pendingStreamHash === hash) {
       set({
         pendingStreamFallbacks: fallbacks.filter((candidate) => !!candidate.magnetUrl),
         pendingStreamStartedAt: Date.now(),
@@ -233,17 +254,29 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     return hash;
   },
 
-  raceStreamSources: async (results, media) => {
+  raceStreamSources: async (results, media, suppliedRequestId) => {
+    const requestId = suppliedRequestId ?? (await get().beginStreamRequest(media ?? null));
+    const current = () => get().streamRequestId === requestId;
+    const ensureCurrent = () => {
+      if (!current()) throw new DOMException("Stream request superseded.", "AbortError");
+    };
+    ensureCurrent();
     sourceRaceController?.abort();
     const controller = new AbortController();
     sourceRaceController = controller;
     sourceRaceHashes = new Set();
     sourceRaceExistingHashes = new Set();
-    set({ sourceRaceActive: true, sourceRaceMedia: media ?? null });
+    set({
+      sourceRaceActive: true,
+      sourceRaceMedia: media ?? null,
+      streamLaunchPhase: "Testing the best available sources",
+      streamLaunchMedia: media ?? null,
+    });
     try {
     const eligibleResults = await sourcesThatFitStorage(
       automaticSafeSources(results, useSettings.getState().audioLanguage)
     );
+    ensureCurrent();
     const unique = new Map<string, TorrentResult>();
     for (const result of eligibleResults) {
       const link = result.magnetUrl ?? result.downloadUrl;
@@ -259,20 +292,61 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     const savePath = `${basePath}/Streaming Cache`;
     const qbt = get().qbt();
     const before = await qbt.list();
+    ensureCurrent();
     const beforeByHash = new Map(before.map((torrent) => [torrent.hash, torrent]));
     sourceRaceExistingHashes = new Set(beforeByHash.keys());
     if (qbt.instantStreaming) {
-      const selected = candidates[0];
-      const fallbacks = eligibleResults.filter((result) => {
-        const link = result.magnetUrl ?? result.downloadUrl;
-        return !link || magnetInfoHash(link) !== selected.hash;
-      });
-      return get().addTorrent(
-        selected.result,
-        "stream",
-        fallbacks,
-        media,
-        controller.signal
+      // rqbit begins playback immediately once metadata resolves, so racing
+      // duplicate adds only wastes sockets. Try ranked sources in sequence and
+      // move on when an index/cache entry is dead instead of failing the title.
+      const attempts = candidates.concat(
+        eligibleResults
+          .map((result) => {
+            const link = result.magnetUrl ?? result.downloadUrl;
+            const hash = link ? magnetInfoHash(link) : null;
+            return hash ? { hash, result } : null;
+          })
+          .filter((candidate): candidate is { hash: string; result: TorrentResult } =>
+            !!candidate && !unique.has(candidate.hash)
+          )
+      ).slice(0, 6);
+      const errors: string[] = [];
+      for (let index = 0; index < attempts.length; index += 1) {
+        ensureCurrent();
+        if (controller.signal.aborted) throw new DOMException("Source search cancelled.", "AbortError");
+        const selected = attempts[index];
+        sourceRaceHashes.add(selected.hash);
+        get().setStreamLaunchPhase(
+          requestId,
+          index === 0 ? "Connecting to the best source" : `Trying backup source ${index + 1}`
+        );
+        const fallbacks = eligibleResults.filter((result) => {
+          const link = result.magnetUrl ?? result.downloadUrl;
+          return !link || magnetInfoHash(link) !== selected.hash;
+        });
+        try {
+          return await get().addTorrent(
+            selected.result,
+            "stream",
+            fallbacks,
+            media,
+            controller.signal,
+            requestId
+          );
+        } catch (error) {
+          if (controller.signal.aborted || !current()) {
+            throw new DOMException("Source search cancelled.", "AbortError");
+          }
+          if (!beforeByHash.has(selected.hash)) {
+            await qbt.delete(selected.hash, true).catch(() => {});
+          }
+          errors.push(error instanceof Error ? error.message : String(error));
+        }
+      }
+      const uniqueErrors = [...new Set(errors)].filter(Boolean);
+      const detail = uniqueErrors[uniqueErrors.length - 1];
+      throw new Error(
+        `Akflix tried ${attempts.length} sources but none could load.${detail ? ` ${detail}` : ""}`
       );
     }
 
@@ -282,7 +356,8 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
         "stream",
         eligibleResults.slice(1),
         media,
-        controller.signal
+        controller.signal,
+        requestId
       );
     }
 
@@ -326,7 +401,8 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
             "stream",
             additional.slice(index + 1),
             media,
-            controller.signal
+            controller.signal,
+            requestId
           );
         } catch (error) {
           errors.push(error instanceof Error ? error.message : String(error));
@@ -352,8 +428,11 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     const minimumRace = instantEngine ? 600 : 2_250;
     while (Date.now() - raceStarted < raceLimit) {
       if (controller.signal.aborted) throw new DOMException("Source search cancelled.", "AbortError");
+      ensureCurrent();
       await new Promise((resolve) => setTimeout(resolve, instantEngine ? 300 : 750));
+      ensureCurrent();
       snapshots = await qbt.list();
+      ensureCurrent();
       const startedHashes = new Set(startedCandidates.map((candidate) => candidate.hash));
       const active = snapshots.filter((torrent) => startedHashes.has(torrent.hash));
       if (
@@ -391,6 +470,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
         })
         .map((candidate) => qbt.delete(candidate.hash, true).catch(() => {}))
     );
+    ensureCurrent();
 
     const fallbacks = eligibleResults.filter((result) => {
       const link = result.magnetUrl ?? result.downloadUrl;
@@ -419,22 +499,44 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
         sourceRaceController = null;
         sourceRaceHashes = new Set();
         sourceRaceExistingHashes = new Set();
-        set({ sourceRaceActive: false, sourceRaceMedia: null });
+        set({
+          sourceRaceActive: false,
+          sourceRaceMedia: null,
+          streamLaunchPhase: null,
+          streamLaunchMedia: null,
+        });
       }
     }
   },
 
-  addMagnet: async (magnet, mode, fileIndex, media, signal) => {
+  addMagnet: async (magnet, mode, fileIndex, media, signal, suppliedRequestId) => {
+    const streamMode = mode === "stream";
+    const requestId =
+      streamMode
+        ? suppliedRequestId ?? (await get().beginStreamRequest(media ?? null))
+        : undefined;
+    const current = () => requestId === undefined || get().streamRequestId === requestId;
+    if (!current()) throw new DOMException("Stream request superseded.", "AbortError");
     const s = useSettings.getState();
     const hash = magnetInfoHash(magnet);
     const qbt = get().qbt();
+    if (requestId !== undefined) {
+      get().setStreamLaunchPhase(requestId, "Loading stream information");
+    }
     const existing = hash ? (await qbt.list()).find((torrent) => torrent.hash === hash) : undefined;
-    const streamMode = mode === "stream";
+    if (!current()) throw new DOMException("Stream request superseded.", "AbortError");
     if (streamMode) await requireMinimumStreamStorage();
     const basePath = (s.downloadPath || "/downloads").replace(/\/$/, "");
     const savePath = streamMode ? `${basePath}/Streaming Cache` : basePath;
     await qbt.add(magnet, mode, savePath, signal);
+    if (!current()) {
+      if (streamMode && hash && (!existing || existing.category === "akflix-stream")) {
+        await qbt.delete(hash, true).catch(() => {});
+      }
+      throw new DOMException("Stream request superseded.", "AbortError");
+    }
     if (streamMode && existing && !existing.seq_dl) await qbt.setSequential(existing.hash);
+    if (!current()) throw new DOMException("Stream request superseded.", "AbortError");
     if (streamMode && hash) {
       const temporary = !existing || existing.category === "akflix-stream";
       set({
@@ -447,24 +549,101 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
         pendingStreamFallbacks: [],
         pendingStreamStartedAt: Date.now(),
         ...(media !== undefined ? { pendingStreamMedia: media } : {}),
+        streamLaunchPhase: null,
+        streamLaunchMedia: null,
       });
     }
     return hash;
   },
 
-  prepareStreamFile: async () => {
+  beginStreamRequest: async (media = null) => {
+    const state = get();
+    const requestId = state.streamRequestId + 1;
+    const raceController = sourceRaceController;
+    const raceHashes = new Set(sourceRaceHashes);
+    const raceExisting = new Set(sourceRaceExistingHashes);
+    raceController?.abort();
+    sourceRaceController = null;
+    sourceRaceHashes = new Set();
+    sourceRaceExistingHashes = new Set();
+
+    const stale = new Map<string, boolean>();
+    if (state.pendingStreamHash) stale.set(state.pendingStreamHash, state.pendingStreamTemporary);
+    if (state.activeStreamHash) stale.set(state.activeStreamHash, state.activeStreamTemporary);
+    suppressStreamAdoptionUntil = Date.now() + 30_000;
+    set({
+      streamRequestId: requestId,
+      streamLaunchPhase: "Finding available sources",
+      streamLaunchMedia: media,
+      sourceRaceActive: false,
+      sourceRaceMedia: null,
+      pendingStreamHash: null,
+      pendingStreamTemporary: false,
+      pendingStreamFileIndex: null,
+      pendingStreamFileName: null,
+      pendingStreamFileSize: null,
+      pendingStreamHeadBytes: 0,
+      pendingStreamFallbacks: [],
+      pendingStreamStartedAt: 0,
+      pendingStreamMedia: media,
+      activeStreamHash: null,
+      activeStreamTemporary: false,
+    });
+
+    const cleanup = async () => {
+      if (raceHashes.size) await new Promise((resolve) => setTimeout(resolve, 150));
+      const qbt = get().qbt();
+      const currentTorrents = raceHashes.size ? await qbt.list().catch(() => []) : [];
+      await Promise.all([
+        ...[...stale.entries()].map(async ([hash, temporary]) => {
+          await stopCompatibilityStream(hash).catch(() => {});
+          if (temporary) await qbt.delete(hash, true).catch(() => {});
+        }),
+        ...currentTorrents
+          .filter(
+            (torrent) =>
+              raceHashes.has(torrent.hash) &&
+              !raceExisting.has(torrent.hash) &&
+              torrent.category === "akflix-stream"
+          )
+          .map((torrent) => qbt.delete(torrent.hash, true).catch(() => {})),
+      ]);
+    };
+    streamCleanupQueue = streamCleanupQueue.then(cleanup, cleanup);
+    await streamCleanupQueue;
+    set((latest) => ({
+      torrents: latest.torrents.filter(
+        (torrent) =>
+          !stale.get(torrent.hash) &&
+          (!raceHashes.has(torrent.hash) || raceExisting.has(torrent.hash))
+      ),
+    }));
+    return requestId;
+  },
+
+  setStreamLaunchPhase: (requestId, phase) => {
+    if (get().streamRequestId !== requestId) return;
+    set({
+      streamLaunchPhase: phase,
+      streamLaunchMedia: phase ? get().pendingStreamMedia : null,
+    });
+  },
+
+  prepareStreamFile: async (suppliedRequestId) => {
     const {
       pendingStreamHash: hash,
       pendingStreamFileIndex: index,
       pendingStreamMedia: media,
     } = get();
-    if (!hash) return false;
+    const requestId = suppliedRequestId ?? get().streamRequestId;
+    if (!hash || get().streamRequestId !== requestId) return false;
     const selected = await get().qbt().prioritizeVideoFile(hash, index ?? undefined, {
       season: media?.season,
       episode: media?.episode,
     });
     if (!selected) return false;
     await get().qbt().refreshStreamPriority(hash).catch(() => {});
+    if (get().streamRequestId !== requestId || get().pendingStreamHash !== hash) return false;
     set({
       pendingStreamFileIndex: selected.index,
       pendingStreamFileName: selected.name,
@@ -487,12 +666,15 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
             pendingStreamFallbacks: [],
             pendingStreamStartedAt: 0,
             pendingStreamMedia: null,
+            streamLaunchPhase: null,
+            streamLaunchMedia: null,
           }
         : {}),
     }),
 
-  markStreamReady: (hash) => {
+  markStreamReady: (hash, requestId) => {
     const state = get();
+    if (state.streamRequestId !== requestId || state.pendingStreamHash !== hash) return false;
     set({
       pendingStreamHash: null,
       pendingStreamTemporary: false,
@@ -503,19 +685,28 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       pendingStreamFallbacks: [],
       pendingStreamStartedAt: 0,
       pendingStreamMedia: null,
+      streamLaunchPhase: null,
+      streamLaunchMedia: null,
       activeStreamHash: hash,
       activeStreamTemporary: state.pendingStreamTemporary,
-      activeStreamFallbacks: state.pendingStreamFallbacks,
-      activeStreamMedia: state.pendingStreamMedia,
     });
+    return true;
   },
 
   cancelSourceRace: async () => {
+    const state = get();
     const controller = sourceRaceController;
     const hashes = new Set(sourceRaceHashes);
     const existingHashes = new Set(sourceRaceExistingHashes);
     controller?.abort();
-    set({ sourceRaceActive: false, sourceRaceMedia: null });
+    suppressStreamAdoptionUntil = Date.now() + 30_000;
+    set({
+      streamRequestId: state.streamRequestId + 1,
+      sourceRaceActive: false,
+      sourceRaceMedia: null,
+      streamLaunchPhase: null,
+      streamLaunchMedia: null,
+    });
     if (!hashes.size) return;
 
     // An add request can finish server-side just as it is aborted. Inspect the
@@ -541,9 +732,13 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     }));
   },
 
-  cancelPendingStream: async () => {
-    const { pendingStreamHash: hash, pendingStreamTemporary: temporary } = get();
+  cancelPendingStream: async (expectedRequestId) => {
+    const state = get();
+    if (expectedRequestId !== undefined && state.streamRequestId !== expectedRequestId) return;
+    const { pendingStreamHash: hash, pendingStreamTemporary: temporary } = state;
+    suppressStreamAdoptionUntil = Date.now() + 30_000;
     set({
+      streamRequestId: state.streamRequestId + 1,
       pendingStreamHash: null,
       pendingStreamTemporary: false,
       pendingStreamFileIndex: null,
@@ -553,6 +748,8 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       pendingStreamFallbacks: [],
       pendingStreamStartedAt: 0,
       pendingStreamMedia: null,
+      streamLaunchPhase: null,
+      streamLaunchMedia: null,
     });
     if (hash && temporary) {
       await get().qbt().delete(hash, true);
@@ -561,8 +758,10 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     }
   },
 
-  failoverPendingStream: async () => {
+  failoverPendingStream: async (expectedRequestId) => {
     const state = get();
+    const requestId = expectedRequestId ?? state.streamRequestId;
+    if (state.streamRequestId !== requestId) return null;
     const oldHash = state.pendingStreamHash;
     const oldTemporary = state.pendingStreamTemporary;
     const candidates = [...state.pendingStreamFallbacks];
@@ -582,13 +781,15 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     if (oldTemporary) {
       await get().qbt().delete(oldHash, true).catch(() => {});
     }
+    if (get().streamRequestId !== requestId) return null;
 
     while (candidates.length) {
       const candidate = candidates.shift()!;
       const link = candidate.magnetUrl ?? candidate.downloadUrl;
       if (!link) continue;
       try {
-        await get().addMagnet(link, "stream", candidate.fileIndex, media);
+        await get().addMagnet(link, "stream", candidate.fileIndex, media, undefined, requestId);
+        if (get().streamRequestId !== requestId) return null;
         set({
           pendingStreamFallbacks: candidates,
           pendingStreamStartedAt: Date.now(),
@@ -602,60 +803,13 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     return null;
   },
 
-  failoverActiveStream: async (resumeSeconds) => {
-    const state = get();
-    const oldHash = state.activeStreamHash;
-    const oldTemporary = state.activeStreamTemporary;
-    const candidates = [...state.activeStreamFallbacks];
-    const media = state.activeStreamMedia
-      ? {
-          ...state.activeStreamMedia,
-          ...(resumeSeconds !== undefined ? { resumeSeconds } : {}),
-        }
-      : null;
-    if (!oldHash || !candidates.length) return null;
-
-    set({
-      activeStreamHash: null,
-      activeStreamTemporary: false,
-      activeStreamFallbacks: [],
-      activeStreamMedia: null,
-    });
-    await stopCompatibilityStream(oldHash).catch(() => {});
-    if (oldTemporary) {
-      await get().qbt().delete(oldHash, true).catch(() => {});
-      set((current) => ({
-        torrents: current.torrents.filter((torrent) => torrent.hash !== oldHash),
-      }));
-    }
-
-    while (candidates.length) {
-      const candidate = candidates.shift()!;
-      const link = candidate.magnetUrl ?? candidate.downloadUrl;
-      if (!link) continue;
-      try {
-        await get().addMagnet(link, "stream", candidate.fileIndex, media);
-        set({
-          pendingStreamFallbacks: candidates,
-          pendingStreamStartedAt: Date.now(),
-          pendingStreamMedia: media,
-        });
-        return candidate;
-      } catch {
-        // Continue through ranked backups before surfacing a playback error.
-      }
-    }
-    return null;
-  },
-
   finishActiveStream: async () => {
     const { activeStreamHash: hash, activeStreamTemporary: temporary } = get();
     set({
       activeStreamHash: null,
       activeStreamTemporary: false,
-      activeStreamFallbacks: [],
-      activeStreamMedia: null,
     });
+    suppressStreamAdoptionUntil = Date.now() + 30_000;
     if (hash) await stopCompatibilityStream(hash).catch(() => {});
     if (hash && temporary) {
       await get().qbt().delete(hash, true);
@@ -695,7 +849,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
         } = get();
         // Adopt a temporary stream after an app rebuild/restart so it can be
         // resumed or cancelled instead of silently occupying disk space.
-        const adopted = pending
+        const adopted = pending || Date.now() < suppressStreamAdoptionUntil
           ? null
           : active
             ? null

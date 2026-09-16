@@ -82,10 +82,12 @@ export default function Artwork({
 
   return (
     <img
+      key={src}
       {...imageProps}
       src={src}
       alt={alt}
-      className={className}
+      decoding={imageProps.decoding ?? "async"}
+      className={`akflix-artwork ${className}`}
       onError={() => setFailed(true)}
     />
   );

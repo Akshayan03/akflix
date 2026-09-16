@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import DiscoverCard from "@/components/DiscoverCard";
 import type { DiscoverCardState } from "@/components/DiscoverCard";
@@ -21,6 +21,24 @@ export default function DiscoverRow({
   id?: string;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const updateEdges = useCallback(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    setEdges({
+      left: row.scrollLeft > 8,
+      right: row.scrollLeft + row.clientWidth < row.scrollWidth - 8,
+    });
+  }, []);
+  useEffect(() => {
+    const frame = requestAnimationFrame(updateEdges);
+    const observer = new ResizeObserver(updateEdges);
+    if (rowRef.current) observer.observe(rowRef.current);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [items, updateEdges]);
   if (!items.length) return null;
   const scroll = (direction: number) =>
     rowRef.current?.scrollBy({ left: direction * rowRef.current.clientWidth * 0.8, behavior: "smooth" });
@@ -40,12 +58,13 @@ export default function DiscoverRow({
       </div>
       <button
         onClick={() => scroll(-1)}
+        disabled={!edges.left}
         aria-label="Scroll left"
-        className="absolute bottom-3 left-0 top-10 z-20 hidden w-11 items-center justify-center bg-gradient-to-r from-surface to-transparent opacity-0 transition group-hover/row:opacity-100 md:flex"
+        className={`absolute bottom-3 left-0 top-10 z-20 hidden w-11 items-center justify-center bg-gradient-to-r from-surface to-transparent transition md:flex ${edges.left ? "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100" : "pointer-events-none opacity-0"}`}
       >
         <ChevronLeft />
       </button>
-      <div ref={rowRef} className="no-scrollbar flex snap-x snap-proximity gap-3 overflow-x-auto pb-4 pr-4 md:gap-4 md:pb-5 md:pr-12 lg:pr-16">
+      <div ref={rowRef} onScroll={updateEdges} className="no-scrollbar flex snap-x snap-proximity gap-3 overflow-x-auto pb-4 pr-4 md:gap-4 md:pb-5 md:pr-12 lg:pr-16">
         {items.map((item) => (
           <DiscoverCard
             key={`${item.type}:${item.id}`}
@@ -57,8 +76,9 @@ export default function DiscoverRow({
       </div>
       <button
         onClick={() => scroll(1)}
+        disabled={!edges.right}
         aria-label="Scroll right"
-        className="absolute bottom-3 right-0 top-10 z-20 hidden w-14 items-center justify-center bg-gradient-to-l from-surface to-transparent opacity-0 transition group-hover/row:opacity-100 md:flex"
+        className={`absolute bottom-3 right-0 top-10 z-20 hidden w-14 items-center justify-center bg-gradient-to-l from-surface to-transparent transition md:flex ${edges.right ? "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100" : "pointer-events-none opacity-0"}`}
       >
         <ChevronRight />
       </button>

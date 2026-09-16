@@ -66,9 +66,13 @@ export interface CompatibilityPlaybackSource {
 export interface DirectPlaybackRequest extends DirectPlaybackMetadata {
   id: string;
   url: string;
+  /** Unique identity for this play action, even when episodes share one torrent hash. */
+  playbackRequestId?: number;
   /** Source details required to restart a rolling HLS conversion after a seek. */
   compatibility?: CompatibilityPlaybackSource;
 }
+
+let nextPlaybackRequestId = 0;
 
 /** Imperative surface registered by PlayerHost. */
 export interface PlayerControls {
@@ -144,7 +148,14 @@ export const usePlayback = create<PlaybackState>()((set): PlaybackState => ({
 
   open: (itemId) => set({ requestedItemId: itemId, requestedDirect: null, mode: "expanded" }),
   openDirect: (requestedDirect) =>
-    set({ requestedDirect, requestedItemId: null, mode: "expanded" }),
+    set({
+      requestedDirect: {
+        ...requestedDirect,
+        playbackRequestId: ++nextPlaybackRequestId,
+      },
+      requestedItemId: null,
+      mode: "expanded",
+    }),
   expand: () => set({ mode: "expanded" }),
   minimize: () => set({ mode: "mini" }),
   stop: () =>

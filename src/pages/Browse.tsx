@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { RefreshCw } from "lucide-react";
 import { cinemeta } from "@/api/cinemeta";
 import DiscoverHero from "@/components/DiscoverHero";
 import DiscoverRow from "@/components/DiscoverRow";
-import Spinner from "@/components/Spinner";
+import { CatalogSkeleton } from "@/components/Skeletons";
 import type { StremioMediaType, StremioMeta } from "@/types/stremio";
 import { isAppleMobile } from "@/lib/platform";
 
@@ -18,6 +19,7 @@ const GENRES = ["Action", "Comedy", "Drama", "Thriller"];
 export default function Browse({ type }: { type: StremioMediaType }) {
   const [data, setData] = useState<BrowseData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const isSeries = type === "series";
   const mobileApple = isAppleMobile();
 
@@ -50,14 +52,22 @@ export default function Browse({ type }: { type: StremioMediaType }) {
         }
       });
     return () => ctrl.abort();
-  }, [isSeries, type]);
+  }, [isSeries, reloadKey, type]);
 
   if (error) {
-    return <p className="p-24 text-center text-sm text-red-400">{error}</p>;
+    return (
+      <div className="flex min-h-[80svh] items-center justify-center px-6 pt-24">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass-panel max-w-sm rounded-[26px] p-6 text-center">
+          <p className="text-lg font-black">Could not load {isSeries ? "shows" : "movies"}</p>
+          <p className="mt-2 text-sm leading-6 text-zinc-400">{error}</p>
+          <motion.button whileTap={{ scale: 0.96 }} onClick={() => setReloadKey((key) => key + 1)} className="ios-pressable mt-5 inline-flex items-center gap-2 rounded-2xl bg-white px-5 text-sm font-bold text-black">
+            <RefreshCw size={15} /> Try again
+          </motion.button>
+        </motion.div>
+      </div>
+    );
   }
-  if (!data) {
-    return <div className="pt-40"><Spinner label={`Loading ${isSeries ? "shows" : "movies"}…`} /></div>;
-  }
+  if (!data) return <CatalogSkeleton />;
 
   return (
     <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen pb-16">

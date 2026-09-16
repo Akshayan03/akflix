@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Film, Home, Search, Tv, UserRound } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -28,6 +29,14 @@ export default function MobileNavigation() {
   const active = profiles.find((profile) => profile.id === activeId);
   const title = pageTitle(location.pathname);
   const isDetail = location.pathname.startsWith("/discover/") || location.pathname.startsWith("/title/");
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 12);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   return (
     <>
@@ -36,6 +45,7 @@ export default function MobileNavigation() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 340, damping: 30 }}
         className="ios-mobile-header fixed inset-x-0 top-0 z-40"
+        data-scrolled={scrolled}
       >
         <div className="flex h-14 items-center px-4">
           {isDetail ? (
@@ -89,6 +99,12 @@ export default function MobileNavigation() {
             key={to}
             to={to}
             end={"end" in tab ? tab.end : undefined}
+            onClick={(event) => {
+              const alreadyHere = to === "/" ? location.pathname === "/" : location.pathname.startsWith(to);
+              if (!alreadyHere) return;
+              event.preventDefault();
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
             className="relative flex min-w-0 flex-col items-center justify-center gap-1 py-2 text-[10px] font-semibold"
           >
             {({ isActive }) => (
@@ -102,7 +118,7 @@ export default function MobileNavigation() {
                 )}
                 <motion.span
                   whileTap={{ scale: 0.82 }}
-                  animate={{ y: isActive ? -1 : 0 }}
+                  animate={{ y: isActive ? -1 : 0, scale: isActive ? 1.06 : 1 }}
                   className={`relative z-10 ${isActive ? "text-brand-light" : "text-zinc-500"}`}
                 >
                   <Icon size={19} strokeWidth={isActive ? 2.5 : 2} />

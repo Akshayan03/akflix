@@ -87,20 +87,41 @@ export class RqbitClient {
 
   private async request(
     path: string,
-    init: { method?: string; body?: string; json?: unknown; signal?: AbortSignal } = {}
+    init: {
+      method?: string;
+      body?: string;
+      json?: unknown;
+      signal?: AbortSignal;
+      timeoutMs?: number;
+    } = {}
   ) {
     const body = init.json === undefined ? init.body : JSON.stringify(init.json);
-    return httpRaw(`${this.baseUrl}${path}`, {
-      method: init.method ?? "GET",
-      headers:
-        init.json === undefined
-          ? body
-            ? { "Content-Type": "text/plain" }
-            : undefined
-          : { "Content-Type": "application/json" },
-      body,
-      signal: init.signal,
-    });
+    const controller = new AbortController();
+    const timeoutMs = init.timeoutMs ?? (init.method === "POST" ? 12_000 : 6_000);
+    const abortFromCaller = () => controller.abort(init.signal?.reason);
+    init.signal?.addEventListener("abort", abortFromCaller, { once: true });
+    const timeout = globalThis.setTimeout(() => controller.abort("timeout"), timeoutMs);
+    try {
+      return await httpRaw(`${this.baseUrl}${path}`, {
+        method: init.method ?? "GET",
+        headers:
+          init.json === undefined
+            ? body
+              ? { "Content-Type": "text/plain" }
+              : undefined
+            : { "Content-Type": "application/json" },
+        body,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted && !init.signal?.aborted) {
+        throw new Error("The playback engine took too long to answer");
+      }
+      throw error;
+    } finally {
+      globalThis.clearTimeout(timeout);
+      init.signal?.removeEventListener("abort", abortFromCaller);
+    }
   }
 
   async add(
@@ -111,36 +132,54 @@ export class RqbitClient {
   ): Promise<void> {
     const hash = magnetHash(value);
     const existingMode = hash ? readModes()[hash] : undefined;
-    const source = hash ? addFastTrackers(value) : value;
+    const candidates = hash
+      ? [
+          // Fetching the tiny metadata file is normally much faster and more
+          // reliable than waiting for magnet metadata over DHT. rqbit verifies
+          // the torrent itself; the tracker-rich magnet remains the fallback.
+          `https://itorrents.org/torrent/${hash.toUpperCase()}.torrent`,
+          addFastTrackers(value),
+        ]
+      : [value];
     if (signal?.aborted) throw new DOMException("Source search cancelled.", "AbortError");
+    let lastError = "The source could not be added";
 
-    const response = await this.request("/torrents", {
-      method: "POST",
-      body: source,
-      signal,
-    });
-    if (!response.ok) {
-      const responseText = await response.text().catch(() => "");
-      let detail = responseText.trim();
+    for (let index = 0; index < candidates.length; index += 1) {
+      if (signal?.aborted) throw new DOMException("Source search cancelled.", "AbortError");
       try {
-        const parsed = JSON.parse(responseText) as {
-          human_readable?: string;
-          error?: string;
-        };
-        detail = parsed.human_readable ?? parsed.error ?? detail;
-      } catch {
-        // rqbit can return plain text for transport failures.
+        const response = await this.request("/torrents", {
+          method: "POST",
+          body: candidates[index],
+          signal,
+          timeoutMs: index === 0 && hash ? 8_000 : 12_000,
+        });
+        if (!response.ok) {
+          const responseText = await response.text().catch(() => "");
+          let detail = responseText.trim();
+          try {
+            const parsed = JSON.parse(responseText) as {
+              human_readable?: string;
+              error?: string;
+            };
+            detail = parsed.human_readable ?? parsed.error ?? detail;
+          } catch {
+            // rqbit can return plain text for transport failures.
+          }
+          lastError = detail || `HTTP ${response.status}`;
+          continue;
+        }
+
+        const added = (await response.json()) as RqbitAddResponse;
+        const resolvedHash = added.details?.info_hash?.toLowerCase() ?? hash;
+        if (resolvedHash) writeMode(resolvedHash, existingMode ?? mode);
+        return;
+      } catch (error) {
+        if (signal?.aborted) throw new DOMException("Source search cancelled.", "AbortError");
+        lastError = error instanceof Error ? error.message : String(error);
       }
-      throw new Error(
-        detail
-          ? `Embedded engine could not load this source: ${detail}`
-          : `Embedded engine could not load this source: HTTP ${response.status}`
-      );
     }
 
-    const added = (await response.json()) as RqbitAddResponse;
-    const resolvedHash = added.details?.info_hash?.toLowerCase() ?? hash;
-    if (resolvedHash) writeMode(resolvedHash, existingMode ?? mode);
+    throw new Error(`Embedded engine could not load this source: ${lastError}`);
   }
 
   async list(): Promise<QbtTorrent[]> {
