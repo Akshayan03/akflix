@@ -49,6 +49,15 @@ jobs:
           chmod +x src-tauri/binaries/*-aarch64-apple-darwin
           file src-tauri/binaries/*-aarch64-apple-darwin
 
+      - name: Download the bundled captions model
+        run: |
+          mkdir -p src-tauri/models
+          curl --fail --location --retry 3 \
+            --output src-tauri/models/ggml-base.en-q5_1.bin \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin
+          echo "4baf70dd0d7c4247ba2b81fafd9c01005ac77c2f9ef064e00dcf195d0e2fdd2f  src-tauri/models/ggml-base.en-q5_1.bin" \
+            | shasum -a 256 --check
+
       - name: Validate frontend and Rust backend
         run: |
           npm run build
