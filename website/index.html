@@ -5,17 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#090806" />
   <title>Akflix | One app. Press play.</title>
-  <meta name="description" content="A cinematic desktop app for movies and series. Akflix includes its own playback engine and FFmpeg. No Docker, Jellyfin, or qBittorrent setup required." />
+  <meta name="description" content="A cinematic desktop app for movies and series. Akflix includes its own playback engine, resilient source fallback, balanced recommendations, and FFmpeg. No Docker, Jellyfin, or qBittorrent setup required." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://akshayan03.github.io/akflix/" />
   <meta property="og:title" content="Akflix | One app. Press play." />
-  <meta property="og:description" content="Standalone movie and series streaming for Mac, with an embedded playback engine and one-click Watch Now." />
+  <meta property="og:description" content="Standalone movie and series streaming for Mac, with resilient playback, balanced recommendations, and one-click Watch Now." />
   <meta property="og:image" content="https://akshayan03.github.io/akflix/og.png" />
   <meta property="og:image:width" content="1792" />
   <meta property="og:image:height" content="1024" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Akflix | One app. Press play." />
-  <meta name="twitter:description" content="Standalone movie and series streaming for Mac." />
+  <meta name="twitter:description" content="Standalone movie and series streaming for Mac, with resilient playback and balanced recommendations." />
   <meta name="twitter:image" content="https://akshayan03.github.io/akflix/og.png" />
   <link rel="icon" href="icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -382,7 +382,7 @@
         <div>
           <span class="eyebrow">Standalone for Apple silicon</span>
           <h1>One app.<br /><span class="gold">Press play.</span></h1>
-          <p class="hero-copy">Browse movies and series, pick a title, and watch. <strong>Akflix now carries its own playback engine and FFmpeg.</strong> No Docker stack, Jellyfin server, qBittorrent, or Homebrew setup required.</p>
+          <p class="hero-copy">Browse movies and series, find a title quickly, and watch. <strong>Akflix carries its own playback engine and FFmpeg, with source fallback and recommendations that mix highly-rated classics with newer picks.</strong> No Docker stack, Jellyfin server, qBittorrent, or Homebrew setup required.</p>
           <div class="actions">
             <a class="button primary" href="downloads/Akflix_latest_aarch64.dmg" download>Download for macOS <span class="arrow">↓</span></a>
             <a class="button ghost" href="#how">See how it works <span class="arrow">→</span></a>
@@ -475,8 +475,8 @@
           <article class="feature"><span class="feature-mark">◉</span><h3>Captions that listen</h3><p>Generate private English captions from the playing audio or automatically match a loaded caption track to the spoken dialogue. Nothing is uploaded.</p></article>
           <article class="feature"><span class="feature-mark">»</span><h3>Episodes keep moving</h3><p>When an episode ends, Akflix finds the next English-safe source and continues automatically, including across season boundaries.</p></article>
           <article class="feature"><span class="feature-mark">◎</span><h3>Local-first profile</h3><p>Open directly into Akflix. Jellyfin is an optional library connection, not a login wall.</p></article>
-          <article class="feature"><span class="feature-mark">★</span><h3>A home that learns your taste</h3><p>Continue Watching remembers the exact movie or episode. Finished titles move to Watched, and five-star ratings improve your personal recommendations.</p></article>
-          <article class="feature"><span class="feature-mark">♢</span><h3>More like what you love</h3><p>Every movie and series page now includes related picks ranked by collection, genres, year, and rating.</p></article>
+          <article class="feature"><span class="feature-mark">★</span><h3>A home that learns your taste</h3><p>Continue Watching remembers the exact movie or episode. Finished titles move to Watched, and ratings improve recommendations without letting new releases crowd out proven favorites.</p></article>
+          <article class="feature"><span class="feature-mark">♢</span><h3>More like what you love</h3><p>Every movie and series page includes related picks ranked by collection, genres, year, rating, and a diversity pass that keeps the shelf useful across eras.</p></article>
           <article class="feature"><span class="feature-mark">↧</span><h3>Choose where media lives</h3><p>Keep temporary streams and downloads on your Mac or move them to a connected external drive from Settings.</p></article>
         </div>
       </div>
@@ -488,7 +488,7 @@
           <div class="download-copy">
             <p class="kicker">Now showing on your Mac</p>
             <h2>Your next watch is one app away.</h2>
-            <p>Download Akflix 1.0.16 for Apple silicon. This update keeps the selected source locked for the full movie or episode, fixes next-episode handoff and caption seeking, respects your preferred audio language, and adds Picture in Picture with reliable playback speeds.</p>
+            <p>Download Akflix 1.0.16 for Apple silicon. This build keeps the selected source locked for the full movie or episode, improves search responsiveness and source fallback, surfaces highly-rated movies from more eras, fixes next-episode handoff and caption seeking, respects your preferred audio language, and adds Picture in Picture with reliable playback speeds.</p>
           </div>
           <div class="download-meta">
             <dl>
@@ -499,6 +499,7 @@
               <dt>Extra services</dt><dd>None</dd>
             </dl>
             <a class="button primary" href="downloads/Akflix_latest_aarch64.dmg" download>Download Akflix <span class="arrow">↓</span></a>
+            <a class="button ghost" href="https://github.com/Akshayan03/akflix/releases/latest">View release notes <span class="arrow">→</span></a>
             <p class="gatekeeper">This independent build is not Apple-notarized yet. On first launch, right-click Akflix and choose Open if macOS asks you to verify it.</p>
           </div>
         </div>
