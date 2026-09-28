@@ -60,7 +60,8 @@ function episodeScore(filename: string, season: number, episode: number): number
 export function selectVideoFile(files: QbtFile[], hint: EpisodeFileHint = {}): QbtFile | null {
   if (!files.length) return null;
   const videos = files.filter((file) => VIDEO_FILE.test(file.name));
-  const playable = videos.length ? videos : files;
+  if (!videos.length) return null;
+  const playable = videos;
   const preferred = playable.find((file) => file.index === hint.preferredIndex);
 
   if (hint.season !== undefined && hint.episode !== undefined) {
@@ -89,6 +90,8 @@ export function selectVideoFile(files: QbtFile[], hint: EpisodeFileHint = {}): Q
       .filter((candidate) => candidate.score === 0)
       .sort((a, b) => b.file.size - a.file.size)[0]?.file;
     if (unlabelled) return unlabelled;
+    // All candidates explicitly identify a different episode.
+    return null;
   }
 
   return preferred ?? [...playable].sort((a, b) => b.size - a.size)[0] ?? null;

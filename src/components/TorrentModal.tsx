@@ -1,6 +1,6 @@
 /** Premium Torrentio source picker with explicit temporary-stream/offline modes. */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { withTimeout } from "@/lib/withTimeout";
 import { useTorrents } from "@/stores/torrentStore";
 import { useSettings } from "@/stores/settingsStore";
 import { usePlayback } from "@/stores/playbackStore";
@@ -188,6 +189,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
   const [languageFilter, setLanguageFilter] = useState<LanguageFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [speedFilter, setSpeedFilter] = useState<SpeedFilter>("all");
+  const searchController = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -204,8 +206,17 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
   }, [onClose, open]);
 
   const runSearch = async (value: string) => {
-    if (!value.trim()) return;
+    searchController.current?.abort();
+    if (!value.trim()) {
+      setLoading(false);
+      setResults([]);
+      setError(null);
+      return;
+    }
+    const controller = new AbortController();
+    searchController.current = controller;
     setLoading(true);
+    setResults([]);
     setError(null);
     if (torrentSource === "torrentio" && !lookup) {
       setResults([]);
@@ -214,11 +225,12 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
       return;
     }
     try {
-      setResults(await search(value, undefined, lookup));
+      const found = await withTimeout((signal) => search(value.trim(), signal, lookup), 25000, controller.signal);
+      if (!controller.signal.aborted) setResults(found);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   };
 
@@ -234,8 +246,9 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
     setSourceFilter("all");
     setSpeedFilter("all");
     runSearch(initialQuery);
+    return () => searchController.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialQuery]);
+  }, [open, initialQuery, lookup?.imdbId, lookup?.type, lookup?.season, lookup?.episode, torrentSource]);
 
   const compatibleResults = useMemo(
     () => mobileApple ? results.filter((result) => !!result.streamUrl) : results,
@@ -454,13 +467,14 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                   runSearch(query);
                 }}
               >
-                <label className={`${mobileApple ? "hidden" : "flex"} min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/10 bg-black/25 px-3 focus-within:border-brand/60`}>
+                <label className={`${mobileApple ? "hidden" : "flex"} min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/10 bg-black/25 px-3`}>
                   <Search size={15} className="shrink-0 text-zinc-600" />
                   <input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="Search sources"
-                    className="w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-zinc-700"
+                    aria-label="Search sources"
+                    className="search-input w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-zinc-700"
                   />
                 </label>
                 <div className="no-scrollbar flex overflow-x-auto rounded-xl border border-white/10 bg-black/25 p-1">

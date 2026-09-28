@@ -5,6 +5,7 @@
   "description": "Standalone movie and series streaming app with optional Jellyfin integration",
   "type": "module",
   "scripts": {
+    "test": "node scripts/test-regressions.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",

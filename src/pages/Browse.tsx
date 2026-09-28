@@ -7,6 +7,7 @@ import DiscoverRow from "@/components/DiscoverRow";
 import { CatalogSkeleton } from "@/components/Skeletons";
 import type { StremioMediaType, StremioMeta } from "@/types/stremio";
 import { isAppleMobile } from "@/lib/platform";
+import { balancedCatalog } from "@/lib/catalogRanking";
 
 interface BrowseData {
   hero: StremioMeta | null;
@@ -14,6 +15,7 @@ interface BrowseData {
 }
 
 const GENRES = ["Action", "Comedy", "Drama", "Thriller"];
+const BALANCE_YEARS = ["1990", "2000", "2010"];
 
 /** Dedicated catalog so movies and episodic series are equally easy to find. */
 export default function Browse({ type }: { type: StremioMediaType }) {
@@ -30,18 +32,23 @@ export default function Browse({ type }: { type: StremioMediaType }) {
     Promise.all([
       cinemeta.catalog(type, "top", undefined, ctrl.signal),
       ...GENRES.map((genre) =>
-        cinemeta.catalog(type, "top", { genre }, ctrl.signal)
+        cinemeta.catalogOrEmpty(type, "top", { genre }, ctrl.signal)
+      ),
+      ...BALANCE_YEARS.map((year) =>
+        cinemeta.catalogOrEmpty(type, "year", { genre: year }, ctrl.signal)
       ),
     ])
-      .then(([top, ...genres]) => {
+      .then(([top, ...feeds]) => {
+        const genres = feeds.slice(0, GENRES.length);
+        const yearFeeds = feeds.slice(GENRES.length);
         const label = isSeries ? "Shows" : "Movies";
+        const popular = balancedCatalog([top, ...yearFeeds].flat());
         setData({
-          hero: top.find((item) => item.background) ?? top[0] ?? null,
+          hero: popular.find((item) => item.background) ?? popular[0] ?? null,
           rows: [
-            { title: `Popular ${label}`, items: top },
+            { title: `Popular ${label}`, items: popular },
             ...GENRES.map((genre, index) => ({
-              title: `${genre} ${label}`,
-              items: genres[index] ?? [],
+              title: `${genre} ${label}`, items: balancedCatalog(genres[index] ?? []),
             })),
           ],
         });

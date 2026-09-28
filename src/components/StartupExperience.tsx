@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Check, HardDrive, LoaderCircle, Play, RotateCcw } from "lucide-react";
 import Brand from "@/components/Brand";
+import { withTimeout } from "@/lib/withTimeout";
 import {
   getEmbeddedEngineStatus,
   getMediaStorageStatus,
@@ -40,13 +41,14 @@ export default function StartupExperience() {
   const [busy, setBusy] = useState(false);
   const [completedSteps, setCompletedSteps] = useState(0);
 
-  useEffect(() => () => {
-    mounted.current = false;
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
   }, []);
 
   const finish = useCallback(() => {
     if (!mounted.current) return;
-    localStorage.setItem(READY_KEY, "yes");
+    try { localStorage.setItem(READY_KEY, "yes"); } catch { /* Storage may be full. */ }
     setCompletedSteps(3);
     setPhase("ready");
     setDetail("Opening your home screen");
@@ -65,7 +67,7 @@ export default function StartupExperience() {
     }, firstLaunch.current ? 0 : 550);
 
     try {
-      const storage = await getMediaStorageStatus();
+      const storage = await withTimeout(() => getMediaStorageStatus(), 15000);
       if (!storage) {
         finish();
         return;
@@ -82,10 +84,10 @@ export default function StartupExperience() {
       if (!storage.engineRunning) {
         setPhase("engine");
         setDetail("This normally takes only a few seconds");
-        await requireMediaStorage();
+        await withTimeout(() => requireMediaStorage(), 20000);
       }
 
-      const engine = await getEmbeddedEngineStatus();
+      const engine = await withTimeout(() => getEmbeddedEngineStatus(), 15000);
       if (engine && !engine.ffmpeg) {
         throw new Error("The bundled compatibility player is missing. Reinstall the latest Akflix download.");
       }
@@ -192,6 +194,9 @@ export default function StartupExperience() {
                 className="flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-light to-brand text-sm font-black text-[#090806] disabled:opacity-50"
               >
                 <Play size={15} fill="currentColor" /> Use this Mac
+              </button>
+              <button onClick={() => setVisible(false)} className="min-h-11 text-sm text-zinc-400 underline sm:col-span-2">
+                Continue browsing without playback
               </button>
             </div>
           )}

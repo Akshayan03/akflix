@@ -18,8 +18,10 @@ import type { StremioMeta } from "@/types/stremio";
 import { useHistory, type WatchHistoryEntry } from "@/stores/historyStore";
 import { recommendedTitles } from "@/lib/recommendations";
 import type { DiscoverCardState } from "@/components/DiscoverCard";
+import { balancedCatalog } from "@/lib/catalogRanking";
 
 const GENRE_ROWS = ["Action", "Comedy", "Drama", "Science Fiction", "Horror", "Animation"];
+const BALANCE_YEARS = ["1990", "2000", "2010"];
 
 interface HomeData {
   hero: BaseItem | null;
@@ -138,22 +140,30 @@ export default function Home() {
     Promise.all([
       cinemeta.catalog("movie", "top", undefined, ctrl.signal),
       cinemeta.catalog("series", "top", undefined, ctrl.signal),
-      cinemeta.catalog("movie", "top", { genre: "Action" }, ctrl.signal),
-      cinemeta.catalog("series", "top", { genre: "Drama" }, ctrl.signal),
-      cinemeta.catalog("movie", "top", { genre: "Comedy" }, ctrl.signal),
+      cinemeta.catalogOrEmpty("movie", "top", { genre: "Action" }, ctrl.signal),
+      cinemeta.catalogOrEmpty("series", "top", { genre: "Drama" }, ctrl.signal),
+      cinemeta.catalogOrEmpty("movie", "top", { genre: "Comedy" }, ctrl.signal),
+      ...BALANCE_YEARS.flatMap((year) => [
+        cinemeta.catalogOrEmpty("movie", "year", { genre: year }, ctrl.signal),
+        cinemeta.catalogOrEmpty("series", "year", { genre: year }, ctrl.signal),
+      ]),
     ])
-      .then(([movies, series, action, drama, comedy]) =>
+      .then(([movies, series, action, drama, comedy, ...balanceFeeds]) => {
+        const balanceMovies = balanceFeeds.filter((_, index) => index % 2 === 0).flat();
+        const balanceSeries = balanceFeeds.filter((_, index) => index % 2 === 1).flat();
+        const popularMovies = balancedCatalog([...movies, ...balanceMovies]);
+        const popularSeries = balancedCatalog([...series, ...balanceSeries]);
         setDiscover({
-          hero: movies.find((item) => item.background) ?? movies[0] ?? null,
+          hero: popularMovies.find((item) => item.background) ?? popularMovies[0] ?? null,
           rows: [
-            { title: "Popular Movies", items: movies },
-            { title: "Popular Series", items: series },
-            { title: "Action Movies", items: action },
-            { title: "Drama Series", items: drama },
-            { title: "Comedy Movies", items: comedy },
+            { title: "Popular Movies", items: popularMovies },
+            { title: "Popular Series", items: popularSeries },
+            { title: "Action Movies", items: balancedCatalog(action) },
+            { title: "Drama Series", items: balancedCatalog(drama) },
+            { title: "Comedy Movies", items: balancedCatalog(comedy) },
           ],
-        })
-      )
+        });
+      })
       .catch(() => {
         if (!ctrl.signal.aborted) setDiscover({ hero: null, rows: [] });
       });

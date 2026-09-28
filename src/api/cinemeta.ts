@@ -1,6 +1,7 @@
 /** Cinemeta — Stremio-compatible movie/series catalog and metadata. */
 
 import { httpJson } from "@/lib/http";
+import { withTimeout } from "@/lib/withTimeout";
 import type {
   StremioCatalogResponse,
   StremioMediaType,
@@ -56,6 +57,20 @@ async function cachedJson<T>(url: string, signal?: AbortSignal): Promise<T> {
 }
 
 export class CinemetaClient {
+  async catalogOrEmpty(
+    type: StremioMediaType,
+    catalog = "top",
+    extra?: Record<string, string>,
+    signal?: AbortSignal
+  ): Promise<StremioMeta[]> {
+    try {
+      return await this.catalog(type, catalog, extra, signal);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return [];
+    }
+  }
+
   async catalog(
     type: StremioMediaType,
     catalog = "top",
@@ -75,11 +90,16 @@ export class CinemetaClient {
   }
 
   async search(query: string, signal?: AbortSignal): Promise<StremioMeta[]> {
-    const [movies, series] = await Promise.all([
-      this.catalog("movie", "top", { search: query }, signal),
-      this.catalog("series", "top", { search: query }, signal),
-    ]);
-    return [...movies, ...series];
+    const results = await Promise.allSettled(
+      (["movie", "series"] as const).map((type) =>
+        withTimeout((requestSignal) => this.catalog(type, "top", { search: query.trim() }, requestSignal), 10000, signal)
+      )
+    );
+    if (signal?.aborted) throw new DOMException("Request cancelled", "AbortError");
+    if (results.every((result) => result.status === "rejected")) {
+      throw new Error("Movie and series search is temporarily unavailable.");
+    }
+    return results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
   }
 
   async meta(

@@ -97,6 +97,25 @@ a,
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Text fields have a caret and their own border. WebKit considers pointer
+   focus on inputs focus-visible, which otherwise draws a box across the bar. */
+.search-input:focus,
+.search-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.search-input {
+  -webkit-appearance: none;
+  appearance: none;
+  scroll-margin-top: calc(env(safe-area-inset-top, 0px) + 5rem);
+}
+
+.search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,

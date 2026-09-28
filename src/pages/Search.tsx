@@ -4,7 +4,7 @@
  * and is therefore queried from an individual Jellyfin title page instead.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Download, LoaderCircle, PlayCircle, SearchIcon, X } from "lucide-react";
 import { toast } from "sonner";
@@ -19,6 +19,7 @@ import type { BaseItem } from "@/types/jellyfin";
 import type { TorrentAddMode, TorrentResult } from "@/types/torrent";
 import type { StremioMeta } from "@/types/stremio";
 import { isAppleMobile } from "@/lib/platform";
+import { withTimeout } from "@/lib/withTimeout";
 
 const QUICK_SEARCHES = ["Dune", "The Bear", "Batman", "Severance"];
 
@@ -34,50 +35,62 @@ export default function Search() {
   const [torResults, setTorResults] = useState<TorrentResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [torrentError, setTorrentError] = useState<string | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  const [mediaFilter, setMediaFilter] = useState<"all" | "movie" | "series">("all");
   const [addedGuid, setAddedGuid] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
 
   const prowlarrConfigured = prowlarr().configured;
+  const visibleDiscover = discoverResults.filter((item) => mediaFilter === "all" || item.type === mediaFilter);
 
   // Debounced search-as-you-type across both sources.
   useEffect(() => {
-    if (query.trim().length < 2) {
-      setLibResults([]);
-      setDiscoverResults([]);
-      setTorResults([]);
+    const term = query.trim();
+    setLibResults([]);
+    setDiscoverResults([]);
+    setTorResults([]);
+    setTorrentError(null);
+    setCatalogError(null);
+    setLibraryError(null);
+    if (term.length < 2) {
+      setLoading(false);
       return;
     }
-    abortRef.current?.abort();
     const ctrl = new AbortController();
-    abortRef.current = ctrl;
+    setLoading(true);
 
     const timer = setTimeout(async () => {
-      setLoading(true);
-      setTorrentError(null);
-      const [lib, discover, tor] = await Promise.allSettled([
-        client
-          ? client.search(query, 30, ctrl.signal)
-          : Promise.resolve({ Items: [], TotalRecordCount: 0 }),
-        cinemeta.search(query, ctrl.signal),
-        prowlarrConfigured
-          ? torrentSearch(query, ctrl.signal)
-          : Promise.resolve<TorrentResult[]>([]),
+      // Publish each provider immediately. A slow optional server must not
+      // hold movie and series results hostage, or overwrite a newer query.
+      const run = async <T,>(
+        request: (signal: AbortSignal) => Promise<T>,
+        receive: (value: T) => void,
+        fail: (message: string) => void
+      ) => {
+        try {
+          const value = await withTimeout(request, 15000, ctrl.signal);
+          if (!ctrl.signal.aborted) receive(value);
+        } catch {
+          if (!ctrl.signal.aborted) fail("Unable to reach this service. Check your connection and try again.");
+        }
+      };
+      await Promise.all([
+        run((signal) => cinemeta.search(term, signal), setDiscoverResults, setCatalogError),
+        client ? run((signal) => client.search(term, 30, signal),
+          (value) => setLibResults(value.Items), setLibraryError) : Promise.resolve(),
+        prowlarrConfigured ? run((signal) => torrentSearch(term, signal),
+          setTorResults, setTorrentError) : Promise.resolve(),
       ]);
-      if (ctrl.signal.aborted) return;
-
-      setLibResults(lib.status === "fulfilled" ? lib.value.Items : []);
-      setDiscoverResults(discover.status === "fulfilled" ? discover.value : []);
-      if (tor.status === "fulfilled") setTorResults(tor.value);
-      else setTorrentError(String(tor.reason));
-      setLoading(false);
-    }, 400);
+      if (!ctrl.signal.aborted) setLoading(false);
+    }, 300);
 
     return () => {
       clearTimeout(timer);
       ctrl.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [query, retry, prowlarrConfigured, mobileApple]);
 
   const add = async (r: TorrentResult, mode: TorrentAddMode) => {
     try {
@@ -102,26 +115,36 @@ export default function Search() {
       <div className="mx-auto mb-8 max-w-3xl text-center md:mb-12">
         <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-accent">One search, every screen</p>
         <h1 className="mb-5 text-3xl font-black tracking-[-0.045em] md:mb-7 md:text-4xl">What are we watching?</h1>
-      <div className="glass-panel flex items-center gap-3 rounded-2xl px-4 focus-within:border-brand/50 md:px-5">
+      <form role="search" onSubmit={(event) => {
+        event.preventDefault();
+        (event.currentTarget.querySelector("input") as HTMLInputElement | null)?.blur();
+      }} className="glass-panel flex items-center gap-3 rounded-2xl px-4 md:px-5">
         {loading ? <LoaderCircle size={20} className="animate-spin text-brand-light" /> : <SearchIcon size={20} className="text-brand-light" />}
         <input
-          autoFocus
+          autoFocus={!mobileApple}
+          type="search"
+          aria-label={t("search.placeholder")}
+          enterKeyHint="search"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t("search.placeholder")}
-          className="min-w-0 flex-1 bg-transparent py-3.5 text-base outline-none placeholder:text-zinc-600 md:py-4 md:text-lg"
+          className="search-input min-w-0 flex-1 bg-transparent py-3.5 text-base outline-none placeholder:text-zinc-600 md:py-4 md:text-lg"
         />
         {query && (
           <motion.button
+            type="button"
             whileTap={{ scale: 0.86 }}
             onClick={() => setQuery("")}
             aria-label="Clear search"
-            className="rounded-full bg-white/[0.07] p-1.5 text-zinc-400"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-400 hover:bg-white/[0.07]"
           >
             <X size={14} />
           </motion.button>
         )}
-      </div>
+      </form>
         {!query && (
           <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className={`no-scrollbar mt-4 flex gap-2 overflow-x-auto pb-1 text-left ${mobileApple ? "" : "justify-center"}`}>
             {QUICK_SEARCHES.map((suggestion) => (
@@ -139,6 +162,13 @@ export default function Search() {
       </div>
 
       {/* Jellyfin library results */}
+      {(catalogError || libraryError) && (
+        <div role="status" className="mx-auto mb-6 max-w-3xl rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-zinc-300">
+          {catalogError && <p>Movie and series search is unavailable. {catalogError}</p>}
+          {libraryError && <p>Your personal library is unavailable. Catalog search still works independently.</p>}
+          <button onClick={() => setRetry((value) => value + 1)} className="mt-2 min-h-11 font-semibold text-brand-light">Try again</button>
+        </div>
+      )}
       {libResults.length > 0 && (
         <motion.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="mb-10 md:mb-12">
           <h2 className="mb-4 text-lg font-black">{t("search.library")}</h2>
@@ -154,8 +184,17 @@ export default function Search() {
       {discoverResults.length > 0 && (
         <motion.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="mb-10 md:mb-12">
           <h2 className="mb-4 text-lg font-black">Movies and series</h2>
+          <div aria-label="Filter catalog results" className="mb-4 flex gap-2">
+            {(["all", "movie", "series"] as const).map((type) => (
+              <button key={type} onClick={() => setMediaFilter(type)} aria-pressed={mediaFilter === type}
+                className={`min-h-11 rounded-full border px-4 text-xs font-semibold ${mediaFilter === type ? "border-brand/30 bg-brand/10 text-brand-light" : "border-white/10 text-zinc-400"}`}>
+                {type === "all" ? "All" : type === "movie" ? "Movies" : "Shows"} ({discoverResults.filter((item) => type === "all" || item.type === type).length})
+              </button>
+            ))}
+          </div>
+          {!visibleDiscover.length && <p className="py-6 text-sm text-zinc-500">No {mediaFilter === "series" ? "shows" : "movies"} match this search. Try All or another title.</p>}
           <div className={mobileApple ? "grid grid-cols-2 gap-3" : "flex flex-wrap gap-3"}>
-            {discoverResults.map((item) => (
+            {visibleDiscover.map((item) => (
               <DiscoverCard key={`${item.type}:${item.id}`} item={item} fluid={mobileApple} />
             ))}
           </div>
@@ -212,7 +251,8 @@ export default function Search() {
       )}
 
       {!loading &&
-        query.length >= 2 &&
+        query.trim().length >= 2 &&
+        !catalogError && !libraryError && !torrentError &&
         !libResults.length &&
         !discoverResults.length &&
         !torResults.length && (
