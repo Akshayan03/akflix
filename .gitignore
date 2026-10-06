@@ -1,6 +1,7 @@
 node_modules
 dist
 dist-ssr
+website/downloads
 *.local
 .DS_Store
 

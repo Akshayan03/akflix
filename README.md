@@ -1,6 +1,6 @@
 # AKFLIX
 
-A streaming app for Mac and iPhone with movie/series discovery, one-click
+A streaming app for Mac, Windows and iPhone with movie/series discovery, one-click
 playback, watch progress, ratings, recommendations and optional Jellyfin.
 The desktop build also includes temporary peer streaming and offline downloads.
 
@@ -74,10 +74,25 @@ akflix/
 
 ### Install the app
 
-Download and drag `Akflix.app` to Applications. On first launch Akflix creates
+Download from **[akshayan03.github.io/akflix](https://akshayan03.github.io/akflix/)**.
+On an Apple-silicon Mac, open the DMG and drag `Akflix.app` to Applications.
+On a Windows 10/11 Intel or AMD 64-bit PC, run the EXE setup (or the alternative
+MSI). The Windows installer includes rqbit and FFmpeg and installs Microsoft's
+WebView2 runtime if needed. The independent installers are not code-signed;
+only download them from this website or this repository's releases.
+
+On first launch Akflix creates
 its private media and engine folders, launches the bundled playback engine,
 and opens directly to the catalog. No Docker, Jellyfin, Homebrew or command
 line setup is required.
+
+Private automatic caption generation is currently Mac-only. Windows supports
+existing subtitle tracks and manual subtitle timing adjustments.
+
+The Windows build workflow installs and smoke-tests the app before publishing
+both installer formats to the matching desktop release. The website verifies
+asset checksums and keeps the newest available installer for each platform,
+so a Mac-only update does not remove the Windows download.
 
 Use **Watch now** for temporary playback or **Download** to keep a complete
 offline copy. Settings → Source provider accepts a configured Torrentio

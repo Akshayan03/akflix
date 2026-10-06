@@ -9,13 +9,13 @@
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://akshayan03.github.io/akflix/" />
   <meta property="og:title" content="Akflix | One app. Press play." />
-  <meta property="og:description" content="Standalone movie and series streaming for Mac, with resilient playback, balanced recommendations, and one-click Watch Now." />
+  <meta property="og:description" content="Standalone movie and series streaming for Mac and Windows, with resilient playback, balanced recommendations, and one-click Watch Now." />
   <meta property="og:image" content="https://akshayan03.github.io/akflix/og.png" />
   <meta property="og:image:width" content="1792" />
   <meta property="og:image:height" content="1024" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Akflix | One app. Press play." />
-  <meta name="twitter:description" content="Standalone movie and series streaming for Mac, with resilient playback and balanced recommendations." />
+  <meta name="twitter:description" content="Standalone movie and series streaming for Mac and Windows, with resilient playback and balanced recommendations." />
   <meta name="twitter:image" content="https://akshayan03.github.io/akflix/og.png" />
   <link rel="icon" href="icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -279,7 +279,7 @@
       position: relative;
       overflow: hidden;
       display: grid;
-      grid-template-columns: 1.15fr .85fr;
+      grid-template-columns: 1fr;
       gap: 30px;
       padding: clamp(30px, 6vw, 72px);
       border: 1px solid var(--line-gold);
@@ -293,7 +293,10 @@
     .download-copy, .download-meta { position: relative; z-index: 2; }
     .download-copy h2 { max-width: 650px; }
     .download-copy p { max-width: 590px; color: var(--muted); }
-    .download-meta { align-self: end; padding: 24px; border: 1px solid var(--line); border-radius: 18px; background: rgba(9,8,6,.58); backdrop-filter: blur(16px); }
+    .download-options { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    .download-meta { padding: 24px; border: 1px solid var(--line); border-radius: 18px; background: rgba(9,8,6,.58); backdrop-filter: blur(16px); }
+    .download-meta h3 { margin: 0 0 20px; font: 800 23px/1.2 var(--display); }
+    .download-meta .button + .button { margin-top: 10px; }
     .download-meta dl { display: grid; grid-template-columns: 1fr auto; gap: 11px 25px; margin: 0 0 19px; }
     .download-meta dt { color: var(--dim); font-size: 12px; }
     .download-meta dd { margin: 0; color: var(--ivory); font-size: 12px; font-weight: 700; text-align: right; }
@@ -328,7 +331,6 @@
       .app-stage { min-height: auto; }
       .app-window { width: min(760px, 94vw); transform: none; }
       .speed-layout, .faq { gap: 48px; }
-      .download-meta { max-width: 520px; }
     }
     @media (max-width: 720px) {
       .wrap { width: min(100% - 28px, 1180px); }
@@ -347,7 +349,7 @@
       .trust-item:nth-child(2) { border-right: 0; }
       .trust-item:nth-child(3), .trust-item:nth-child(4) { border-bottom: 0; }
       section { padding: 82px 0; }
-      .steps, .features { grid-template-columns: 1fr; }
+      .steps, .features, .download-options { grid-template-columns: 1fr; }
       .step { min-height: 220px; }
       .step h3 { margin-top: 38px; }
       .route { grid-template-columns: 42px 1fr; }
@@ -372,7 +374,7 @@
         <a href="#inside">Inside the app</a>
         <a href="#faq">FAQ</a>
       </div>
-      <a class="nav-download" href="downloads/Akflix_latest_aarch64.dmg" download><span>Download for Mac</span></a>
+      <a class="nav-download" href="#download" aria-label="Download Akflix for Mac or Windows"><span>Get Akflix</span></a>
     </nav>
   </header>
 
@@ -380,14 +382,14 @@
     <section class="hero">
       <div class="wrap hero-grid">
         <div>
-          <span class="eyebrow">Standalone for Apple silicon</span>
+          <span class="eyebrow">Standalone for Mac + Windows</span>
           <h1>One app.<br /><span class="gold">Press play.</span></h1>
           <p class="hero-copy">Browse movies and series, find a title quickly, and watch. <strong>Akflix carries its own playback engine and FFmpeg, with source fallback and recommendations that mix highly-rated classics with newer picks.</strong> No Docker stack, Jellyfin server, qBittorrent, or Homebrew setup required.</p>
           <div class="actions">
             <a class="button primary" href="downloads/Akflix_latest_aarch64.dmg" download>Download for macOS <span class="arrow">↓</span></a>
-            <a class="button ghost" href="#how">See how it works <span class="arrow">→</span></a>
+            <a class="button ghost" href="downloads/Akflix_latest_x64-setup.exe" download>Download for Windows <span class="arrow">↓</span></a>
           </div>
-          <p class="micro">About 80 MB · macOS 11+ · M1, M2, M3 and M4 · free and open source</p>
+          <p class="micro">Apple-silicon Mac · Windows 10/11 (64-bit Intel or AMD) · free and open source</p>
         </div>
 
         <div class="app-stage" aria-label="Preview of the Akflix desktop interface">
@@ -437,7 +439,7 @@
           <p class="lead">Akflix configures its private playback services the first time it opens. There is no server URL, container dashboard, or torrent client to babysit.</p>
         </header>
         <div class="steps">
-          <article class="step"><span class="step-num">01</span><h3>Install one app</h3><p>Drag Akflix into Applications. Its playback engine and media compatibility tools are already inside.</p></article>
+          <article class="step"><span class="step-num">01</span><h3>Install one app</h3><p>On Mac, drag Akflix into Applications. On Windows, run the setup file. Its playback engine and media compatibility tools are already inside.</p></article>
           <article class="step"><span class="step-num">02</span><h3>Find your title</h3><p>Browse a cinematic catalog of movies and series, search by name, then choose a film or episode.</p></article>
           <article class="step"><span class="step-num">03</span><h3>Press Watch now</h3><p>Akflix opens the best ranked source directly and keeps other safe choices ready if recovery is needed.</p></article>
         </div>
@@ -469,15 +471,15 @@
           <p class="lead">The local profile works immediately. Power users can still connect Jellyfin or an external qBittorrent instance without making everyone else configure them.</p>
         </header>
         <div class="features">
-          <article class="feature"><span class="feature-mark">◫</span><h3>Embedded playback engine</h3><p>Akflix starts and stops its private streaming engine with the app and stores its temporary data in the correct macOS folder.</p></article>
-          <article class="feature"><span class="feature-mark">▶</span><h3>Bundled media compatibility</h3><p>An official LGPL FFmpeg build is included for compatible HLS playback. No package manager required.</p></article>
+          <article class="feature"><span class="feature-mark">◫</span><h3>Embedded playback engine</h3><p>Akflix starts and stops its private streaming engine with the app and stores its temporary data in your system's app-data folder.</p></article>
+          <article class="feature"><span class="feature-mark">▶</span><h3>Bundled media compatibility</h3><p>An LGPL FFmpeg build is included for compatible HLS playback. No package manager required.</p></article>
           <article class="feature"><span class="feature-mark">⌁</span><h3>Source choices, simplified</h3><p>Every option keeps the real title visible. Compare quality, source, codec, language, size, seeders and health, then filter or sort the list in seconds.</p></article>
-          <article class="feature"><span class="feature-mark">◉</span><h3>Captions that listen</h3><p>Generate private English captions from the playing audio or automatically match a loaded caption track to the spoken dialogue. Nothing is uploaded.</p></article>
+          <article class="feature"><span class="feature-mark">◉</span><h3>Captions your way</h3><p>Load subtitles and adjust their timing on Mac and Windows. Mac also supports private English caption generation and automatic dialogue matching. Nothing is uploaded.</p></article>
           <article class="feature"><span class="feature-mark">»</span><h3>Episodes keep moving</h3><p>When an episode ends, Akflix finds the next English-safe source and continues automatically, including across season boundaries.</p></article>
           <article class="feature"><span class="feature-mark">◎</span><h3>Local-first profile</h3><p>Open directly into Akflix. Jellyfin is an optional library connection, not a login wall.</p></article>
           <article class="feature"><span class="feature-mark">★</span><h3>A home that learns your taste</h3><p>Continue Watching remembers the exact movie or episode. Finished titles move to Watched, and ratings improve recommendations without letting new releases crowd out proven favorites.</p></article>
           <article class="feature"><span class="feature-mark">♢</span><h3>More like what you love</h3><p>Every movie and series page includes related picks ranked by collection, genres, year, rating, and a diversity pass that keeps the shelf useful across eras.</p></article>
-          <article class="feature"><span class="feature-mark">↧</span><h3>Choose where media lives</h3><p>Keep temporary streams and downloads on your Mac or move them to a connected external drive from Settings.</p></article>
+          <article class="feature"><span class="feature-mark">↧</span><h3>Choose where media lives</h3><p>Keep temporary streams and downloads on your computer or choose a connected drive from Settings.</p></article>
         </div>
       </div>
     </section>
@@ -486,21 +488,38 @@
       <div class="wrap">
         <div class="download-card">
           <div class="download-copy">
-            <p class="kicker">Now showing on your Mac</p>
+            <p class="kicker">Now showing on Mac + Windows</p>
             <h2>Your next watch is one app away.</h2>
-            <p>Download Akflix 1.0.16 for Apple silicon. This build keeps the selected source locked for the full movie or episode, improves search responsiveness and source fallback, surfaces highly-rated movies from more eras, fixes next-episode handoff and caption seeking, respects your preferred audio language, and adds Picture in Picture with reliable playback speeds.</p>
+            <p>Choose your computer below. Both standalone builds include the playback engine and FFmpeg, responsive movie and show search, source fallback, and recommendations that include highly-rated older favorites.</p>
           </div>
+          <div class="download-options">
           <div class="download-meta">
+            <h3>For Mac</h3>
             <dl>
-              <dt>File</dt><dd>Akflix 1.0.16 DMG</dd>
+              <dt>Version</dt><dd data-version="mac">1.0.16</dd>
               <dt>Platform</dt><dd>Apple silicon</dd>
-              <dt>Size</dt><dd>About 80 MB</dd>
+              <dt>Size</dt><dd data-size="mac">About 80 MB</dd>
               <dt>Requires</dt><dd>macOS 11+</dd>
               <dt>Extra services</dt><dd>None</dd>
             </dl>
-            <a class="button primary" href="downloads/Akflix_latest_aarch64.dmg" download>Download Akflix <span class="arrow">↓</span></a>
-            <a class="button ghost" href="https://github.com/Akshayan03/akflix/releases/latest">View release notes <span class="arrow">→</span></a>
+            <a class="button primary" href="downloads/Akflix_latest_aarch64.dmg" download>Download Mac DMG <span class="arrow">↓</span></a>
+            <a class="button ghost" data-release="mac" href="https://github.com/Akshayan03/akflix/releases/tag/v1.0.16">View release notes <span class="arrow">→</span></a>
             <p class="gatekeeper">This independent build is not Apple-notarized yet. On first launch, right-click Akflix and choose Open if macOS asks you to verify it.</p>
+          </div>
+          <div class="download-meta">
+            <h3>For Windows</h3>
+            <dl>
+              <dt>Version</dt><dd data-version="windows">1.0.16</dd>
+              <dt>Platform</dt><dd>Intel / AMD 64-bit</dd>
+              <dt>Installer</dt><dd data-size="windows">EXE setup</dd>
+              <dt>Requires</dt><dd>Windows 10 or 11</dd>
+              <dt>Playback engine</dt><dd>Included</dd>
+            </dl>
+            <a class="button primary" href="downloads/Akflix_latest_x64-setup.exe" download>Download Windows EXE <span class="arrow">↓</span></a>
+            <a class="button ghost" href="downloads/Akflix_latest_x64_en-US.msi" download>Alternative MSI installer <span class="arrow">↓</span></a>
+            <p class="gatekeeper">Unsigned independent build: Windows may show an unknown-publisher warning. Download only from this site or our GitHub releases. Setup installs Microsoft WebView2 if needed; internet is required.</p>
+            <p class="gatekeeper"><a data-release="windows" href="https://github.com/Akshayan03/akflix/releases/tag/v1.0.16">Release notes and SHA-256 checksums</a></p>
+          </div>
           </div>
         </div>
       </div>
@@ -514,12 +533,12 @@
           <p class="lead">No mystery dependencies or fake promises about how peer networks behave.</p>
         </div>
         <div class="faq-list">
-          <details open><summary>Do I need Jellyfin, Docker, or qBittorrent?</summary><p>No. The standalone Mac build includes its playback engine and FFmpeg. Jellyfin and external qBittorrent connections are optional advanced settings.</p></details>
+          <details open><summary>Do I need Jellyfin, Docker, or qBittorrent?</summary><p>No. The Mac and Windows builds include their playback engine and FFmpeg. Jellyfin and external qBittorrent connections are optional advanced settings.</p></details>
           <details><summary>Does Watch Now download the whole movie first?</summary><p>No. Akflix prioritizes the selected video and streams it through a seekable local URL. Temporary pieces are cached during playback and removed afterward. Download is a separate option.</p></details>
           <details><summary>Can playback always be Netflix-instant?</summary><p>A hosted or debrid-cached HTTP link can start almost immediately. A public peer source cannot be guaranteed instant because its speed depends on metadata, reachable peers, seeders, and your connection. Akflix removes avoidable waiting, but it cannot manufacture a healthy peer.</p></details>
           <details><summary>Does it support shows?</summary><p>Yes. Choose any season and episode before Watch Now. When an episode finishes, Akflix can automatically find and start the next one, including the first episode of the following season.</p></details>
-          <details><summary>Can Akflix fix bad captions?</summary><p>Yes. Generate fresh English captions privately from the video audio, or select a loaded caption track and let Auto sync match its timing to spoken dialogue. Manual timing controls remain available for a final adjustment.</p></details>
-          <details><summary>What about Intel, Windows, and Linux?</summary><p>The new zero-setup package is currently available for Apple-silicon Macs. Earlier cross-platform builds remain on GitHub Releases while standalone packaging is completed for those systems.</p></details>
+          <details><summary>Can Akflix fix bad captions?</summary><p>Both platforms support subtitle tracks and manual timing adjustments. Private English caption generation and automatic dialogue matching are currently Mac-only.</p></details>
+          <details><summary>Which computers are supported?</summary><p>Download the DMG for an Apple-silicon Mac running macOS 11 or later, or the EXE/MSI for Windows 10/11 on a 64-bit Intel or AMD PC. Native Windows ARM, Intel Mac, and Linux standalone installers are not part of this release.</p></details>
         </div>
       </div>
     </section>

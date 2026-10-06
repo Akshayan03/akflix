@@ -1,0 +1,43 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { chooseDownloads, renderMetadata } from "../scripts/prepare-website-downloads.mjs";
+
+function release(version, extensions, extra = {}) {
+  return { tag_name: `v${version}`, assets: extensions.map((extension) => ({ name: `Akflix_${version}_${extension}`, state: "uploaded" })), ...extra };
+}
+const mac = "aarch64.dmg";
+const exe = "x64-setup.exe";
+const msi = "x64_en-US.msi";
+
+test("a Mac-only update retains the newest complete Windows release", () => {
+  const result = chooseDownloads([release("1.0.9", [mac, exe, msi]), release("1.0.17", [mac]), release("1.0.16", [mac, exe, msi])]);
+  assert.equal(result.mac.release.tag_name, "v1.0.17");
+  assert.equal(result.windows.release.tag_name, "v1.0.16");
+  assert.equal(result.windowsMsi.release.tag_name, "v1.0.16");
+});
+test("drafts, prereleases and incomplete Windows releases are not promoted", () => {
+  const result = chooseDownloads([release("2.0.0", [mac, exe, msi], { draft: true }), release("1.1.0", [mac, exe, msi], { prerelease: true }), release("1.0.18", [exe]), release("1.0.16", [mac, exe, msi])]);
+  assert.equal(result.windows.release.tag_name, "v1.0.16");
+  assert.equal(result.mac.release.tag_name, "v1.0.16");
+});
+test("missing installers fail deployment instead of producing broken links", () => {
+  assert.throws(() => chooseDownloads([release("1.0.16", [mac])]), /No published windows installer/);
+});
+test("mislabeled and still-uploading assets do not replace verified installers", () => {
+  const mislabeled = release("1.0.19", [mac, exe, msi]);
+  mislabeled.assets = release("1.0.15", [mac, exe, msi]).assets;
+  const uploading = release("1.0.18", [exe, msi]);
+  uploading.assets[1].state = "new";
+  const result = chooseDownloads([mislabeled, uploading, release("1.0.16", [mac, exe, msi])]);
+  assert.equal(result.mac.release.tag_name, "v1.0.16");
+  assert.equal(result.windows.release.tag_name, "v1.0.16");
+});
+test("download metadata is rendered without requiring browser JavaScript", () => {
+  const html = '<dd data-version="mac">old</dd><dd data-size="mac">unknown</dd><a data-release="mac" href="old">Notes</a><dd data-version="windows">old</dd>';
+  const entry = { version: "1.0.16", size: 1048576, release: "https://github.com/Akshayan03/akflix/releases/tag/v1.0.16" };
+  const rendered = renderMetadata(html, { mac: entry, windows: entry });
+  assert.ok(rendered.includes('data-version="mac">1.0.16'));
+  assert.ok(rendered.includes('data-version="windows">1.0.16'));
+  assert.ok(rendered.includes('data-size="mac">1.0 MB'));
+  assert.ok(rendered.includes(`href="${entry.release}"`));
+});
