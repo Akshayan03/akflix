@@ -4,12 +4,16 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: standalone-windows
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +29,14 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - uses: actions/cache@v4
+        id: ffmpeg-cache
+        with:
+          path: src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
+          key: ffmpeg-windows-lgpl-8.1.2-static-v1
+
       - uses: msys2/setup-msys2@v2
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         with:
           msystem: MINGW64
           update: true
@@ -46,19 +57,24 @@ jobs:
           Invoke-WebRequest `
             -Uri "https://github.com/ikatson/rqbit/releases/download/v9.0.0-beta.2/rqbit.exe" `
             -OutFile "src-tauri/binaries/rqbit-x86_64-pc-windows-msvc.exe"
+          $hash = (Get-FileHash "src-tauri/binaries/rqbit-x86_64-pc-windows-msvc.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne "2e4db7c500b19607545eb0e51c63ecc17018cd08906029abee1df61aa65fa409") { throw "rqbit checksum mismatch" }
 
       - name: Build the LGPL FFmpeg sidecar
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          curl -fL "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz" -o ffmpeg.tar.xz
+          curl -fL --retry 3 "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz" -o ffmpeg.tar.xz
+          echo "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c  ffmpeg.tar.xz" | sha256sum --check
           tar -xf ffmpeg.tar.xz
           cd ffmpeg-8.1.2
           ./configure \
             --disable-doc --disable-debug --disable-ffplay --disable-ffprobe \
             --disable-avdevice --disable-autodetect --disable-shared --enable-static \
-            --enable-mediafoundation --enable-schannel --disable-x86asm
-          make -j2 ffmpeg.exe
+            --enable-mediafoundation --enable-schannel --disable-x86asm \
+            --extra-ldflags=-static
+          make -j$(nproc) ffmpeg.exe
           cp ffmpeg.exe ../src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
 
       - name: Verify bundled engines
@@ -68,11 +84,27 @@ jobs:
           $ffmpeg = "src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe"
           if (!(Test-Path $rqbit) -or !(Test-Path $ffmpeg)) { throw "A Windows sidecar is missing" }
           & $ffmpeg -hide_banner -version
+          if ($LASTEXITCODE -ne 0) { throw "FFmpeg cannot run outside MSYS2" }
+          & $rqbit --version
+          if ($LASTEXITCODE -ne 0) { throw "rqbit cannot run" }
           $encoders = (& $ffmpeg -hide_banner -encoders 2>&1 | Out-String)
           if ($encoders -notmatch "h264_mf") { throw "FFmpeg was built without Media Foundation H.264" }
 
+      - name: Test frontend and Windows backend
+        run: |
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/prepare-caption-model.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Build Windows installers
         run: npx tauri build --config src-tauri/tauri.local.conf.json --bundles nsis,msi
+
+      - name: Test installed Windows app
+        shell: pwsh
+        run: ./scripts/test-windows-install.ps1
 
       - uses: actions/upload-artifact@v4
         with:
@@ -81,3 +113,20 @@ jobs:
           path: |
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/msi/*.msi
+
+      - name: Publish Windows installers to the matching desktop release
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $tag = "v$version"
+          gh release view $tag
+          if ($LASTEXITCODE -ne 0) { throw "Publish the matching desktop release before adding Windows installers" }
+          $files = @(Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe) + @(Get-ChildItem src-tauri/target/release/bundle/msi/*.msi)
+          if ($files.Count -ne 2) { throw "Expected both EXE and MSI installers" }
+          $checksums = $files | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" }
+          $checksums | Set-Content -Encoding utf8 "SHA256SUMS-windows.txt"
+          gh release upload $tag @($files.FullName) SHA256SUMS-windows.txt --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Could not publish Windows installers" }
