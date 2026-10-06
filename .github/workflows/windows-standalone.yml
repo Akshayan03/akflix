@@ -29,11 +29,11 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         id: ffmpeg-cache
         with:
           path: src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
-          key: ffmpeg-windows-lgpl-8.1.2-static-v1
+          key: ffmpeg-windows-lgpl-8.1.2-static-d3d11-v2
 
       - uses: msys2/setup-msys2@v2
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
@@ -72,7 +72,7 @@ jobs:
           ./configure \
             --disable-doc --disable-debug --disable-ffplay --disable-ffprobe \
             --disable-avdevice --disable-autodetect --disable-shared --enable-static \
-            --enable-mediafoundation --enable-schannel --disable-x86asm \
+            --enable-mediafoundation --enable-d3d11va --enable-schannel --disable-x86asm \
             --extra-ldflags=-static
           make -j$(nproc) ffmpeg.exe
           cp ffmpeg.exe ../src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
@@ -89,6 +89,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "rqbit cannot run" }
           $encoders = (& $ffmpeg -hide_banner -encoders 2>&1 | Out-String)
           if ($encoders -notmatch "h264_mf") { throw "FFmpeg was built without Media Foundation H.264" }
+
+      - uses: actions/cache/save@v4
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        with:
+          path: src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
+          key: ffmpeg-windows-lgpl-8.1.2-static-d3d11-v2
 
       - name: Test frontend and Windows backend
         run: |

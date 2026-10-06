@@ -12,7 +12,7 @@ required Akflix build dependency. Both builds report LGPL version 2.1 or later.
 Akflix Windows build configuration:
   --disable-doc --disable-debug --disable-ffplay --disable-ffprobe
   --disable-avdevice --disable-autodetect --disable-shared --enable-static
-  --enable-mediafoundation --enable-schannel --disable-x86asm
+  --enable-mediafoundation --enable-d3d11va --enable-schannel --disable-x86asm
   --extra-ldflags=-static
 
 The Windows binary is compiled reproducibly from the same official source in
