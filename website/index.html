@@ -385,6 +385,7 @@
           <span class="eyebrow">Standalone for Mac + Windows</span>
           <h1>One app.<br /><span class="gold">Press play.</span></h1>
           <p class="hero-copy">Browse movies and series, find a title quickly, and watch. <strong>Akflix carries its own playback engine and FFmpeg, with source fallback and recommendations that mix highly-rated classics with newer picks.</strong> No Docker stack, Jellyfin server, qBittorrent, or Homebrew setup required.</p>
+          <p class="gatekeeper"><strong>Known issues:</strong> “Playback engine unavailable” and storage leftovers have been reported. Neither issue is confirmed fixed in the available installers. <a href="#known-issues">Read before downloading →</a></p>
           <div class="actions">
             <a class="button primary" href="downloads/Akflix_latest_aarch64.dmg" download>Download for macOS <span class="arrow">↓</span></a>
             <a class="button ghost" href="downloads/Akflix_latest_x64-setup.exe" download>Download for Windows <span class="arrow">↓</span></a>
@@ -492,6 +493,13 @@
             <h2>Your next watch is one app away.</h2>
             <p>Choose your computer below. Both standalone builds include the playback engine and FFmpeg, responsive movie and show search, source fallback, and recommendations that include highly-rated older favorites.</p>
           </div>
+          <aside class="download-meta" id="known-issues" aria-labelledby="known-issues-title">
+            <h3 id="known-issues-title">Known issues — please read before installing</h3>
+            <p><strong>Users have reported “Playback engine unavailable” and storage leftovers after playback or cleanup. These reports remain unresolved: neither issue is confirmed fixed in these downloads.</strong> Bundled engines and prior build checks do not guarantee successful playback or complete cleanup on your computer.</p>
+            <p>This is a website notice update, not a new application release. The downloads remain the existing <strong>1.0.16</strong> installers; they have not been rebuilt or relabeled as a new version.</p>
+            <p>Build provenance: <a href="https://github.com/Akshayan03/akflix/actions/runs/36370150671">Mac build, September 28, 2026 (18f0492)</a>; <a href="https://github.com/Akshayan03/akflix/actions/runs/37508503458">Windows build, October 6, 2026 (bf164c4)</a>. These are different source revisions attached to the same release, not builds of the website update. File integrity is checked during deployment; this is not confirmation that the reported issues are fixed.</p>
+            <p><a href="downloads/manifest.json">Installer versions, original filenames and SHA-256 digests</a> · <a href="downloads/SHA256SUMS.txt">Download checksums</a></p>
+          </aside>
           <div class="download-options">
           <div class="download-meta">
             <h3>For Mac</h3>
@@ -534,7 +542,7 @@
         </div>
         <div class="faq-list">
           <details open><summary>Do I need Jellyfin, Docker, or qBittorrent?</summary><p>No. The Mac and Windows builds include their playback engine and FFmpeg. Jellyfin and external qBittorrent connections are optional advanced settings.</p></details>
-          <details><summary>Does Watch Now download the whole movie first?</summary><p>No. Akflix prioritizes the selected video and streams it through a seekable local URL. Temporary pieces are cached during playback and removed afterward. Download is a separate option.</p></details>
+          <details><summary>Does Watch Now download the whole movie first?</summary><p>No. Akflix prioritizes the selected video and streams it through a seekable local URL. Temporary pieces are cached during playback and are intended to be removed afterward, but storage leftovers have been reported and cleanup is not confirmed fixed. Download is a separate option.</p></details>
           <details><summary>Can playback always be Netflix-instant?</summary><p>A hosted or debrid-cached HTTP link can start almost immediately. A public peer source cannot be guaranteed instant because its speed depends on metadata, reachable peers, seeders, and your connection. Akflix removes avoidable waiting, but it cannot manufacture a healthy peer.</p></details>
           <details><summary>Does it support shows?</summary><p>Yes. Choose any season and episode before Watch Now. When an episode finishes, Akflix can automatically find and start the next one, including the first episode of the following season.</p></details>
           <details><summary>Can Akflix fix bad captions?</summary><p>Both platforms support subtitle tracks and manual timing adjustments. Private English caption generation and automatic dialogue matching are currently Mac-only.</p></details>
