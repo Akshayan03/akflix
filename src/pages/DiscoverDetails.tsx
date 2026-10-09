@@ -627,7 +627,7 @@ export default function DiscoverDetails() {
   }
 
   return (
-    <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen bg-surface pb-20">
+    <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="editorial-title min-h-screen bg-surface pb-20">
       <section className="relative h-[82vh] min-h-[620px] overflow-hidden">
         <motion.div
             initial={{ scale: 1.04, opacity: 0 }}
@@ -645,7 +645,7 @@ export default function DiscoverDetails() {
         </motion.div>
         <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/20 to-black/25" />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(9,8,6,.97)_0%,rgba(9,8,6,.7)_44%,rgba(9,8,6,.08)_82%)]" />
-        <div className="absolute left-[58%] top-[26%] h-80 w-80 rounded-full bg-brand/15 blur-[120px]" />
+
         <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/70 to-transparent" />
 
         <div className="absolute bottom-12 left-6 right-6 flex max-w-6xl items-end gap-8 md:left-12">
@@ -701,7 +701,7 @@ export default function DiscoverDetails() {
               <button
                 onClick={() => void watchNow()}
                 disabled={!lookup}
-                className="prism-border flex items-center gap-2 rounded-2xl bg-gradient-to-r from-brand-light to-brand px-6 py-3.5 text-sm font-bold text-[#090806] shadow-[0_14px_40px_rgba(152,117,47,.24)] transition hover:-translate-y-0.5 hover:brightness-110 disabled:opacity-40"
+                className="desktop-control desktop-primary"
               >
                 {starting ? <LoaderCircle size={18} className="animate-spin" /> : <Play size={18} fill="currentColor" />}
                 {starting ? "Cancel" : resumeActionLabel}
@@ -709,7 +709,7 @@ export default function DiscoverDetails() {
               <button
                 onClick={() => setSourceOpen(true)}
                 disabled={!lookup}
-                className="glass-panel flex items-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-semibold transition hover:-translate-y-0.5 hover:bg-white/[0.10] disabled:opacity-40"
+                className="desktop-control desktop-secondary"
               >
                 <ListFilter size={18} /> {mobileApple ? "Choose hosted stream" : "Choose stream"}
               </button>

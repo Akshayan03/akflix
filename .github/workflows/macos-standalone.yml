@@ -85,10 +85,10 @@ jobs:
           TAG="v$VERSION"
           DMG="src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Akflix_${VERSION}_aarch64.dmg"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$DMG" --clobber
+            gh release upload "$TAG" "$DMG"
           else
             gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
               --title "Akflix $TAG" \
-              --notes "Akflix 1.0.16 locks the selected source for the full movie or episode, fixes next-episode handoff and caption seeking, respects preferred audio language, and adds Picture in Picture with reliable playback speeds. Use source features only for content you may lawfully access."
+              --notes "Editorial desktop UI with ivory controls, charcoal surfaces, refined title typography and keyboard-visible artwork actions. This is a visual refinement, not a playback fix. Previously reported playback, episode handoff and storage issues remain under investigation. Use source features only for content you may lawfully access."
           fi

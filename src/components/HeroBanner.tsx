@@ -23,7 +23,7 @@ export default function HeroBanner({ item }: { item: BaseItem }) {
   const inProgress = (item.UserData?.PlaybackPositionTicks ?? 0) > 0;
 
   return (
-    <div className="relative h-[82vh] min-h-[610px] w-full overflow-hidden">
+    <div className="editorial-hero relative h-[76vh] min-h-[560px] w-full overflow-hidden">
       {/* Backdrop */}
       <Artwork
         src={backdrop ?? primary}
@@ -70,14 +70,14 @@ export default function HeroBanner({ item }: { item: BaseItem }) {
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate(`/play/${item.Id}`)}
-            className="prism-border flex items-center gap-2 rounded-2xl bg-gradient-to-r from-brand-light to-brand px-6 py-3.5 font-bold text-[#090806] shadow-[0_14px_40px_rgba(152,117,47,.24)] transition hover:-translate-y-0.5 hover:brightness-110"
+            className="desktop-control desktop-primary"
           >
             <Play size={20} fill="currentColor" />
             {inProgress ? t("hero.resume") : t("hero.play")}
           </button>
           <button
             onClick={() => navigate(`/title/${item.Id}`)}
-            className="glass-panel flex items-center gap-2 rounded-2xl px-6 py-3.5 font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white/[0.10]"
+            className="desktop-control desktop-secondary"
           >
             <Info size={20} />
             {t("hero.moreInfo")}

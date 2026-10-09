@@ -60,7 +60,7 @@ async function bundleDownloads() {
     const digest = hash.digest("hex");
     if (`sha256:${digest}` !== asset.digest) throw new Error(`Checksum mismatch: ${asset.name}`);
     renameSync(file, join(output, alias));
-    manifest[platform] = { version: release.tag_name.slice(1), size: asset.size, file: alias, original: asset.name, sha256: digest, release: `https://github.com/${repository}/releases/tag/${release.tag_name}` };
+    manifest[platform] = { version: release.tag_name.slice(1), sourceRevision: release.target_commitish, size: asset.size, file: alias, original: asset.name, sha256: digest, release: `https://github.com/${repository}/releases/tag/${release.tag_name}` };
     checksums.push(`${digest}  ${alias}`);
     console.log(`Verified ${platform}: ${asset.name} (${asset.size} bytes)`);
   }

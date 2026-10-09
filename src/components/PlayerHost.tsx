@@ -1681,7 +1681,8 @@ export default function PlayerHost() {
                   <motion.button
                     whileTap={mobileApple ? { scale: 0.86 } : undefined}
                     onClick={() => usePlayback.getState().controls?.toggle()}
-                    aria-label="Play/Pause"
+                    aria-label={isPlaying ? "Pause" : "Play"}
+                    title={isPlaying ? "Pause (Space)" : "Play (Space)"}
                     className={mobileApple ? "order-2 flex h-14 w-14 items-center justify-center rounded-full bg-white text-black" : "flex h-11 w-11 items-center justify-center rounded-full bg-white text-black shadow-lg transition hover:scale-105 hover:bg-brand-light"}
                   >
                     {isPlaying ? (
@@ -1708,15 +1709,27 @@ export default function PlayerHost() {
                   >
                     <RotateCw size={mobileApple ? 27 : 22} />
                   </motion.button>
+                  {!mobileApple && (
+                    <button
+                      onClick={() => commitSeek(0)}
+                      disabled={duration <= 0}
+                      title="Restart from beginning"
+                      className="desktop-control desktop-secondary"
+                    >
+                      <RotateCcw size={17} /> Restart
+                    </button>
+                  )}
                   {hasNext && (
                     <motion.button
                       whileTap={{ scale: 0.86 }}
                       whileHover={!mobileApple ? { scale: 1.08 } : undefined}
                       onClick={() => usePlayback.getState().controls?.next()}
                       aria-label="Next episode"
-                      className={`${mobileApple ? "order-4" : ""} text-zinc-300 transition hover:text-white`}
+                      title="Next episode"
+                      className={mobileApple ? "order-4 text-zinc-300" : "desktop-control desktop-secondary"}
                     >
                       <SkipForward size={24} />
+                      {!mobileApple && <span>Next episode</span>}
                     </motion.button>
                   )}
                   {!mobileApple && (

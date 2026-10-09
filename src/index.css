@@ -2,13 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Akflix prism system ────────────────────────────────────────── */
+/* Desktop editorial controls: compact, keyboard-visible, artwork first. */
+.desktop-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 9px 17px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+.desktop-control svg { width: 17px; height: 17px; flex-shrink: 0; }
+.desktop-primary { background: #eeeae1; color: #191a1b; }
+.desktop-primary:hover:not(:disabled) { background: #fffdf7; }
+.desktop-secondary { background: rgba(20,21,22,.65); color: #ddd9d1; border-color: #ffffff20; }
+.desktop-secondary:hover:not(:disabled) { background: #ffffff12; border-color: #ffffff40; }
+.desktop-control:disabled { opacity: .45; cursor: not-allowed; }
+.editorial-hero h1, .editorial-title h1 {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 400;
+  letter-spacing: -.045em;
+  line-height: 1.02;
+  font-size: clamp(42px, 5.4vw, 76px);
+}
+.editorial-hero .hero-shadow, .editorial-title .hero-shadow { text-shadow: 0 2px 24px #0008; }
+
+/* ── Akflix surface system ──────────────────────────────────────── */
 html,
 body,
 #root {
   height: 100%;
-  background: #090806;
-  color: #fff;
+  background: #101112;
+  color: #f2efe8;
 }
 
 html {
@@ -18,10 +48,7 @@ html {
 body {
   margin: 0;
   overflow-x: hidden;
-  background:
-    radial-gradient(circle at 12% -8%, rgba(214, 178, 94, 0.1), transparent 30rem),
-    radial-gradient(circle at 92% 8%, rgba(244, 233, 207, 0.045), transparent 26rem),
-    #090806;
+  background: #101112;
   font-feature-settings: "ss01" 1, "cv02" 1;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;

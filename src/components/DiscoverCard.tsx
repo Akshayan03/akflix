@@ -29,10 +29,11 @@ export default function DiscoverCard({
 
   return (
     <motion.button
-      whileHover={mobileApple ? undefined : { y: -7, scale: 1.018, zIndex: 10 }}
+      whileHover={mobileApple ? undefined : { y: -3, zIndex: 10 }}
       whileTap={{ scale: 0.965 }}
       transition={{ type: "spring", stiffness: 320, damping: 24 }}
       onClick={open}
+      aria-label={`View details for ${item.name}${state?.resumeLabel ? ` · Continue ${state.resumeLabel}` : ""}`}
       className={`group relative shrink-0 snap-start overflow-hidden rounded-[18px] border border-white/[0.08] bg-surface-raised text-left shadow-[0_14px_35px_rgba(0,0,0,.18)] md:rounded-[20px] ${
         fluid
           ? variant === "landscape" ? "aspect-video w-full" : "aspect-[2/3] w-full"
@@ -76,7 +77,7 @@ export default function DiscoverCard({
           </div>
         )}
       </div>
-      <span className="absolute right-3 top-3 flex h-9 w-9 translate-y-1 items-center justify-center rounded-xl bg-white text-black opacity-0 shadow-xl transition duration-300 group-hover:translate-y-0 group-hover:opacity-100">
+      <span className="absolute right-3 top-3 flex h-9 w-9 translate-y-1 items-center justify-center rounded-full bg-white text-black opacity-0 transition duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100">
         <Play size={14} fill="currentColor" />
       </span>
       <div className="absolute inset-0 rounded-[20px] ring-1 ring-inset ring-transparent transition group-hover:ring-brand-light/50" />

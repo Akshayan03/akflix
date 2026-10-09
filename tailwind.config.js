@@ -4,17 +4,17 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Akflix noir palette: champagne gold, warm ivory, deep espresso.
+        // Editorial desktop palette: ivory controls and charcoal surfaces.
         brand: {
-          DEFAULT: "#d6b25e",
-          dark: "#98752f",
-          light: "#f0d58a",
+          DEFAULT: "#ddd8cd",
+          dark: "#a9a397",
+          light: "#eeeae1",
         },
         accent: "#f4e9cf",
         surface: {
-          DEFAULT: "#090806",
-          raised: "#15130f",
-          overlay: "#1f1b14",
+          DEFAULT: "#101112",
+          raised: "#191a1b",
+          overlay: "#232426",
         },
       },
       fontFamily: {
