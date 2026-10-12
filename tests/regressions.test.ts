@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { selectVideoFile } from "../src/lib/mediaSelection";
+import { selectVideoFile, sourceNamesAnotherShow } from "../src/lib/mediaSelection";
+import { classifySourceLanguage } from "../src/lib/sourceLanguage";
 import { withTimeout } from "../src/lib/withTimeout";
 import { CinemetaClient } from "../src/api/cinemeta";
 import { balancedCatalog } from "../src/lib/catalogRanking";
@@ -305,5 +306,78 @@ test("choosing Keep offline during playback survives closing the player", async 
     }, "download");
     await useTorrents.getState().finishActiveStream();
     assert.deepEqual(deleted, []);
+  });
+});
+
+// File paths below are the real pack paths and Torrentio rows returned for
+// Game of Thrones / The Walking Dead on 2026-10-12 (metadata only).
+const TALES = "Xtras - Tales of the Walking Dead S01 (2022- 360p re-webrip)/Tales of the Walking Dead S01E01 Evie - Joe.mp4";
+
+test("a spin-off file inside a pack never plays as the requested show", () => {
+  const files = [file("The Walking Dead S11E01 Acheron Part I.mp4", 0), file(TALES, 25)];
+  assert.equal(selectVideoFile(files, { season: 1, episode: 1, preferredIndex: 25, title: "The Walking Dead" }), null);
+  assert.equal(selectVideoFile([file("Fear the Walking Dead S01E01 Pilot.mkv")], { season: 1, episode: 1, title: "The Walking Dead" }), null);
+  // Without a title the old behaviour is unchanged.
+  assert.equal(selectVideoFile(files, { season: 1, episode: 1, preferredIndex: 25 })?.index, 25);
+});
+
+test("real season-pack paths for the requested show stay selectable", () => {
+  const cases: Array<[string, string, number, number]> = [
+    ["Game of Thrones", "[TorrentCouch.net].Game.of.Thrones.S08E03.720p.AMZN.WEB-DL.x264.mp4", 8, 3],
+    ["Game of Thrones", "Game of Thrones - Season 1/GOT E01/Game of Thrones S01E01 - HDTVRip 720p x264.mp4", 1, 1],
+    ["Game of Thrones", "Game.Of.Thrones.Season.1-4.Complete.720p.x264.Arabic-sub/Game of Thrones - Season 4/game.of.thronesS04E09 HDTV x264-KILLERS.mp4", 4, 9],
+    ["The Walking Dead", "1.The.Walking.Dead.S01.Season.1.720p.BluRay.x264.anoXmous/01/The.Walking.Dead.S01E01.720p.BluRay.x264.anoXmous_.mp4", 1, 1],
+    ["The Walking Dead", "The.Walking.Dead.(2015).S06.720p.NF.Web-DL.[TR-EN].DDP5.1.H.264-TURG/The.Walking.Dead.(2015).S06E16.720p.NF.Web-DL.[TR-EN].DDP5.1.H.264-TURG.mkv", 6, 16],
+    ["The Walking Dead", "The Walking Dead Season 6/The Walking Dead S06E16 Last Day on Earth.mp4", 6, 16],
+    ["The Walking Dead", "The Walking Dead S11E24 Rest in Peace.mp4", 11, 24],
+  ];
+  for (const [title, name, season, episode] of cases) {
+    assert.equal(selectVideoFile([file(name, 3)], { season, episode, preferredIndex: 3, title })?.name, name, name);
+  }
+});
+
+test("a provider row pointing at a spin-off file is recognised before it is added", () => {
+  const row = {
+    title: `The Walking Dead Season 11 + Tales of Season 1 - threesixtyp\n${TALES}\n👤 27 💾 133.2 MB ⚙️ ThePirateBay`,
+    fileNameHint: "Tales of the Walking Dead S01E01 Evie - Joe.mp4",
+  };
+  assert.equal(sourceNamesAnotherShow(row, "The Walking Dead"), true);
+  assert.equal(sourceNamesAnotherShow({
+    title: "The Walking Dead Season 11 + Tales of Season 1 - threesixtyp\nThe Walking Dead S11E24 Rest in Peace.mp4\n👤 27",
+  }, "The Walking Dead"), false);
+});
+
+test("dubbed and voice-over releases without ISO tags are not treated as English", () => {
+  assert.equal(classifySourceLanguage("Игра престолов / Game of Thrones [S01-08] (2011-2019) BDRip-AVC от DZgas | КПК | LostFilm"), "non-english");
+  assert.equal(classifySourceLanguage("The Walking Dead *2010-2022* ((SEZON 1-11)) [1080p.BluRay.WEB.x264-MIX] [Lektor PL]"), "non-english");
+  assert.equal(classifySourceLanguage("Game.of.Thrones.S01.1080p.BluRay.x265-RARBG"), "unknown");
+  assert.equal(classifySourceLanguage("Game Of Thrones - Season 1 to 6 (Eng Subs) - Mp4 1080p"), "english");
+});
+
+test("a source without the requested episode fails over instead of downloading the whole pack", async () => {
+  await withEngine((call) => {
+    if (call.path === `/torrents/${HASH}`) {
+      return json(details(HASH, {
+        files: [
+          { name: "The Walking Dead S11E01 Acheron Part I.mp4", length: 100, included: true },
+          { name: TALES, length: 100, included: true },
+        ],
+      }));
+    }
+    if (call.path === `/torrents/${HASH}/stats/v1`) return json({ state: "live" });
+    return json({}, 404);
+  }, async (calls) => {
+    useTorrents.setState({
+      streamRequestId: 41,
+      pendingStreamHash: HASH,
+      pendingStreamFileIndex: 1,
+      pendingStreamFileName: null,
+      pendingStreamMedia: { title: "The Walking Dead", season: 1, episode: 1, isEpisode: true },
+    });
+    await assert.rejects(
+      useTorrents.getState().prepareStreamFile(41),
+      /doesn't contain a playable video for The Walking Dead S1 E1/
+    );
+    assert.ok(!calls.some((call) => call.path.endsWith("/update_only_files")));
   });
 });

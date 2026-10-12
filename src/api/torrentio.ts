@@ -162,6 +162,7 @@ export class TorrentioClient {
           streamUrl: stream.url,
           category: stream.name?.replace(/\n/g, " · "),
           fileIndex: stream.fileIdx,
+          fileNameHint: stream.behaviorHints?.filename,
           sourceLanguage,
         };
       });

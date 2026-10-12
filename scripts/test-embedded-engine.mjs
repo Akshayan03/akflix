@@ -121,6 +121,12 @@ const stats = async (hash) => (await (await api(`/torrents/${hash}/stats/v1`)).j
 
 let infoHash = "";
 let magnet = "";
+// A generated two-file season pack whose only S01E01 belongs to a spin-off.
+const PACK = "Show S11 + Tales of Season 1";
+const PACK_FILES = [["Show S11E01 Pilot.mp4"], ["Xtras - Tales of Show S01", "Tales of Show S01E01 Evie.mp4"]];
+let packHash = "";
+let packMagnet = "";
+let packTorrent;
 let mediaBytes;
 let torrentBytes;
 let RqbitClient;
@@ -147,6 +153,8 @@ before(async () => {
       response.end(Buffer.concat([Buffer.from("d8:intervali30e5:peers6:"), peer, Buffer.from("e")]));
     } else if (request.url === `/${infoHash.toUpperCase()}.torrent`) {
       response.end(torrentBytes);
+    } else if (request.url === `/${packHash.toUpperCase()}.torrent`) {
+      response.end(packTorrent);
     } else {
       response.writeHead(404).end();
     }
@@ -156,6 +164,25 @@ before(async () => {
   torrentBytes = bencode({ announce: trackerUrl, info });
   infoHash = createHash("sha1").update(bencode(info)).digest("hex");
   magnet = `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(NAME)}&tr=${encodeURIComponent(trackerUrl)}`;
+
+  const packBytes = Buffer.concat(PACK_FILES.map(() => mediaBytes));
+  const packPieces = [];
+  for (let offset = 0; offset < packBytes.length; offset += pieceLength) {
+    packPieces.push(createHash("sha1").update(packBytes.subarray(offset, offset + pieceLength)).digest());
+  }
+  const packInfo = {
+    name: PACK,
+    "piece length": pieceLength,
+    pieces: Buffer.concat(packPieces),
+    files: PACK_FILES.map((path) => ({ length: mediaBytes.length, path })),
+  };
+  for (const path of PACK_FILES) {
+    mkdirSync(join(seedDir, PACK, ...path.slice(0, -1)), { recursive: true });
+    writeFileSync(join(seedDir, PACK, ...path), mediaBytes);
+  }
+  packTorrent = bencode({ announce: trackerUrl, info: packInfo });
+  packHash = createHash("sha1").update(bencode(packInfo)).digest("hex");
+  packMagnet = `magnet:?xt=urn:btih:${packHash}&dn=${encodeURIComponent(PACK)}&tr=${encodeURIComponent(trackerUrl)}`;
 
   const isolation = ["--disable-dht", "--disable-dht-persistence", "--disable-upnp-port-forward", "--disable-lsd", "--listen-ip", "127.0.0.1"];
   startEngine([...isolation, "--http-api-listen-addr", `127.0.0.1:${ports.seederApi}`, "--listen-port", String(ports.seederPeer),
@@ -172,6 +199,12 @@ before(async () => {
     const response = await fetch(`http://127.0.0.1:${ports.seederApi}/torrents/${infoHash}/stats/v1`);
     return response.ok && (await response.json()).finished;
   }, 30_000, "seeder did not verify the generated media");
+  const seededPack = await fetch(`http://127.0.0.1:${ports.seederApi}/torrents?overwrite=true`, { method: "POST", body: packTorrent });
+  assert.equal(seededPack.status, 200, await seededPack.text());
+  await waitFor(async () => {
+    const response = await fetch(`http://127.0.0.1:${ports.seederApi}/torrents/${packHash}/stats/v1`);
+    return response.ok && (await response.json()).finished;
+  }, 30_000, "seeder did not verify the generated pack");
 
   // Hermetic network: the app's metadata cache becomes the loopback server and
   // public trackers are stripped. Anything else non-local is refused.
@@ -293,4 +326,16 @@ test("an unwritable engine state folder is reported as a storage failure, not tr
   } finally {
     chmodSync(stateDir, 0o755);
   }
+});
+
+test("a pack without the requested episode is rejected; unselected, the engine fetches every file", async () => {
+  const client = new RqbitClient(engineUrl);
+  await client.add(packMagnet, "stream");
+  // Torrentio's index pointed at the spin-off file (index 1) for "Show" S1E1.
+  assert.equal(await client.prioritizeVideoFile(packHash, 1, { season: 1, episode: 1, title: "Show" }), null);
+  // This is why the desktop stream must fail over instead of waiting: with no
+  // file selected the engine keeps downloading the whole pack.
+  await waitFor(async () => (await stats(packHash)).finished, 20_000, "engine did not fetch the unselected pack");
+  const response = await api(`/torrents/${packHash}/delete`, { method: "POST" });
+  assert.equal(response.status, 200);
 });

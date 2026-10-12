@@ -42,11 +42,16 @@ export function matchesPreferredAudio(result: TorrentResult, preferredLanguage: 
   return PREFERRED_LANGUAGE_TAGS[preferred]?.test(sourceText(result)) ?? false;
 }
 
+// Dubbed/voice-over releases often carry no ISO tag: a Cyrillic release
+// name (LostFilm and similar dubbing groups) or a Polish "Lektor" track.
+const FOREIGN_RELEASE =
+  /\p{Script=Cyrillic}|\b(?:lektor|dubbing|napisy|lostfilm|newstudio|coldfilm|baibako)\b/iu;
+
 /** Classify only explicit release language tags; unlabelled releases stay neutral. */
 export function classifySourceLanguage(text: string): SourceLanguage {
   const normalized = text.replace(/[._]+/g, " ");
   const hasEnglish = ENGLISH.test(normalized);
-  const hasNonEnglish = NON_ENGLISH.test(normalized);
+  const hasNonEnglish = NON_ENGLISH.test(normalized) || FOREIGN_RELEASE.test(normalized);
   if (MULTI.test(normalized) || (hasEnglish && hasNonEnglish)) return "multi";
   if (hasEnglish) return "english";
   if (hasNonEnglish) return "non-english";

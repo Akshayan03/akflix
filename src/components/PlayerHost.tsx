@@ -233,6 +233,7 @@ export default function PlayerHost() {
   const nextEpisodeRef = useRef<string | null>(null);
   const directIdRef = useRef<number | null>(null);
   const directRequestRef = useRef<DirectPlaybackRequest | null>(null);
+  const compatibilityFallbackRef = useRef<DirectPlaybackRequest | null>(null);
   const requestedPlaybackRateRef = useRef(usePlayback.getState().playbackRate);
   const bufferingIndicatorTimer = useRef<ReturnType<typeof setTimeout>>();
   const playbackStallTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -733,6 +734,56 @@ export default function PlayerHost() {
       }, 280);
     },
     [_sync]
+  );
+
+  /**
+   * The extension check sends every MP4 to WebKit directly, but WebKit cannot
+   * decode HEVC tagged "hev1" (MediaError) and drops DTS audio (no audio
+   * track). The rolling FFmpeg conversion handles both, so move the same
+   * release over once instead of reporting an interruption.
+   */
+  const convertDirectSource = useCallback(
+    async (reason: string): Promise<boolean> => {
+      const video = videoRef.current;
+      const request = directRequestRef.current;
+      if (!video || !request || request.compatibility) return false;
+      if (compatibilityFallbackRef.current === request) return false;
+      const hash = request.url.match(/^http:\/\/127\.0\.0\.1:3031\/torrents\/([a-f\d]{40})\/stream\/\d+$/i)?.[1];
+      if (!hash) return false;
+      compatibilityFallbackRef.current = request;
+      const inputUrl = request.url;
+      const streamId = hash.toLowerCase();
+      const startSeconds =
+        video.currentTime > 1 ? video.currentTime : Math.max(0, request.resumeSeconds ?? 0);
+      setError(null);
+      _sync({ buffering: true });
+      toast.info("Converting this source for playback", { description: reason });
+      try {
+        const url = await startCompatibilityStreamUrl(inputUrl, streamId, preferredAudioLanguage, startSeconds);
+        if (directRequestRef.current !== request) return true;
+        request.compatibility = { streamId, audioLanguage: preferredAudioLanguage, inputUrl, startSeconds };
+        request.url = url;
+        directResumeAppliedRef.current = request.playbackRequestId ?? null;
+        captionInputRef.current = inputUrl;
+        setCompatibilityStartSeconds(startSeconds);
+        video.src = url;
+        video.load();
+        applyPlaybackRate(video, requestedPlaybackRateRef.current);
+        video.volume = usePlayback.getState().volume;
+        video.muted = usePlayback.getState().muted;
+        await video.play().catch(() => {});
+      } catch (conversion) {
+        if (directRequestRef.current !== request) return true;
+        _sync({ buffering: false });
+        setError(
+          `${reason} Akflix could not convert it either (${
+            conversion instanceof Error ? conversion.message : String(conversion)
+          }). Choose another source.`
+        );
+      }
+      return true;
+    },
+    [_sync, preferredAudioLanguage]
   );
 
   const showSeekFeedback = useCallback((delta: number) => {
@@ -1388,6 +1439,14 @@ export default function PlayerHost() {
             clearPlaybackStall();
             _sync({ buffering: false });
             const request = directRequestRef.current;
+            // WebKit drops DTS (and similar) audio tracks and plays silence.
+            // Tracks are only listed from canplay on (0 at loadedmetadata for
+            // every file); the conversion re-encodes the audio to AAC.
+            const audioTracks = (e.currentTarget as HTMLVideoElement & { audioTracks?: { length: number } })
+              .audioTracks;
+            if (request && !request.compatibility && audioTracks?.length === 0) {
+              void convertDirectSource("This file's audio format has no sound in the desktop player.");
+            }
             const target = request?.resumeSeconds ?? 0;
             if (
               request &&
@@ -1475,6 +1534,23 @@ export default function PlayerHost() {
           onError={(e) => {
             const mediaError = e.currentTarget.error;
             const directRequest = directRequestRef.current;
+            if (
+              session?.direct &&
+              directRequest &&
+              !directRequest.compatibility &&
+              (mediaError?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED ||
+                mediaError?.code === MediaError.MEDIA_ERR_DECODE)
+            ) {
+              const reason = `The desktop player can't decode this file's format (media error ${mediaError.code}${
+                mediaError.message ? `: ${mediaError.message}` : ""
+              }).`;
+              void convertDirectSource(reason).then((handled) => {
+                if (handled) return;
+                setError(`${reason} Choose another source.`);
+                _sync({ buffering: false });
+              });
+              return;
+            }
             setError(
               session?.direct && directRequest
                 ? "The selected source was interrupted. Akflix kept the same release and playback position. Wait for it to recover or choose another stream yourself."

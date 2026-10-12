@@ -17,7 +17,10 @@ const MODE_KEY = "akflix.embedded-torrent-modes";
 // rqbit holds an add open until magnet metadata resolves (600 s by default).
 // The engine enforces these limits itself so a slow add fails with a real
 // error instead of the client abandoning a half-created torrent.
-const METADATA_CACHE_TIMEOUT_MS = 7_000;
+// The cache answers in about a second when it has the file (0.3-1.1 s for
+// every hit measured on 2026-10-12); misses either fail at once or hang until
+// this limit, which delayed every such source before the magnet was tried.
+const METADATA_CACHE_TIMEOUT_MS = 3_000;
 const MAGNET_TIMEOUT_MS = 11_000;
 const CLIENT_TIMEOUT_MARGIN_MS = 3_000;
 // A new or restored torrent rejects changes while its initial check runs.

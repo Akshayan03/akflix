@@ -20,6 +20,7 @@ import { stopCompatibilityStream } from "@/lib/compatStream";
 import { automaticSafeSources } from "@/lib/sourceLanguage";
 import { availableMediaStorage } from "@/lib/mediaStorage";
 import { formatBytes } from "@/lib/utils";
+import { sourceNamesAnotherShow } from "@/lib/mediaSelection";
 
 interface TorrentState {
   torrents: QbtTorrent[];
@@ -129,6 +130,19 @@ async function deleteTemporaryStream(qbt: TorrentClient, hash: string): Promise<
   const latest = await qbt.list().catch(() => null);
   if (latest?.find((torrent) => torrent.hash === hash)?.category === "akflix-download") return;
   await qbt.delete(hash, true);
+}
+
+/**
+ * Providers sometimes index a spin-off's file under the requested episode
+ * (for example "Tales of the Walking Dead S01E01" for The Walking Dead S1E1).
+ */
+function sameShowSources(results: TorrentResult[], media?: DirectPlaybackMetadata): TorrentResult[] {
+  if (media?.season === undefined) return results;
+  const matching = results.filter((result) => !sourceNamesAnotherShow(result, media.title));
+  if (results.length && !matching.length) {
+    throw new Error("Every source found for this episode points at a different show's file.");
+  }
+  return matching;
 }
 
 const STREAM_STORAGE_RESERVE = 512 * 1024 * 1024;
@@ -284,7 +298,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     });
     try {
     const eligibleResults = await sourcesThatFitStorage(
-      automaticSafeSources(results, useSettings.getState().audioLanguage)
+      automaticSafeSources(sameShowSources(results, media), useSettings.getState().audioLanguage)
     );
     ensureCurrent();
     const unique = new Map<string, TorrentResult>();
@@ -652,8 +666,21 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     const selected = await get().qbt().prioritizeVideoFile(hash, index ?? undefined, {
       season: media?.season,
       episode: media?.episode,
+      title: media?.title,
     });
-    if (!selected) return false;
+    if (!selected) {
+      // The embedded engine knows the full file list once the add returns, so
+      // no match is final. Report it so the stream fails over instead of
+      // downloading the whole pack behind an endless spinner.
+      if (get().qbt().instantStreaming && get().streamRequestId === requestId) {
+        const episode =
+          media?.season !== undefined && media.episode !== undefined
+            ? ` S${media.season} E${media.episode}`
+            : "";
+        throw new Error(`This source doesn't contain a playable video for ${media?.title ?? "this title"}${episode}.`);
+      }
+      return false;
+    }
     await get().qbt().refreshStreamPriority(hash).catch(() => {});
     if (get().streamRequestId !== requestId || get().pendingStreamHash !== hash) return false;
     set({

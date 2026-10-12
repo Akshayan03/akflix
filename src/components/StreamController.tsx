@@ -103,11 +103,34 @@ export default function StreamController() {
     const requestId = streamRequestId;
     priorityBusy.current = requestId;
     prepareStreamFile(requestId)
-      .catch(() => false)
+      .catch(async (reason) => {
+        // Without a selected file the engine keeps fetching the whole torrent
+        // and the stall timer never fires. Move on to the next source.
+        if (useTorrents.getState().streamRequestId !== requestId) return false;
+        if (failoverBusy.current === requestId) return false;
+        failoverBusy.current = requestId;
+        const detail = reason instanceof Error ? reason.message : String(reason);
+        try {
+          const next = await failoverPendingStream(requestId);
+          if (next) {
+            toast.info("Trying another source", { description: detail });
+          } else if (useTorrents.getState().streamRequestId === requestId) {
+            await cancelPendingStream(requestId).catch(() => {});
+            toast.error("Couldn’t start playback", { description: detail });
+          }
+        } catch (error) {
+          toast.error("Couldn’t start playback", {
+            description: error instanceof Error ? error.message : String(error),
+          });
+        } finally {
+          if (failoverBusy.current === requestId) failoverBusy.current = null;
+        }
+        return false;
+      })
       .finally(() => {
         if (priorityBusy.current === requestId) priorityBusy.current = null;
       });
-  }, [pendingStreamFileName, pendingStreamHash, prepareStreamFile, streamRequestId, torrent]);
+  }, [cancelPendingStream, failoverPendingStream, pendingStreamFileName, pendingStreamHash, prepareStreamFile, streamRequestId, torrent]);
 
   // A source that cannot deliver metadata or a single opening byte should
   // never spin forever. Try the next ranked Torrentio release automatically.

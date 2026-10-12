@@ -6,6 +6,57 @@ export interface EpisodeFileHint {
   preferredIndex?: number;
   season?: number;
   episode?: number;
+  /** Catalog series title, used to reject spin-off and bonus files in packs. */
+  title?: string;
+}
+
+const EXTRAS_FOLDER =
+  /(?:^|\/)(?:x?tras|extras?|featurettes?|bonus|behind[\s._-]*the[\s._-]*scenes)(?:[\s._-][^/]*)?\//i;
+
+function comparableTitle(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/\[[^\]]*\]|\([^)]*\)|\{[^}]*\}/g, " ")
+    .replace(/\b(?:www\.)?[a-z\d-]+\.(?:com|net|org|to|me|io|cc|tv|xyz|ws|in|eu)\b/g, " ")
+    .replace(/\b(?:19|20)\d{2}\b/g, " ")
+    .replace(/[^a-z\d]+/g, "");
+}
+
+/**
+ * True when a pack path clearly belongs to a different show, such as
+ * "Xtras - Tales of the Walking Dead S01/…" inside a The Walking Dead pack.
+ * Torrentio's file index can point at such a file; an explicit S01E01 must
+ * not be enough to play another series.
+ */
+export function namesAnotherShow(path: string, title?: string): boolean {
+  const wanted = title ? comparableTitle(title) : "";
+  if (!path || wanted.length < 4) return false;
+  const normalized = path.replace(/\\/g, "/");
+  if (EXTRAS_FOLDER.test(normalized)) return true;
+  return normalized.split("/").some((part) => {
+    const lead = part.split(/s\d{1,2}[\s._-]*e\d{1,3}|\bseason\b|\bs\d{1,2}\b/i)[0];
+    const found = comparableTitle(lead);
+    // Extra words before the catalog title name a spin-off ("Fear the …",
+    // "Tales of the …"). Numbering such as "1.The.Walking.Dead" is fine.
+    return (
+      found.length > wanted.length &&
+      found.endsWith(wanted) &&
+      /[a-z]{3,}/.test(found.slice(0, found.length - wanted.length))
+    );
+  });
+}
+
+/** The file a provider row points at: its pack path line or advertised name. */
+export function sourceNamesAnotherShow(
+  result: { title: string; fileNameHint?: string },
+  title?: string
+): boolean {
+  const paths = result.title
+    .split("\n")
+    .slice(1)
+    .filter((line) => line.trim() && !/👤|💾|⚙️/u.test(line));
+  return [...paths, result.fileNameHint ?? ""].some((path) => namesAnotherShow(path, title));
 }
 
 interface EpisodeCoordinates {
@@ -61,7 +112,11 @@ export function selectVideoFile(files: QbtFile[], hint: EpisodeFileHint = {}): Q
   if (!files.length) return null;
   const videos = files.filter((file) => VIDEO_FILE.test(file.name));
   if (!videos.length) return null;
-  const playable = videos;
+  const playable =
+    hint.season !== undefined && hint.episode !== undefined
+      ? videos.filter((file) => !namesAnotherShow(file.name, hint.title))
+      : videos;
+  if (!playable.length) return null;
   const preferred = playable.find((file) => file.index === hint.preferredIndex);
 
   if (hint.season !== undefined && hint.episode !== undefined) {
