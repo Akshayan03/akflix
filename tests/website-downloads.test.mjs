@@ -23,6 +23,7 @@ test("website prominently discloses unresolved reports and existing installer pr
   for (const text of ["Playback engine unavailable", "storage leftovers", "not confirmed resolved on users’ computers", "not on every computer or source", "Leftover files from older versions are not deleted automatically", "previous verified installer remains available", "36370150671", "37508503458", 'href="downloads/manifest.json"', 'href="downloads/SHA256SUMS.txt"']) assert.ok(html.includes(text), text);
   assert.ok(!html.includes("Temporary pieces are cached during playback and removed afterward."));
   assert.ok(!html.includes("not a playback fix"), "stale 1.0.17 notice");
+  for (const text of ["1.0.19 playback update", "not by playing those shows", "an episode still cannot play when nobody is sharing it"]) assert.ok(html.includes(text), text);
 });
 
 test("a Mac-only update retains the newest complete Windows release", () => {
