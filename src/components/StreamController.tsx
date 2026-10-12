@@ -130,6 +130,11 @@ export default function StreamController() {
             });
           }
         })
+        .catch((reason) => {
+          toast.error("Couldn’t start playback", {
+            description: reason instanceof Error ? reason.message : String(reason),
+          });
+        })
         .finally(() => {
           if (failoverBusy.current === requestId) failoverBusy.current = null;
         });

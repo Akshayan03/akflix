@@ -33,6 +33,8 @@ use tiny_http::{Header, Method, Response, Server, StatusCode};
 use std::{ffi::CString, os::unix::ffi::OsStrExt};
 
 const RQBIT_API: &str = "127.0.0.1:3031";
+/// Engine state kept beside media stored outside Akflix's default folder.
+const MEDIA_ENGINE_STATE: &str = ".akflix-engine";
 static APP_MEDIA_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static RQBIT_PROCESS: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
 static RQBIT_START_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -214,14 +216,33 @@ fn build_media_storage_status(app: &tauri::AppHandle) -> Result<MediaStorageStat
     })
 }
 
-#[tauri::command]
-fn media_storage_status(app: tauri::AppHandle) -> Result<MediaStorageStatus, String> {
-    build_media_storage_status(&app)
+/// Synchronous commands run on the macOS main thread inside Tauri's IPC
+/// handler. Anything that touches disks, the engine or FFmpeg runs here
+/// instead, so a slow drive or source never freezes the window and every
+/// other request queued behind it.
+async fn off_main_thread<T: Send + 'static>(
+    task: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| format!("Akflix background task stopped: {error}"))?
 }
 
 #[tauri::command]
-fn configure_media_storage(
+async fn media_storage_status(app: tauri::AppHandle) -> Result<MediaStorageStatus, String> {
+    off_main_thread(move || build_media_storage_status(&app)).await
+}
+
+#[tauri::command]
+async fn configure_media_storage(
     app: tauri::AppHandle,
+    selected_path: String,
+) -> Result<MediaStorageStatus, String> {
+    off_main_thread(move || configure_media_storage_sync(&app, selected_path)).await
+}
+
+fn configure_media_storage_sync(
+    app: &tauri::AppHandle,
     selected_path: String,
 ) -> Result<MediaStorageStatus, String> {
     let selected = PathBuf::from(selected_path);
@@ -237,16 +258,19 @@ fn configure_media_storage(
         .map_err(|error| format!("Akflix cannot write to this location: {error}"))?;
     fs::remove_file(&probe).map_err(|error| error.to_string())?;
 
-    write_media_storage_preference(&app, Some(target))?;
-    build_media_storage_status(&app)
+    write_media_storage_preference(app, Some(target))?;
+    build_media_storage_status(app)
 }
 
 #[tauri::command]
-fn reset_media_storage(app: tauri::AppHandle) -> Result<MediaStorageStatus, String> {
-    let default = default_media_root(&app)?;
-    fs::create_dir_all(&default).map_err(|error| error.to_string())?;
-    write_media_storage_preference(&app, None)?;
-    build_media_storage_status(&app)
+async fn reset_media_storage(app: tauri::AppHandle) -> Result<MediaStorageStatus, String> {
+    off_main_thread(move || {
+        let default = default_media_root(&app)?;
+        fs::create_dir_all(&default).map_err(|error| error.to_string())?;
+        write_media_storage_preference(&app, None)?;
+        build_media_storage_status(&app)
+    })
+    .await
 }
 
 #[cfg(unix)]
@@ -268,7 +292,11 @@ fn available_bytes(_path: &std::path::Path) -> Result<u64, String> {
 }
 
 #[tauri::command]
-fn available_media_storage() -> Result<u64, String> {
+async fn available_media_storage() -> Result<u64, String> {
+    off_main_thread(available_media_storage_sync).await
+}
+
+fn available_media_storage_sync() -> Result<u64, String> {
     let root = downloads_root().ok_or("Could not locate media storage")?;
     if !root.is_dir() {
         let name = media_volume_name(&root).unwrap_or_else(|| "selected storage".into());
@@ -280,7 +308,11 @@ fn available_media_storage() -> Result<u64, String> {
 }
 
 #[tauri::command]
-fn remove_embedded_media_files(relative_paths: Vec<String>) -> Result<(), String> {
+async fn remove_embedded_media_files(relative_paths: Vec<String>) -> Result<(), String> {
+    off_main_thread(move || remove_media_files(relative_paths)).await
+}
+
+fn remove_media_files(relative_paths: Vec<String>) -> Result<(), String> {
     let root = downloads_root().ok_or("Could not locate media storage")?;
     for value in relative_paths {
         let relative = PathBuf::from(value);
@@ -288,6 +320,7 @@ fn remove_embedded_media_files(relative_paths: Vec<String>) -> Result<(), String
             || relative
                 .components()
                 .any(|part| !matches!(part, Component::Normal(_)))
+            || is_engine_state_path(&relative)
         {
             continue;
         }
@@ -385,6 +418,67 @@ fn pause_persisted_torrents(state: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
+/// rqbit must write its session before it accepts a new torrent, so an add
+/// fails whenever this folder's disk is full. Keep the state on the same drive
+/// as the media it describes: a full startup disk then cannot block streams
+/// that are stored on a selected external drive.
+fn engine_state_dir(app_data: &std::path::Path, media: &std::path::Path) -> PathBuf {
+    if media == app_data.join("Media") {
+        app_data.join("Engine")
+    } else {
+        media.join(MEDIA_ENGINE_STATE)
+    }
+}
+
+/// Copy the previous engine session the first time a media drive gets its own
+/// state folder. The original folder is left untouched as a backup and is used
+/// again if the user switches back to this Mac's storage.
+fn prepare_engine_state(legacy: &std::path::Path, state: &std::path::Path) -> Result<(), String> {
+    if state == legacy
+        || state.join("session.json").is_file()
+        || !legacy.join("session.json").is_file()
+    {
+        return fs::create_dir_all(state).map_err(|error| error.to_string());
+    }
+    let occupied = fs::read_dir(state)
+        .map(|mut entries| entries.next().is_some())
+        .unwrap_or(false);
+    if occupied {
+        // Never mix two sessions in one folder.
+        return Ok(());
+    }
+    let staging = state.with_extension("migrating");
+    let _ = fs::remove_dir_all(&staging);
+    fs::create_dir_all(&staging).map_err(|error| error.to_string())?;
+    let copied = (|| -> std::io::Result<()> {
+        for entry in fs::read_dir(legacy)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
+                fs::copy(entry.path(), staging.join(entry.file_name()))?;
+            }
+        }
+        Ok(())
+    })();
+    if let Err(error) = copied {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(format!("Could not move the playback engine state: {error}"));
+    }
+    // A plain rename publishes the complete copy at once; an interrupted copy
+    // only ever leaves the staging folder behind.
+    if state.exists() {
+        fs::remove_dir(state).map_err(|error| error.to_string())?;
+    }
+    fs::rename(&staging, state).map_err(|error| error.to_string())
+}
+
+/// The engine state folder inside a media root is never served or deleted as media.
+fn is_engine_state_path(relative: &std::path::Path) -> bool {
+    relative
+        .components()
+        .next()
+        .is_some_and(|part| part.as_os_str() == MEDIA_ENGINE_STATE)
+}
+
 fn rqbit_process_running() -> bool {
     let Ok(mut process) = rqbit_process().lock() else {
         return false;
@@ -413,7 +507,7 @@ fn start_embedded_torrent_engine(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     let default_media = app_data.join("Media");
     let media = preferred_media_root(app)?;
-    let state = app_data.join("Engine");
+    let legacy_state = app_data.join("Engine");
     let _ = APP_MEDIA_ROOT.set(media.clone());
 
     if media == default_media {
@@ -432,7 +526,17 @@ fn start_embedded_torrent_engine(app: &tauri::AppHandle) -> Result<(), String> {
         // never resumable across launches and can confuse a new player request.
         let _ = fs::remove_dir_all(media.join("Streaming Cache/.akflix-hls"));
     }
-    fs::create_dir_all(&state).map_err(|error| error.to_string())?;
+    let preferred_state = engine_state_dir(&app_data, &media);
+    let state = match prepare_engine_state(&legacy_state, &preferred_state) {
+        Ok(()) => preferred_state,
+        Err(error) => {
+            // Keep the previous behavior rather than starting without the
+            // user's saved downloads.
+            eprintln!("Akflix engine state warning: {error}");
+            fs::create_dir_all(&legacy_state).map_err(|error| error.to_string())?;
+            legacy_state
+        }
+    };
     if rqbit_ready() {
         return Ok(());
     }
@@ -532,6 +636,7 @@ fn safe_media_path(url: &str) -> Option<PathBuf> {
     if relative
         .components()
         .any(|part| !matches!(part, Component::Normal(_)))
+        || is_engine_state_path(&relative)
     {
         return None;
     }
@@ -1046,10 +1151,7 @@ fn start_hls_input(
         .spawn()
         .map_err(|error| format!("Could not start FFmpeg: {error}"))?;
 
-    hls_processes()
-        .lock()
-        .map_err(|_| "HLS process lock failed")?
-        .insert(id.clone(), child);
+    let pid = register_hls_process(&id, child)?;
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(20) {
         if playlist
@@ -1059,28 +1161,75 @@ fn start_hls_input(
         {
             return Ok(format!("Streaming%20Cache/.akflix-hls/{id}/index.m3u8"));
         }
-        let exited = hls_processes()
-            .lock()
-            .ok()
-            .and_then(|mut items| {
-                items
-                    .get_mut(&id)
-                    .and_then(|child| child.try_wait().ok())
-                    .flatten()
-            })
-            .is_some();
-        if exited {
-            stop_hls_process(&id);
-            return Err("FFmpeg could not read this source yet".into());
+        match hls_child_state(&id, pid) {
+            HlsChildState::Running => {}
+            HlsChildState::Exited => {
+                stop_hls_process(&id);
+                return Err("FFmpeg could not read this source yet".into());
+            }
+            // Stopped by the player or superseded by a newer seek.
+            HlsChildState::Replaced => {
+                return Err("The compatibility stream was replaced".into());
+            }
         }
         thread::sleep(Duration::from_millis(100));
     }
-    stop_hls_process(&id);
+    if hls_child_state(&id, pid) != HlsChildState::Replaced {
+        stop_hls_process(&id);
+    }
     Err("Timed out preparing the compatibility stream".into())
 }
 
+/// Track the converter for a stream. Commands no longer queue on the main
+/// thread, so a quick seek can start a conversion while an older one for the
+/// same stream is still registered; never leave that one running unowned.
+fn register_hls_process(id: &str, child: Child) -> Result<u32, String> {
+    let pid = child.id();
+    let previous = hls_processes()
+        .lock()
+        .map_err(|_| "HLS process lock failed")?
+        .insert(id.to_string(), child);
+    if let Some(mut previous) = previous {
+        let _ = previous.kill();
+        let _ = previous.wait();
+    }
+    Ok(pid)
+}
+
+#[derive(PartialEq)]
+enum HlsChildState {
+    Running,
+    Exited,
+    Replaced,
+}
+
+fn hls_child_state(id: &str, pid: u32) -> HlsChildState {
+    let Ok(mut processes) = hls_processes().lock() else {
+        return HlsChildState::Replaced;
+    };
+    match processes.get_mut(id) {
+        Some(child) if child.id() == pid => match child.try_wait() {
+            Ok(None) => HlsChildState::Running,
+            _ => HlsChildState::Exited,
+        },
+        _ => HlsChildState::Replaced,
+    }
+}
+
 #[tauri::command]
-fn start_hls_stream(
+async fn start_hls_stream(
+    relative_path: String,
+    stream_id: String,
+    audio_language: Option<String>,
+    start_seconds: Option<f64>,
+) -> Result<String, String> {
+    off_main_thread(move || {
+        start_hls_stream_sync(relative_path, stream_id, audio_language, start_seconds)
+    })
+    .await
+}
+
+fn start_hls_stream_sync(
     relative_path: String,
     stream_id: String,
     audio_language: Option<String>,
@@ -1091,6 +1240,7 @@ fn start_hls_stream(
     if relative
         .components()
         .any(|part| !matches!(part, Component::Normal(_)))
+        || is_engine_state_path(&relative)
     {
         return Err("Invalid media path".into());
     }
@@ -1107,7 +1257,7 @@ fn start_hls_stream(
 }
 
 #[tauri::command]
-fn start_hls_url(
+async fn start_hls_url(
     input_url: String,
     stream_id: String,
     audio_language: Option<String>,
@@ -1116,7 +1266,8 @@ fn start_hls_url(
     if !input_url.starts_with("http://127.0.0.1:3031/torrents/") {
         return Err("Only the embedded local stream can be transcoded".into());
     }
-    start_hls_input(input_url, stream_id, audio_language, start_seconds)
+    off_main_thread(move || start_hls_input(input_url, stream_id, audio_language, start_seconds))
+        .await
 }
 
 #[derive(serde::Serialize)]
@@ -1129,29 +1280,40 @@ struct EmbeddedEngineStatus {
 }
 
 #[tauri::command]
-fn embedded_engine_status(app: tauri::AppHandle) -> EmbeddedEngineStatus {
-    EmbeddedEngineStatus {
-        torrent_engine: rqbit_ready(),
-        ffmpeg: find_ffmpeg().is_some(),
-        caption_model: caption_model_path(&app).is_some(),
-        media_path: downloads_root().map(|path| path.to_string_lossy().into_owned()),
-    }
+async fn embedded_engine_status(app: tauri::AppHandle) -> Result<EmbeddedEngineStatus, String> {
+    off_main_thread(move || {
+        Ok(EmbeddedEngineStatus {
+            torrent_engine: rqbit_ready(),
+            ffmpeg: find_ffmpeg().is_some(),
+            caption_model: caption_model_path(&app).is_some(),
+            media_path: downloads_root().map(|path| path.to_string_lossy().into_owned()),
+        })
+    })
+    .await
 }
 
 #[tauri::command]
-fn ensure_embedded_torrent_engine(app: tauri::AppHandle) -> Result<MediaStorageStatus, String> {
-    start_embedded_torrent_engine(&app)?;
-    build_media_storage_status(&app)
+async fn ensure_embedded_torrent_engine(
+    app: tauri::AppHandle,
+) -> Result<MediaStorageStatus, String> {
+    off_main_thread(move || {
+        start_embedded_torrent_engine(&app)?;
+        build_media_storage_status(&app)
+    })
+    .await
 }
 
 #[tauri::command]
-fn stop_hls_stream(stream_id: String) -> Result<(), String> {
+async fn stop_hls_stream(stream_id: String) -> Result<(), String> {
     let id = safe_stream_id(&stream_id).ok_or("Invalid stream id")?;
-    stop_hls_process(&id);
-    if let Some(root) = downloads_root() {
-        let _ = fs::remove_dir_all(root.join("Streaming Cache/.akflix-hls").join(id));
-    }
-    Ok(())
+    off_main_thread(move || {
+        stop_hls_process(&id);
+        if let Some(root) = downloads_root() {
+            let _ = fs::remove_dir_all(root.join("Streaming Cache/.akflix-hls").join(id));
+        }
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1441,21 +1603,186 @@ mod tests {
             .contains_key(&id));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn registering_a_newer_conversion_stops_the_older_one() {
+        let id = format!("test-replace-{}", std::process::id());
+        let older = Command::new("/bin/sleep").arg("30").spawn().expect("older");
+        let older_pid = older.id() as i32;
+        register_hls_process(&id, older).expect("register older");
+        let newer = Command::new("/bin/sleep").arg("30").spawn().expect("newer");
+        let newer_pid = register_hls_process(&id, newer).expect("register newer");
+
+        // kill(pid, 0) fails once the older converter has been stopped and reaped.
+        assert_ne!(
+            unsafe { libc::kill(older_pid, 0) },
+            0,
+            "older converter still running"
+        );
+        assert!(hls_child_state(&id, newer_pid) == HlsChildState::Running);
+        stop_hls_process(&id);
+        assert!(hls_child_state(&id, newer_pid) == HlsChildState::Replaced);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn restarting_a_conversion_with_bundled_ffmpeg_leaves_a_single_converter() {
+        let root = test_media_root();
+        let ffmpeg = find_ffmpeg().expect("bundled ffmpeg");
+        let (width, height, frames) = (160usize, 120usize, 24 * 8);
+        let frame = width * height * 3 / 2;
+        let mut pattern = vec![128u8; frame * frames];
+        for index in 0..frames {
+            for pixel in 0..width * height {
+                pattern[index * frame + pixel] = ((pixel + index * 3) & 0xff) as u8;
+            }
+        }
+        let raw = root.join(format!("pattern-{}.yuv", std::process::id()));
+        let input = root.join(format!("pattern-{}.mp4", std::process::id()));
+        fs::write(&raw, &pattern).expect("write raw frames");
+        let encoded = Command::new(&ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo"])
+            .args(["-pix_fmt", "yuv420p", "-s", "160x120", "-r", "24", "-i"])
+            .arg(&raw)
+            .args(["-c:v", "h264_videotoolbox", "-allow_sw", "1"])
+            .arg(&input)
+            .status()
+            .expect("run ffmpeg");
+        assert!(encoded.success());
+
+        let id = format!("a1f{:08x}", std::process::id());
+        let source = input.to_string_lossy().into_owned();
+        let first = thread::spawn({
+            let (source, id) = (source.clone(), id.clone());
+            move || start_hls_input(source, id, None, None)
+        });
+        thread::sleep(Duration::from_millis(30));
+        let second = start_hls_input(source, id.clone(), None, None);
+        let _ = first.join().expect("first conversion thread");
+        assert!(second.is_ok(), "{second:?}");
+
+        let converters = || {
+            let output = Command::new("pgrep")
+                .args(["-f", &format!(".akflix-hls/{id}/")])
+                .output()
+                .expect("run pgrep");
+            String::from_utf8_lossy(&output.stdout).lines().count()
+        };
+        assert_eq!(converters(), 1, "an older conversion was left running");
+        stop_hls_process(&id);
+        assert_eq!(converters(), 0);
+        let _ = fs::remove_file(raw);
+        let _ = fs::remove_file(input);
+    }
+
+    /// Media root for tests: the temporary folder, never the repository's disk.
+    fn test_media_root() -> PathBuf {
+        APP_MEDIA_ROOT
+            .get_or_init(|| {
+                let root = unique_test_folder("media-root");
+                fs::create_dir_all(&root).expect("create test media root");
+                root
+            })
+            .clone()
+    }
+
     #[test]
     fn reports_storage_and_removes_only_scoped_media() {
-        let root = downloads_root().expect("media root");
+        let root = test_media_root();
         let relative = PathBuf::from(".akflix-cleanup-test/nested/test.bin");
         let target = root.join(&relative);
         fs::create_dir_all(target.parent().expect("test parent")).expect("create test folder");
         fs::write(&target, b"temporary").expect("write test file");
 
         assert!(available_bytes(&root).expect("available bytes") > 0);
-        remove_embedded_media_files(vec![relative.to_string_lossy().into_owned()])
+        remove_media_files(vec![relative.to_string_lossy().into_owned()])
             .expect("remove temporary media");
         assert!(!target.exists());
         assert!(root.exists());
 
-        remove_embedded_media_files(vec!["../outside".into()]).expect("unsafe paths are ignored");
+        remove_media_files(vec!["../outside".into()]).expect("unsafe paths are ignored");
+    }
+
+    #[test]
+    fn keeps_engine_state_with_the_selected_media_drive() {
+        let app_data =
+            std::path::Path::new("/Users/test/Library/Application Support/com.akshayan.akflix");
+        assert_eq!(
+            engine_state_dir(app_data, &app_data.join("Media")),
+            app_data.join("Engine")
+        );
+        assert_eq!(
+            engine_state_dir(
+                app_data,
+                std::path::Path::new("/Volumes/Akflix 5/Akflix Media")
+            ),
+            PathBuf::from("/Volumes/Akflix 5/Akflix Media/.akflix-engine")
+        );
+    }
+
+    #[test]
+    fn copies_the_previous_engine_session_once_and_keeps_the_original() {
+        let root = unique_test_folder("state-migration");
+        let legacy = root.join("Engine");
+        let state = root.join("Media/.akflix-engine");
+        fs::create_dir_all(&legacy).expect("create legacy state");
+        fs::create_dir_all(state.parent().expect("media root")).expect("create media root");
+        let session = br#"{"torrents":{"0":{"info_hash":"abc","is_paused":false}}}"#;
+        fs::write(legacy.join("session.json"), session).expect("write legacy session");
+        fs::write(legacy.join("abc.torrent"), b"torrent bytes").expect("write torrent");
+
+        prepare_engine_state(&legacy, &state).expect("migrate state");
+        assert_eq!(
+            fs::read(state.join("session.json")).expect("migrated session"),
+            session
+        );
+        assert_eq!(
+            fs::read(state.join("abc.torrent")).expect("migrated torrent"),
+            b"torrent bytes"
+        );
+        assert_eq!(
+            fs::read(legacy.join("session.json")).expect("legacy kept"),
+            session
+        );
+        assert!(!state.with_extension("migrating").exists());
+
+        // The media drive's own session is authoritative from now on.
+        fs::write(state.join("session.json"), br#"{"torrents":{}}"#).expect("update state");
+        prepare_engine_state(&legacy, &state).expect("second launch");
+        assert_eq!(
+            fs::read(state.join("session.json")).expect("state kept"),
+            br#"{"torrents":{}}"#
+        );
+
+        // Never mix the previous session into a folder something else owns.
+        let occupied = root.join("Other/.akflix-engine");
+        fs::create_dir_all(&occupied).expect("create occupied state");
+        fs::write(occupied.join("unrelated.bitv"), b"x").expect("write unrelated");
+        prepare_engine_state(&legacy, &occupied).expect("occupied folder");
+        assert!(!occupied.join("session.json").exists());
+
+        fs::remove_dir_all(root).expect("remove test folder");
+    }
+
+    #[test]
+    fn never_serves_or_deletes_the_engine_state_folder() {
+        let root = test_media_root();
+        assert!(safe_media_path("/.akflix-engine/session.json").is_none());
+        assert!(safe_media_path("/%2Eakflix-engine/session.json").is_none());
+        assert!(safe_media_path("/Streaming%20Cache/movie.mp4").is_some());
+
+        let state = root.join(".akflix-engine");
+        let created = !state.exists();
+        fs::create_dir_all(&state).expect("create state folder");
+        let marker = state.join(format!("guard-{}", std::process::id()));
+        fs::write(&marker, b"state").expect("write marker");
+        remove_media_files(vec![".akflix-engine".into(), ".akflix-engine/x".into()])
+            .expect("refuse state paths");
+        assert!(marker.exists());
+        fs::remove_file(&marker).expect("remove marker");
+        if created {
+            fs::remove_dir(&state).expect("remove state folder");
+        }
     }
 
     #[test]

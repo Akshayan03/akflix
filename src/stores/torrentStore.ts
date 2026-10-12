@@ -11,7 +11,7 @@ import { create } from "zustand";
 import { ProwlarrClient } from "@/api/prowlarr";
 import { TorrentioClient, type TorrentioLookup } from "@/api/torrentio";
 import { QbtClient } from "@/api/qbittorrent";
-import { RqbitClient } from "@/api/rqbit";
+import { EngineStorageError, RqbitClient } from "@/api/rqbit";
 import { useSettings } from "@/stores/settingsStore";
 import { useAuth } from "@/stores/authStore";
 import type { QbtTorrent, TorrentAddMode, TorrentResult } from "@/types/torrent";
@@ -119,6 +119,16 @@ function magnetInfoHash(magnet: string): string | null {
   return magnet.match(/(?:\?|&)xt=urn%3Abtih%3A([a-f\d]{40})/i)?.[1]?.toLowerCase() ??
     magnet.match(/(?:\?|&)xt=urn:btih:([a-f\d]{40})/i)?.[1]?.toLowerCase() ??
     null;
+}
+
+/**
+ * Remove a temporary stream unless the user chose to keep it offline after
+ * playback started; the flag captured at stream start can be out of date.
+ */
+async function deleteTemporaryStream(qbt: TorrentClient, hash: string): Promise<void> {
+  const latest = await qbt.list().catch(() => null);
+  if (latest?.find((torrent) => torrent.hash === hash)?.category === "akflix-download") return;
+  await qbt.delete(hash, true);
 }
 
 const STREAM_STORAGE_RESERVE = 512 * 1024 * 1024;
@@ -340,6 +350,8 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
           if (!beforeByHash.has(selected.hash)) {
             await qbt.delete(selected.hash, true).catch(() => {});
           }
+          // Every other source needs the same storage write; report it now.
+          if (error instanceof EngineStorageError) throw error;
           errors.push(error instanceof Error ? error.message : String(error));
         }
       }
@@ -597,7 +609,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       await Promise.all([
         ...[...stale.entries()].map(async ([hash, temporary]) => {
           await stopCompatibilityStream(hash).catch(() => {});
-          if (temporary) await qbt.delete(hash, true).catch(() => {});
+          if (temporary) await deleteTemporaryStream(qbt, hash).catch(() => {});
         }),
         ...currentTorrents
           .filter(
@@ -752,7 +764,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       streamLaunchMedia: null,
     });
     if (hash && temporary) {
-      await get().qbt().delete(hash, true);
+      await deleteTemporaryStream(get().qbt(), hash);
       set((state) => ({ torrents: state.torrents.filter((torrent) => torrent.hash !== hash) }));
       useAuth.getState().client()?.refreshLibrary().catch(() => {});
     }
@@ -779,7 +791,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       pendingStreamStartedAt: 0,
     });
     if (oldTemporary) {
-      await get().qbt().delete(oldHash, true).catch(() => {});
+      await deleteTemporaryStream(get().qbt(), oldHash).catch(() => {});
     }
     if (get().streamRequestId !== requestId) return null;
 
@@ -796,7 +808,8 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
           pendingStreamMedia: media,
         });
         return candidate;
-      } catch {
+      } catch (error) {
+        if (error instanceof EngineStorageError) throw error;
         // Try the next ranked source without making the user reopen the picker.
       }
     }
@@ -812,7 +825,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     suppressStreamAdoptionUntil = Date.now() + 30_000;
     if (hash) await stopCompatibilityStream(hash).catch(() => {});
     if (hash && temporary) {
-      await get().qbt().delete(hash, true);
+      await deleteTemporaryStream(get().qbt(), hash);
       set((state) => ({ torrents: state.torrents.filter((torrent) => torrent.hash !== hash) }));
       useAuth.getState().client()?.refreshLibrary().catch(() => {});
     }

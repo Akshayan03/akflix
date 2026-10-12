@@ -13,8 +13,11 @@ const result = await build({
     name: "native-test-bridge",
     setup(builder) {
       builder.onResolve({ filter: /^@tauri-apps\/api\/core$/ }, () => ({ path: "bridge", namespace: "test" }));
-      builder.onLoad({ filter: /.*/, namespace: "test" }, () => ({
-        contents: "export const invoke = (...args) => globalThis.__testInvoke(...args);",
+      builder.onResolve({ filter: /^@tauri-apps\/plugin-http$/ }, () => ({ path: "http", namespace: "test" }));
+      builder.onLoad({ filter: /.*/, namespace: "test" }, (args) => ({
+        contents: args.path === "http"
+          ? "export const fetch = (...args) => globalThis.fetch(...args);"
+          : "export const invoke = (...args) => globalThis.__testInvoke(...args);",
       }));
     },
   }],

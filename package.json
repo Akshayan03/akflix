@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "node scripts/test-regressions.mjs",
+    "test:engine": "node scripts/test-embedded-engine.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
