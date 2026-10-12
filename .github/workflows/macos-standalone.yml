@@ -90,5 +90,5 @@ jobs:
             gh release create "$TAG" "$DMG" \
               --target "$GITHUB_SHA" \
               --title "Akflix $TAG" \
-              --notes "Editorial desktop UI with ivory controls, charcoal surfaces, refined title typography and keyboard-visible artwork actions. This is a visual refinement, not a playback fix. Previously reported playback, episode handoff and storage issues remain under investigation. Use source features only for content you may lawfully access."
+              --notes "Akflix 1.0.18 fixes desktop playback failures reproduced in testing: titles already known to the engine stayed paused and buffered forever; empty files left by a failed attempt blocked that release from ever streaming again; a full startup disk stopped every stream (engine state now stays on the drive chosen for media); one failed cleanup made the app report the playback engine as unavailable; and the window froze while a stream was prepared. Choosing Keep offline during playback, or watching one episode of a saved season, no longer removes downloaded files. Verified with automated tests on generated media and one public-domain film, not on every computer or source; source availability still varies and leftover files from older versions are not deleted automatically. Use source features only for content you may lawfully access."
           fi
