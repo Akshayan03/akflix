@@ -6,6 +6,8 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
+  AlertTriangle,
+  Check,
   CheckCircle2,
   ExternalLink,
   FolderOpen,
@@ -32,22 +34,28 @@ import {
   type MediaStorageStatus,
 } from "@/lib/mediaStorage";
 import { formatBytes } from "@/lib/utils";
+import { version as packageVersion } from "../../package.json";
 
-const APP_VERSION = "1.0.12"; // keep in sync with package.json / tauri.conf.json
+// The shipped version comes from package.json (the release workflow and Tauri read the same file).
+const APP_VERSION = packageVersion;
 
 type TestState = "idle" | "busy" | "ok" | "fail";
 
 function TestBadge({ state }: { state: TestState }) {
-  if (state === "ok") return <CheckCircle2 size={16} className="text-green-400" />;
-  if (state === "fail") return <XCircle size={16} className="text-red-400" />;
+  if (state === "ok")
+    return <span role="status" className="ak-badge ak-badge--solid"><CheckCircle2 size={12} aria-hidden="true" /> Connected</span>;
+  if (state === "fail")
+    return <span role="alert" className="ak-badge border-dashed"><XCircle size={12} aria-hidden="true" /> Failed</span>;
   if (state === "busy")
-    return <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-600 border-t-white" />;
+    return <span role="status" className="ak-badge ak-badge--quiet"><span className="ak-spinner h-3 w-3 !border" aria-hidden="true" /> Testing</span>;
   return null;
 }
 
 const inputCls =
-  "w-full rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-sm outline-none transition focus:border-brand/60";
-const labelCls = "mb-1 mt-4 block text-xs text-zinc-400";
+  "w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 text-sm outline-none transition placeholder:text-zinc-500 focus:border-white/70";
+const labelCls = "mb-1 mt-4 block text-xs font-medium text-zinc-300";
+const sectionCls = "glass-panel mb-6 rounded-3xl p-6";
+const secondaryButtonCls = "desktop-control desktop-secondary mt-4";
 
 const MEDIA_LANGUAGE_OPTIONS = [
   ["eng", "English"],
@@ -249,27 +257,25 @@ export default function Settings() {
       exit={{ opacity: 0 }}
       className="mx-auto min-h-screen max-w-3xl px-4 pb-32 pt-32 sm:px-6 sm:pb-24 sm:pt-28"
     >
-      <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-accent">Tune your space</p>
-      <h1 className="mb-9 text-4xl font-black tracking-[-0.04em]">{t("settings.title")}</h1>
+      <p className="ak-eyebrow mb-2">Tune your space</p>
+      <h1 className="mb-9 font-display text-5xl tracking-[-0.03em]">{t("settings.title")}</h1>
 
       {mobileApple && (
         <motion.section
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-6 flex items-center gap-4 rounded-[28px] border border-white/[0.08] bg-gradient-to-br from-brand/[0.12] to-white/[0.025] p-4 shadow-[0_18px_50px_rgba(0,0,0,.22)]"
+          className="mb-6 flex items-center gap-4 rounded-[28px] border border-white/[0.1] bg-white/[0.03] p-4"
         >
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] bg-gradient-to-br from-brand-light to-brand text-xl font-black uppercase text-[#090806] shadow-[0_12px_30px_rgba(214,178,94,.2)]">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white text-xl font-black uppercase text-black">
             {activeProfile?.userName?.[0] ?? "A"}
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-lg font-black tracking-tight">{activeProfile?.userName ?? "Akflix"}</p>
-            <p className="mt-0.5 text-xs text-zinc-500">
+            <p className="mt-0.5 text-xs text-zinc-400">
               {activeProfile?.kind === "local" ? "Local profile on this iPhone" : activeProfile?.serverName ?? "Jellyfin profile"}
             </p>
           </div>
-          <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-emerald-400">
-            Active
-          </span>
+          <span className="ak-badge ak-badge--solid">Active</span>
         </motion.section>
       )}
 
@@ -279,11 +285,11 @@ export default function Settings() {
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05 }}
-          className="glass-panel mb-6 scroll-mt-24 rounded-3xl border-brand/20 p-6"
+          className="glass-panel mb-6 scroll-mt-24 rounded-3xl p-6"
         >
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-accent">Direct playback</p>
+              <p className="ak-eyebrow !text-[9px]">Direct playback</p>
               <h2 className="mt-1 text-lg font-black">Instant streaming</h2>
             </div>
             <TestBadge state={prowlarrTest} />
@@ -302,7 +308,7 @@ export default function Settings() {
               whileTap={{ scale: 0.96 }}
               type="button"
               onClick={() => void configureTorrentio()}
-              className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand-light text-xs font-black text-[#090806]"
+              className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-full bg-white text-xs font-black text-black"
             >
               <ExternalLink size={15} /> Open Torrentio setup
             </motion.button>
@@ -325,7 +331,7 @@ export default function Settings() {
                 whileTap={{ scale: 0.96 }}
                 type="button"
                 onClick={save}
-                className="h-11 rounded-xl border border-white/10 bg-white/[0.06] text-xs font-bold text-zinc-200"
+                className="h-11 rounded-full border border-white/20 bg-white/[0.06] text-xs font-bold text-zinc-100"
               >
                 {saved ? "Saved" : "Save link"}
               </motion.button>
@@ -333,7 +339,7 @@ export default function Settings() {
                 whileTap={{ scale: 0.96 }}
                 type="button"
                 onClick={() => void testIndexer()}
-                className="h-11 rounded-xl border border-brand/30 bg-brand/10 text-xs font-bold text-brand-light"
+                className="h-11 rounded-full bg-white text-xs font-bold text-black"
               >
                 Test source
               </motion.button>
@@ -343,26 +349,26 @@ export default function Settings() {
       )}
 
       {/* ── Jellyfin servers (read-only list; add/remove via login screen) ── */}
-      <section className="glass-panel mb-6 rounded-3xl p-6">
+      <section className={sectionCls}>
         <h2 className="mb-1 font-semibold">{mobileApple ? "Personal library" : t("settings.jellyfin")}</h2>
         {mobileApple && <p className="mb-4 text-xs text-zinc-500">Optional Jellyfin connection</p>}
         {profiles.filter((profile) => profile.kind !== "local").length === 0 && (
-          <p className="text-sm text-zinc-500">No servers. Sign in from the login screen.</p>
+          <p className="text-sm text-zinc-400">No servers. Sign in from the login screen.</p>
         )}
         <ul className="space-y-2">
           {profiles.filter((profile) => profile.kind !== "local").map((p) => (
             <li
               key={p.id}
-              className="flex items-center gap-3 rounded bg-black/30 px-4 py-2.5 text-sm"
+              className="flex items-center gap-3 rounded-xl border border-white/[0.08] bg-black/30 px-4 py-2.5 text-sm"
             >
               <span className="font-medium">{p.serverName ?? "Jellyfin"}</span>
-              <span className="truncate text-zinc-500">{p.serverUrl}</span>
-              <span className="text-zinc-600">· {p.userName}</span>
+              <span className="truncate text-zinc-400">{p.serverUrl}</span>
+              <span className="text-zinc-400">· {p.userName}</span>
               <span className="ml-auto flex items-center gap-2">
                 <TestBadge state={jfTests[p.id] ?? "idle"} />
                 <button
                   onClick={() => testJellyfin(p.id, p.serverUrl)}
-                  className="text-xs text-zinc-400 underline-offset-2 hover:text-white hover:underline"
+                  className="text-xs text-zinc-300 underline underline-offset-2 hover:text-white"
                 >
                   {t("settings.test")}
                 </button>
@@ -373,15 +379,16 @@ export default function Settings() {
       </section>
 
       {/* ── Playback engine ── */}
-      {!mobileApple && <section className="glass-panel mb-6 rounded-3xl p-6">
+      {!mobileApple && <section className={sectionCls}>
         <div className="flex items-center gap-2">
           <h2 className="font-semibold">{t("settings.torrentClient")}</h2>
           <TestBadge state={qbtTest} />
         </div>
 
           <>
-            <label className={labelCls}>Engine</label>
+            <label htmlFor="settings-field-1" className={labelCls}>Engine</label>
             <select
+              id="settings-field-1"
               value={draft.torrentEngine}
               onChange={(event) => set("torrentEngine", event.target.value as typeof draft.torrentEngine)}
               className={inputCls}
@@ -392,14 +399,14 @@ export default function Settings() {
 
             {draft.torrentEngine === "embedded" ? (
               <>
-                <p className="mt-3 text-xs leading-relaxed text-zinc-500">
+                <p className="mt-3 text-xs leading-relaxed text-zinc-400">
                   Ready automatically. Akflix manages its own temporary streams and offline media on this device.
                 </p>
 
                 {storageStatus && (
                   <div className="mt-5 overflow-hidden rounded-2xl border border-white/[0.08] bg-black/20">
                     <div className="flex items-start gap-3 p-4">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand/15 text-brand-light">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-black">
                         <HardDrive size={20} />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -408,13 +415,13 @@ export default function Settings() {
                             {storageStatus.volumeName ?? "Mac storage"}
                           </p>
                           <span
-                            className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                            className={`ak-badge ${
                               storageStatus.restartRequired ||
                               (storageStatus.available && !storageStatus.engineRunning)
-                                ? "bg-amber-500/10 text-amber-300"
+                                ? "border-dashed"
                                 : storageStatus.available && storageStatus.writable
-                                  ? "bg-emerald-500/10 text-emerald-400"
-                                  : "bg-red-500/10 text-red-400"
+                                  ? "ak-badge--solid"
+                                  : "border-dashed border-white"
                             }`}
                           >
                             {storageStatus.restartRequired
@@ -426,7 +433,7 @@ export default function Settings() {
                                 : "Disconnected"}
                           </span>
                         </div>
-                        <p className="mt-1 break-all text-[11px] leading-5 text-zinc-500">
+                        <p className="mt-1 break-all text-[11px] leading-5 text-zinc-400">
                           {storageStatus.path}
                         </p>
                         <p className="mt-1 text-[11px] text-zinc-400">
@@ -439,13 +446,14 @@ export default function Settings() {
                     </div>
 
                     {!storageStatus.available && (
-                      <div className="border-t border-red-500/10 bg-red-500/[0.05] px-4 py-3 text-[11px] leading-5 text-red-300">
+                      <div role="alert" className="flex items-start gap-2 bg-white px-4 py-3 text-[11px] font-medium leading-5 text-black">
+                        <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
                         Reconnect this drive before streaming. Akflix will not create a fallback cache on the internal disk.
                       </div>
                     )}
 
                     <div className="border-t border-white/[0.06] px-4 py-3">
-                      <p className="mb-3 text-[11px] leading-5 text-zinc-500">
+                      <p className="mb-3 text-[11px] leading-5 text-zinc-400">
                         New temporary streams, offline downloads and compatibility files use this location. Existing saved files stay where they were created.
                       </p>
                       <div className="flex flex-wrap gap-2">
@@ -453,7 +461,7 @@ export default function Settings() {
                           type="button"
                           onClick={() => void chooseMediaStorage()}
                           disabled={storageBusy}
-                          className="flex items-center gap-2 rounded-xl bg-brand-light px-3.5 py-2.5 text-xs font-bold text-[#090806] transition hover:brightness-105 disabled:opacity-50"
+                          className="flex items-center gap-2 rounded-full bg-white px-3.5 py-2.5 text-xs font-bold text-black transition hover:bg-zinc-200 disabled:opacity-50"
                         >
                           <FolderOpen size={14} /> {storageBusy ? "Checking..." : "Choose drive"}
                         </button>
@@ -462,7 +470,7 @@ export default function Settings() {
                             type="button"
                             onClick={() => void useMacStorage()}
                             disabled={storageBusy}
-                            className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-xs font-semibold text-zinc-300 transition hover:bg-white/[0.08] disabled:opacity-50"
+                            className="flex items-center gap-2 rounded-full border border-white/20 bg-white/[0.04] px-3.5 py-2.5 text-xs font-semibold text-zinc-200 transition hover:bg-white/[0.08] disabled:opacity-50"
                           >
                             <RotateCcw size={14} /> Use Mac storage
                           </button>
@@ -472,7 +480,7 @@ export default function Settings() {
                           <button
                             type="button"
                             onClick={() => void restartForStorage()}
-                            className="flex items-center gap-2 rounded-xl border border-amber-400/25 bg-amber-400/10 px-3.5 py-2.5 text-xs font-bold text-amber-200 transition hover:bg-amber-400/15"
+                            className="flex items-center gap-2 rounded-full border border-dashed border-white/70 px-3.5 py-2.5 text-xs font-bold text-white transition hover:bg-white/[0.1]"
                           >
                             <RefreshCw size={14} /> Restart now
                           </button>
@@ -484,8 +492,9 @@ export default function Settings() {
               </>
             ) : (
               <>
-                <label className={labelCls}>URL</label>
+                <label htmlFor="settings-field-2" className={labelCls}>URL</label>
                 <input
+                  id="settings-field-2"
                   value={draft.qbtUrl}
                   onChange={(e) => set("qbtUrl", e.target.value)}
                   placeholder="http://localhost:8080"
@@ -493,16 +502,18 @@ export default function Settings() {
                 />
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className={labelCls}>{t("login.username")}</label>
+                    <label htmlFor="settings-field-3" className={labelCls}>{t("login.username")}</label>
                     <input
+                      id="settings-field-3"
                       value={draft.qbtUsername}
                       onChange={(e) => set("qbtUsername", e.target.value)}
                       className={inputCls}
                     />
                   </div>
                   <div>
-                    <label className={labelCls}>{t("login.password")}</label>
+                    <label htmlFor="settings-field-4" className={labelCls}>{t("login.password")}</label>
                     <input
+                      id="settings-field-4"
                       type="password"
                       value={draft.qbtPassword}
                       onChange={(e) => set("qbtPassword", e.target.value)}
@@ -510,8 +521,9 @@ export default function Settings() {
                     />
                   </div>
                 </div>
-                <label className={labelCls}>{t("settings.downloadPath")}</label>
+                <label htmlFor="settings-field-5" className={labelCls}>{t("settings.downloadPath")}</label>
                 <input
+                  id="settings-field-5"
                   value={draft.downloadPath}
                   onChange={(e) => set("downloadPath", e.target.value)}
                   placeholder="/downloads"
@@ -522,7 +534,7 @@ export default function Settings() {
 
             <button
               onClick={testQbt}
-              className="mt-4 rounded bg-zinc-700 px-4 py-2 text-sm font-medium hover:bg-zinc-600"
+              className={secondaryButtonCls}
             >
               {t("settings.test")}
             </button>
@@ -530,7 +542,7 @@ export default function Settings() {
       </section>}
 
       {/* ── Torrent metadata source ── */}
-      {!mobileApple && <section className="glass-panel mb-6 rounded-3xl p-6">
+      {!mobileApple && <section className={sectionCls}>
         <div className="flex items-center gap-2">
           <h2 className="font-semibold">
             {mobileApple ? "Hosted streaming" : t("settings.indexer")}
@@ -538,8 +550,9 @@ export default function Settings() {
           <TestBadge state={prowlarrTest} />
         </div>
 
-        <label className={labelCls}>Provider</label>
+        <label htmlFor="settings-field-6" className={labelCls}>Provider</label>
         <select
+          id="settings-field-6"
           value={mobileApple ? "torrentio" : draft.torrentSource}
           onChange={(e) =>
             set("torrentSource", e.target.value as typeof draft.torrentSource)
@@ -552,14 +565,15 @@ export default function Settings() {
 
         {mobileApple || draft.torrentSource === "torrentio" ? (
           <>
-            <label className={labelCls}>Configured manifest URL</label>
+            <label htmlFor="settings-field-7" className={labelCls}>Configured manifest URL</label>
             <input
+              id="settings-field-7"
               value={draft.torrentioManifestUrl}
               onChange={(e) => set("torrentioManifestUrl", e.target.value)}
               placeholder="https://torrentio.strem.fun/manifest.json"
               className={inputCls}
             />
-            <p className="mt-2 text-[11px] leading-relaxed text-zinc-600">
+            <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">
               {mobileApple
                 ? "iPhone playback needs a Torrentio manifest with a debrid provider so the app receives hosted links. Jellyfin playback works separately."
                 : "Paste Torrentio’s configured manifest link here. A debrid provider is optional, but cached hosted links give the closest thing to instant playback."}
@@ -567,15 +581,17 @@ export default function Settings() {
           </>
         ) : (
           <>
-            <label className={labelCls}>URL</label>
+            <label htmlFor="settings-field-8" className={labelCls}>URL</label>
             <input
+              id="settings-field-8"
               value={draft.prowlarrUrl}
               onChange={(e) => set("prowlarrUrl", e.target.value)}
               placeholder="http://localhost:9696"
               className={inputCls}
             />
-            <label className={labelCls}>API Key</label>
+            <label htmlFor="settings-field-9" className={labelCls}>API Key</label>
             <input
+              id="settings-field-9"
               value={draft.prowlarrApiKey}
               onChange={(e) => set("prowlarrApiKey", e.target.value)}
               placeholder="Prowlarr → Settings → General → API Key"
@@ -586,19 +602,20 @@ export default function Settings() {
 
         <button
           onClick={testIndexer}
-          className="mt-4 rounded bg-zinc-700 px-4 py-2 text-sm font-medium hover:bg-zinc-600"
+          className={secondaryButtonCls}
         >
           {t("settings.test")}
         </button>
       </section>}
 
       {/* ── Language ── */}
-      <section className="mb-10 rounded-lg border border-zinc-800 bg-surface-raised p-6">
+      <section className={sectionCls}>
         <h2 className="font-semibold">{t("settings.language")}</h2>
         <div className="grid gap-4 md:grid-cols-3">
           <div>
-            <label className={labelCls}>{t("settings.language")}</label>
+            <label htmlFor="settings-field-10" className={labelCls}>{t("settings.language")}</label>
             <select
+              id="settings-field-10"
               value={draft.language}
               onChange={(e) => set("language", e.target.value as typeof draft.language)}
               className={inputCls}
@@ -609,8 +626,9 @@ export default function Settings() {
             </select>
           </div>
           <div>
-            <label className={labelCls}>{t("settings.subtitleLang")}</label>
+            <label htmlFor="settings-field-11" className={labelCls}>{t("settings.subtitleLang")}</label>
             <select
+              id="settings-field-11"
               value={draft.subtitleLanguage}
               onChange={(e) => set("subtitleLanguage", e.target.value)}
               className={inputCls}
@@ -621,8 +639,9 @@ export default function Settings() {
             </select>
           </div>
           <div>
-            <label className={labelCls}>{t("settings.audioLang")}</label>
+            <label htmlFor="settings-field-12" className={labelCls}>{t("settings.audioLang")}</label>
             <select
+              id="settings-field-12"
               value={draft.audioLanguage}
               onChange={(e) => set("audioLanguage", e.target.value)}
               className={inputCls}
@@ -632,7 +651,7 @@ export default function Settings() {
                 <option key={value} value={value}>{label}</option>
               ))}
             </select>
-            <p className="mt-2 text-[11px] leading-4 text-zinc-500">
+            <p className="mt-2 text-[11px] leading-4 text-zinc-400">
               Watch now prioritizes this language before speed or source size.
             </p>
           </div>
@@ -640,15 +659,15 @@ export default function Settings() {
       </section>
 
       {/* ── About & updates ── */}
-      <section className="mb-10 rounded-lg border border-zinc-800 bg-surface-raised p-6">
+      <section className={`${sectionCls} !mb-10`}>
         <h2 className="mb-2 font-semibold">About</h2>
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-zinc-400">
           Akflix v{APP_VERSION} ·{" "}
           <a
             href="https://github.com/Akshayan03/akflix"
             target="_blank"
             rel="noreferrer"
-            className="underline-offset-2 hover:text-white hover:underline"
+            className="underline underline-offset-2 hover:text-white"
           >
             GitHub
           </a>
@@ -657,7 +676,7 @@ export default function Settings() {
           <button
             onClick={checkUpdates}
             disabled={updateBusy}
-            className="mt-4 flex items-center gap-2 rounded bg-zinc-700 px-4 py-2 text-sm font-medium hover:bg-zinc-600 disabled:opacity-50"
+            className={secondaryButtonCls}
           >
             <RefreshCw size={14} className={updateBusy ? "animate-spin" : ""} />
             Check for updates
@@ -667,9 +686,9 @@ export default function Settings() {
 
       <button
         onClick={save}
-        className="rounded bg-brand px-8 py-2.5 font-semibold hover:bg-brand-light"
+        className="desktop-control desktop-primary min-w-40"
       >
-        {saved ? t("settings.saved") + " ✓" : t("settings.save")}
+        {saved ? <><Check size={16} aria-hidden="true" /> {t("settings.saved")}</> : t("settings.save")}
       </button>
     </motion.main>
   );

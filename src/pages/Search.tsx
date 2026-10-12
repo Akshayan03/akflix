@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Download, LoaderCircle, PlayCircle, SearchIcon, X } from "lucide-react";
+import { AlertTriangle, Check, Download, LoaderCircle, PlayCircle, SearchIcon, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/stores/authStore";
 import { useTorrents } from "@/stores/torrentStore";
@@ -109,17 +109,17 @@ export default function Search() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="min-h-screen bg-[radial-gradient(circle_at_50%_-12%,rgba(214,178,94,.11),transparent_34rem)] px-4 pb-32 pt-28 md:px-12 md:pb-16 lg:px-16"
+      className="min-h-screen bg-[radial-gradient(circle_at_50%_-12%,rgba(255,255,255,.06),transparent_34rem)] px-4 pb-32 pt-28 md:px-12 md:pb-16 lg:px-16"
     >
       {/* Search input */}
       <div className="mx-auto mb-8 max-w-3xl text-center md:mb-12">
-        <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-accent">One search, every screen</p>
-        <h1 className="mb-5 text-3xl font-black tracking-[-0.045em] md:mb-7 md:text-4xl">What are we watching?</h1>
+        <p className="ak-eyebrow mb-2">One search, every screen</p>
+        <h1 className="mb-5 font-display text-4xl tracking-[-0.03em] md:mb-7 md:text-5xl">What are we watching?</h1>
       <form role="search" onSubmit={(event) => {
         event.preventDefault();
         (event.currentTarget.querySelector("input") as HTMLInputElement | null)?.blur();
-      }} className="glass-panel flex items-center gap-3 rounded-2xl px-4 md:px-5">
-        {loading ? <LoaderCircle size={20} className="animate-spin text-brand-light" /> : <SearchIcon size={20} className="text-brand-light" />}
+      }} className="glass-panel flex items-center gap-3 rounded-full px-5 transition-colors focus-within:border-white/60 md:px-6">
+        {loading ? <LoaderCircle size={20} className="animate-spin text-white" aria-label="Searching" /> : <SearchIcon size={20} className="text-white" aria-hidden="true" />}
         <input
           autoFocus={!mobileApple}
           type="search"
@@ -131,7 +131,7 @@ export default function Search() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t("search.placeholder")}
-          className="search-input min-w-0 flex-1 bg-transparent py-3.5 text-base outline-none placeholder:text-zinc-600 md:py-4 md:text-lg"
+          className="search-input min-w-0 flex-1 bg-transparent py-3.5 text-base outline-none placeholder:text-zinc-500 md:py-4 md:text-lg"
         />
         {query && (
           <motion.button
@@ -139,7 +139,7 @@ export default function Search() {
             whileTap={{ scale: 0.86 }}
             onClick={() => setQuery("")}
             aria-label="Clear search"
-            className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-400 hover:bg-white/[0.07]"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-300 hover:bg-white/[0.1] hover:text-white"
           >
             <X size={14} />
           </motion.button>
@@ -152,7 +152,7 @@ export default function Search() {
                 key={suggestion}
                 whileTap={{ scale: 0.94 }}
                 onClick={() => setQuery(suggestion)}
-                className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-zinc-300"
+                className="shrink-0 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/40 hover:text-white"
               >
                 {suggestion}
               </motion.button>
@@ -163,10 +163,13 @@ export default function Search() {
 
       {/* Jellyfin library results */}
       {(catalogError || libraryError) && (
-        <div role="status" className="mx-auto mb-6 max-w-3xl rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-zinc-300">
-          {catalogError && <p>Movie and series search is unavailable. {catalogError}</p>}
-          {libraryError && <p>Your personal library is unavailable. Catalog search still works independently.</p>}
-          <button onClick={() => setRetry((value) => value + 1)} className="mt-2 min-h-11 font-semibold text-brand-light">Try again</button>
+        <div role="alert" className={`ak-notice mx-auto mb-6 max-w-3xl ${catalogError ? "ak-notice--error" : "ak-notice--warning"}`}>
+          <AlertTriangle size={18} aria-hidden="true" />
+          <div className="min-w-0">
+            {catalogError && <p><strong>Movie and series search is unavailable.</strong> {catalogError}</p>}
+            {libraryError && <p>Your personal library is unavailable. Catalog search still works independently.</p>}
+            <button onClick={() => setRetry((value) => value + 1)} className="mt-1 min-h-11 font-bold underline underline-offset-4">Try again</button>
+          </div>
         </div>
       )}
       {libResults.length > 0 && (
@@ -187,7 +190,7 @@ export default function Search() {
           <div aria-label="Filter catalog results" className="mb-4 flex gap-2">
             {(["all", "movie", "series"] as const).map((type) => (
               <button key={type} onClick={() => setMediaFilter(type)} aria-pressed={mediaFilter === type}
-                className={`min-h-11 rounded-full border px-4 text-xs font-semibold ${mediaFilter === type ? "border-brand/30 bg-brand/10 text-brand-light" : "border-white/10 text-zinc-400"}`}>
+                className={`min-h-11 rounded-full border px-4 text-xs font-semibold transition-colors ${mediaFilter === type ? "border-white bg-white text-black" : "border-white/15 text-zinc-300 hover:border-white/40 hover:text-white"}`}>
                 {type === "all" ? "All" : type === "movie" ? "Movies" : "Shows"} ({discoverResults.filter((item) => type === "all" || item.type === type).length})
               </button>
             ))}
@@ -201,13 +204,23 @@ export default function Search() {
         </motion.section>
       )}
 
+      {loading && query.trim().length >= 2 && !discoverResults.length && !libResults.length && (
+        <div role="status" aria-label="Searching" className={mobileApple ? "grid grid-cols-2 gap-3" : "flex flex-wrap gap-3"}>
+          {Array.from({ length: mobileApple ? 4 : 6 }).map((_, index) => (
+            <div key={index} className={`skeleton aspect-[2/3] ${mobileApple ? "w-full" : "w-[138px] md:w-48"}`} />
+          ))}
+        </div>
+      )}
+
       {/* Torrent "Discover" results */}
       {(torResults.length > 0 || torrentError) && (
         <section>
           <h2 className="mb-4 text-lg font-semibold">{t("search.torrents")}</h2>
 
           {torrentError && (
-            <p className="mb-4 whitespace-pre-wrap text-xs text-red-400">{torrentError}</p>
+            <p role="alert" className="ak-notice ak-notice--error mb-4 whitespace-pre-wrap text-xs">
+              <AlertTriangle size={15} aria-hidden="true" /> <span className="min-w-0 break-words">{torrentError}</span>
+            </p>
           )}
 
           <div className="divide-y divide-zinc-800 rounded-lg border border-zinc-800 bg-surface-raised">
@@ -219,24 +232,24 @@ export default function Search() {
                   </p>
                   <p className="mt-0.5 text-xs text-zinc-500">
                     {r.indexer} · {formatBytes(r.size)} ·{" "}
-                    <span className={r.seeders > 0 ? "text-green-400" : "text-red-400"}>
+                    <span className={r.seeders > 0 ? "font-semibold text-white" : "font-semibold text-zinc-400"}>
                       {r.seeders} {t("torrent.seeders")}
                     </span>
                   </p>
                 </div>
                 {addedGuid === r.guid ? (
-                  <span className="shrink-0 text-xs text-green-400">{t("torrent.added")}</span>
+                  <span className="flex shrink-0 items-center gap-1 text-xs font-semibold text-white"><Check size={13} aria-hidden="true" /> {t("torrent.added")}</span>
                 ) : (
                   <div className="flex shrink-0 gap-2">
                     <button
                       onClick={() => add(r, "stream")}
-                      className="flex items-center gap-1 rounded bg-white px-2.5 py-1.5 text-xs font-semibold text-black hover:bg-zinc-200"
+                      className="flex items-center gap-1 rounded-full bg-white px-2.5 py-1.5 text-xs font-semibold text-black hover:bg-zinc-200"
                     >
                       <PlayCircle size={13} /> {t("torrent.stream")}
                     </button>
                     <button
                       onClick={() => add(r, "download")}
-                      className="flex items-center gap-1 rounded bg-zinc-700 px-2.5 py-1.5 text-xs font-semibold hover:bg-zinc-600"
+                      className="flex items-center gap-1 rounded-full border border-white/25 px-2.5 py-1.5 text-xs font-semibold hover:bg-white/10"
                     >
                       <Download size={13} /> {t("torrent.download")}
                     </button>
@@ -246,7 +259,7 @@ export default function Search() {
             ))}
           </div>
 
-          <p className="mt-3 text-[11px] text-zinc-600">⚖️ {t("torrent.disclaimer")}</p>
+          <p className="mt-3 text-[11px] text-zinc-500">⚖️ {t("torrent.disclaimer")}</p>
         </section>
       )}
 
@@ -257,9 +270,9 @@ export default function Search() {
         !discoverResults.length &&
         !torResults.length && (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mx-auto mt-14 max-w-sm text-center">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.035] text-zinc-500"><SearchIcon size={20} /></span>
-          <p className="mt-4 font-semibold text-zinc-300">{t("search.noResults")}</p>
-          <p className="mt-1 text-xs leading-5 text-zinc-600">Try a shorter title, another spelling, or the release year.</p>
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-white/15 text-zinc-300"><SearchIcon size={20} aria-hidden="true" /></span>
+          <p className="mt-4 font-semibold text-zinc-200">{t("search.noResults")}</p>
+          <p className="mt-1 text-xs leading-5 text-zinc-400">Try a shorter title, another spelling, or the release year.</p>
         </motion.div>
       )}
     </motion.main>

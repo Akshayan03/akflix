@@ -2,126 +2,79 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Desktop editorial controls: compact, keyboard-visible, artwork first. */
-.desktop-control {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 9px 17px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.4;
-  transition: background-color 160ms ease, border-color 160ms ease;
+/* ── Akflix monochrome tokens ─────────────────────────────────────────────
+   Shared by the desktop and iPhone apps. The interface is strictly black,
+   white and neutral grey; posters, backdrops and video carry all colour.
+   Semantic states never rely on hue: errors invert (white panel, black
+   text), warnings use a dashed outline, success uses a check icon. */
+:root {
+  --ak-canvas: #000000;
+  --ak-surface-1: #0c0c0c;
+  --ak-surface-2: #121212;
+  --ak-surface-3: #1c1c1c;
+  --ak-surface-4: #272727;
+  --ak-line: rgba(255, 255, 255, 0.12);
+  --ak-line-strong: rgba(255, 255, 255, 0.28);
+  --ak-text: #f4f4f4;
+  --ak-text-2: #cfcfcf;
+  --ak-text-3: #ababab;
+  --ak-text-4: #8e8e8e;
+  --ak-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ak-font-display: ui-serif, "New York", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --ak-radius-sm: 8px;
+  --ak-radius-md: 12px;
+  --ak-radius-lg: 18px;
+  --ak-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ak-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ak-dur-fast: 140ms;
+  --ak-dur: 220ms;
+  --ak-dur-slow: 420ms;
+  --ak-shadow-pop: 0 24px 70px rgba(0, 0, 0, 0.62);
+  color-scheme: dark;
 }
-.desktop-control svg { width: 17px; height: 17px; flex-shrink: 0; }
-.desktop-primary { background: #eeeae1; color: #191a1b; }
-.desktop-primary:hover:not(:disabled) { background: #fffdf7; }
-.desktop-secondary { background: rgba(20,21,22,.65); color: #ddd9d1; border-color: #ffffff20; }
-.desktop-secondary:hover:not(:disabled) { background: #ffffff12; border-color: #ffffff40; }
-.desktop-control:disabled { opacity: .45; cursor: not-allowed; }
-.editorial-hero h1, .editorial-title h1 {
-  font-family: Georgia, 'Times New Roman', serif;
-  font-weight: 400;
-  letter-spacing: -.045em;
-  line-height: 1.02;
-  font-size: clamp(42px, 5.4vw, 76px);
-}
-.editorial-hero .hero-shadow, .editorial-title .hero-shadow { text-shadow: 0 2px 24px #0008; }
 
-/* ── Akflix surface system ──────────────────────────────────────── */
 html,
 body,
 #root {
   height: 100%;
-  background: #101112;
-  color: #f2efe8;
-}
-
-html {
-  color-scheme: dark;
+  background: var(--ak-canvas);
+  color: var(--ak-text);
 }
 
 body {
   margin: 0;
   overflow-x: hidden;
-  background: #101112;
-  font-feature-settings: "ss01" 1, "cv02" 1;
+  font-family: var(--ak-font-sans);
+  font-feature-settings: "kern" 1;
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
-}
-
-.ios-safe-top {
-  top: env(safe-area-inset-top, 0px);
-}
-
-.ios-app-shell {
-  min-height: 100svh;
-  padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
-}
-
-.ios-mobile-header {
-  padding-top: env(safe-area-inset-top, 0px);
-  background: linear-gradient(180deg, rgba(9, 8, 6, 0.82), rgba(9, 8, 6, 0));
-  transition: background 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
-}
-
-.ios-mobile-header[data-scrolled="true"] {
-  background: rgba(9, 8, 6, 0.94);
-  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.38);
-}
-
-.ios-circle-button {
-  display: inline-flex;
-  height: 2.25rem;
-  width: 2.25rem;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(12, 11, 9, 0.62);
-  color: rgb(228 228 231);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(20px) saturate(145%);
-}
-
-.ios-tab-bar {
-  bottom: max(0.45rem, env(safe-area-inset-bottom, 0px));
-  min-height: 4.15rem;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 1.55rem;
-  background: linear-gradient(145deg, rgba(24, 21, 16, 0.94), rgba(9, 8, 6, 0.9));
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55), inset 0 1px rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(28px) saturate(165%);
-}
-
-.ios-tab-bar a {
-  transition: color 180ms ease, background-color 180ms ease;
-}
-
-.ios-page-top {
-  padding-top: calc(env(safe-area-inset-top, 0px) + 4.75rem);
-}
-
-.ios-bottom-sheet {
-  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
-}
-
-.ios-pressable {
-  min-height: 44px;
-  -webkit-user-select: none;
-  user-select: none;
 }
 
 button,
 a,
 [role="button"] {
   -webkit-tap-highlight-color: transparent;
+}
+
+/* One focus treatment everywhere: a white ring offset from the control, so it
+   reads on black surfaces and around white buttons alike. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 3px;
+}
+
+::selection {
+  background: rgba(255, 255, 255, 0.85);
+  color: #000;
 }
 
 /* Text fields have a caret and their own border. WebKit considers pointer
@@ -143,26 +96,12 @@ a,
   -webkit-appearance: none;
 }
 
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible,
-[role="button"]:focus-visible {
-  outline: 2px solid rgba(240, 213, 138, 0.9);
-  outline-offset: 3px;
-}
-
 @media (hover: none) and (pointer: coarse) {
   button,
   a,
   select {
     touch-action: manipulation;
   }
-}
-
-::selection {
-  background: rgba(214, 178, 94, 0.42);
-  color: white;
 }
 
 /* Hide scrollbars on horizontal rows but keep them scrollable */
@@ -174,53 +113,191 @@ select:focus-visible,
   display: none;
 }
 
-/* Thin dark scrollbar everywhere else */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #332e24;
+  background: #2b2b2b;
   border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3d3d3d;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
+/* ── Typography ─────────────────────────────────────────────────────────── */
+.font-display,
+.editorial-hero h1,
+.editorial-title h1 {
+  font-family: var(--ak-font-display);
+}
+
+.editorial-hero h1,
+.editorial-title h1 {
+  font-weight: 400;
+  letter-spacing: -0.04em;
+  line-height: 1.02;
+  font-size: clamp(42px, 5.4vw, 76px);
+}
+
+/* Small uppercase labels ("Featured", section kickers). */
+.ak-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ak-text-3);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.hero-shadow {
+  text-shadow: 0 6px 32px rgba(0, 0, 0, 0.7);
+}
+
+.editorial-hero .hero-shadow,
+.editorial-title .hero-shadow {
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.55);
+}
+
+/* ── Controls ───────────────────────────────────────────────────────────── */
+.desktop-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 10px 18px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+  transition:
+    background-color var(--ak-dur) var(--ak-ease-out),
+    border-color var(--ak-dur) var(--ak-ease-out),
+    color var(--ak-dur) var(--ak-ease-out),
+    transform var(--ak-dur-fast) var(--ak-ease-out);
+}
+.desktop-control svg { width: 17px; height: 17px; flex-shrink: 0; }
+.desktop-control:active:not(:disabled) { transform: scale(0.97); }
+.desktop-primary { background: #ffffff; color: #000000; }
+.desktop-primary:hover:not(:disabled) { background: #e4e4e4; }
+.desktop-secondary { background: rgba(0, 0, 0, 0.45); color: #f4f4f4; border-color: var(--ak-line-strong); backdrop-filter: blur(14px); }
+.desktop-secondary:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.5); }
+.desktop-ghost { background: transparent; color: var(--ak-text-2); }
+.desktop-ghost:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.desktop-control:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Status: notices, badges, progress ──────────────────────────────────── */
+.ak-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border: 1px solid var(--ak-line);
+  border-radius: var(--ak-radius-md);
+  background: var(--ak-surface-2);
+  padding: 12px 14px;
+  color: var(--ak-text-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ak-notice > svg { flex-shrink: 0; margin-top: 2px; }
+.ak-notice strong { color: inherit; font-weight: 700; }
+/* Errors are the loudest thing on screen: an inverted panel. */
+.ak-notice--error { border-color: #fff; background: #fff; color: #000; }
+.ak-notice--error :focus-visible { outline-color: #000; }
+.ak-notice--warning { border-style: dashed; border-color: rgba(255, 255, 255, 0.5); background: transparent; color: #fff; }
+.ak-notice--success { border-color: var(--ak-line-strong); color: #fff; }
+
+.ak-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--ak-line-strong);
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  color: var(--ak-text);
+}
+.ak-badge--solid { border-color: #fff; background: #fff; color: #000; }
+.ak-badge--quiet { border-color: var(--ak-line); color: var(--ak-text-3); }
+
+/* Unknown-duration work (resolving a source, starting the engine). */
+.ak-progress-indeterminate {
+  position: relative;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+.ak-progress-indeterminate::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  border-radius: inherit;
+  background: #fff;
+  animation: indeterminate 1.3s var(--ak-ease-in-out) infinite;
+}
+
+.ak-spinner {
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-top-color: #fff;
+  animation: ak-spin 0.8s linear infinite;
+}
+
 /* Skeleton shimmer for loading cards */
 .skeleton {
   @apply animate-shimmer rounded-2xl;
-  background: linear-gradient(90deg, #15130f 0%, #28231a 40%, #15130f 80%);
+  background: linear-gradient(90deg, #0f0f0f 0%, #1f1f1f 40%, #0f0f0f 80%);
   background-size: 400px 100%;
 }
 
-.akflix-artwork {
-  animation: akflix-artwork-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+/* Toasts (Sonner). Higher specificity than Sonner's runtime-injected theme. */
+:root [data-sonner-toaster][data-sonner-theme] {
+  --normal-bg: rgba(16, 16, 16, 0.97);
+  --normal-bg-hover: #1c1c1c;
+  --normal-border: rgba(255, 255, 255, 0.14);
+  --normal-border-hover: rgba(255, 255, 255, 0.3);
+  --normal-text: #f4f4f4;
+  --success-bg: rgba(16, 16, 16, 0.97);
+  --success-border: rgba(255, 255, 255, 0.34);
+  --success-text: #ffffff;
+  --info-bg: rgba(16, 16, 16, 0.97);
+  --info-border: rgba(255, 255, 255, 0.14);
+  --info-text: #f4f4f4;
+  --warning-bg: #0c0c0c;
+  --warning-border: rgba(255, 255, 255, 0.6);
+  --warning-text: #ffffff;
+  --error-bg: #ffffff;
+  --error-border: #ffffff;
+  --error-text: #000000;
+  font-family: var(--ak-font-sans);
 }
+:root [data-sonner-toast][data-type="warning"] { border-style: dashed; }
+:root [data-sonner-toast][data-type="error"] { box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55); }
+:root [data-sonner-toast][data-type="error"] [data-button] { background: #000; color: #fff; }
+:root [data-sonner-toast][data-type="error"] [data-description] { color: #262626; }
+:root [data-sonner-toast] [data-button] { border-radius: 999px; font-weight: 650; }
 
-@keyframes akflix-artwork-in {
-  from {
-    opacity: 0;
-    transform: scale(1.018);
-    filter: saturate(0.82);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-    filter: saturate(1);
-  }
-}
-
-/* Netflix-style text shadow for hero copy */
-.hero-shadow {
-  text-shadow: 0 8px 38px rgba(0, 0, 0, 0.75);
-}
-
+/* ── Surfaces & motion ──────────────────────────────────────────────────── */
 .glass-panel {
-  background: linear-gradient(135deg, rgba(28, 25, 20, 0.82), rgba(10, 9, 7, 0.74));
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(24px) saturate(145%);
+  background: rgba(14, 14, 14, 0.9);
+  border: 1px solid var(--ak-line);
+  box-shadow: var(--ak-shadow-pop);
+  backdrop-filter: blur(24px) saturate(120%);
 }
 
 .prism-border {
@@ -233,7 +310,25 @@ select:focus-visible,
   inset: -1px;
   z-index: -1;
   border-radius: inherit;
-  background: linear-gradient(120deg, rgba(240, 213, 138, 0.52), rgba(255, 255, 255, 0.06) 42%, rgba(244, 233, 207, 0.2));
+  background: linear-gradient(120deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.05) 42%, rgba(255, 255, 255, 0.18));
+}
+
+.akflix-artwork {
+  animation: akflix-artwork-in 520ms var(--ak-ease-out) both;
+}
+
+@keyframes akflix-artwork-in {
+  from { opacity: 0; transform: scale(1.018); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes ak-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes indeterminate {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
 }
 
 /* Native video: fill and letterbox */
@@ -241,25 +336,10 @@ video {
   background: #000;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
-
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
 video::cue {
-  color: #fffdf8;
-  background: rgba(5, 5, 4, 0.82);
-  font-family: "Avenir Next", -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.8);
+  font-family: var(--ak-font-sans);
   font-size: 1.05rem;
   line-height: 1.45;
   text-shadow: 0 2px 5px rgba(0, 0, 0, 0.95);
@@ -288,33 +368,47 @@ video::cue {
   border-radius: 999px;
   background: linear-gradient(
     to right,
-    #e7c76f 0 var(--range-progress),
-    rgba(255, 255, 255, 0.38) var(--range-progress) var(--range-buffered),
-    rgba(255, 255, 255, 0.17) var(--range-buffered) 100%
+    #ffffff 0 var(--range-progress),
+    rgba(255, 255, 255, 0.42) var(--range-progress) var(--range-buffered),
+    rgba(255, 255, 255, 0.18) var(--range-buffered) 100%
   );
+  transition: height var(--ak-dur-fast) var(--ak-ease-out);
+}
+
+.akflix-range:hover::-webkit-slider-runnable-track {
+  height: 0.35rem;
 }
 
 .akflix-range::-webkit-slider-thumb {
-  width: 0.9rem;
-  height: 0.9rem;
-  margin-top: -0.325rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  margin-top: -0.35rem;
   appearance: none;
   -webkit-appearance: none;
-  border: 2px solid #fff;
+  border: 0;
   border-radius: 999px;
-  background: #e7c76f;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
-  transition: transform 120ms ease, box-shadow 120ms ease;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 2px 10px rgba(0, 0, 0, 0.6);
+  transition: transform var(--ak-dur-fast) ease, box-shadow var(--ak-dur-fast) ease;
+}
+
+.akflix-range:hover::-webkit-slider-thumb {
+  margin-top: -0.3rem;
 }
 
 .akflix-range:hover::-webkit-slider-thumb,
 .akflix-range:focus-visible::-webkit-slider-thumb {
   transform: scale(1.18);
-  box-shadow: 0 0 0 5px rgba(231, 199, 111, 0.16), 0 2px 12px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.18), 0 2px 10px rgba(0, 0, 0, 0.6);
 }
 
 .akflix-range:focus-visible {
   outline: none;
+}
+
+.akflix-range:focus-visible::-webkit-slider-runnable-track {
+  outline: 2px solid #fff;
+  outline-offset: 5px;
 }
 
 .akflix-volume::-webkit-slider-runnable-track {
@@ -325,4 +419,100 @@ video::cue {
   width: 0.75rem;
   height: 0.75rem;
   margin-top: -0.275rem;
+}
+
+/* ── iPhone/iPad layout (legacy mobile code path of the shared frontend) ─── */
+.ios-safe-top {
+  top: env(safe-area-inset-top, 0px);
+}
+
+.ios-app-shell {
+  min-height: 100svh;
+  padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+}
+
+.ios-mobile-header {
+  padding-top: env(safe-area-inset-top, 0px);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0));
+  transition: background var(--ak-dur) ease, box-shadow var(--ak-dur) ease, border-color var(--ak-dur) ease;
+}
+
+.ios-mobile-header[data-scrolled="true"] {
+  background: rgba(0, 0, 0, 0.94);
+  box-shadow: 0 1px 0 var(--ak-line);
+}
+
+.ios-circle-button {
+  display: inline-flex;
+  height: 2.25rem;
+  width: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--ak-line);
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--ak-text);
+  backdrop-filter: blur(20px);
+}
+
+.ios-tab-bar {
+  bottom: max(0.45rem, env(safe-area-inset-bottom, 0px));
+  min-height: 4.15rem;
+  overflow: hidden;
+  border: 1px solid var(--ak-line);
+  border-radius: 1.55rem;
+  background: rgba(10, 10, 10, 0.94);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(28px);
+}
+
+.ios-tab-bar a {
+  transition: color var(--ak-dur) ease, background-color var(--ak-dur) ease;
+}
+
+.ios-page-top {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 4.75rem);
+}
+
+.ios-bottom-sheet {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+}
+
+.ios-pressable {
+  min-height: 44px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Hover-only flourishes stay off touch screens. */
+@media (hover: none) {
+  .hover-lift:hover { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  /* Looping indicators become static but still visibly "in progress". */
+  .ak-progress-indeterminate::after { width: 100%; opacity: 0.55; transform: none; }
+  .skeleton { background: #161616; }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --ak-line: rgba(255, 255, 255, 0.3);
+    --ak-line-strong: rgba(255, 255, 255, 0.6);
+    --ak-text-3: #cfcfcf;
+    --ak-text-4: #ababab;
+  }
 }

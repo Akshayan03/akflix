@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Film, Home, Search, Tv, UserRound } from "lucide-react";
+import { ChevronLeft, Film, Home, Search, Tv, UserRound } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import Brand from "@/components/Brand";
 import { useAuth } from "@/stores/authStore";
@@ -53,9 +53,9 @@ export default function MobileNavigation() {
               whileTap={{ scale: 0.9 }}
               onClick={() => navigate(-1)}
               aria-label="Go back"
-              className="ios-circle-button text-xl"
+              className="ios-circle-button"
             >
-              ‹
+              <ChevronLeft size={20} aria-hidden="true" />
             </motion.button>
           ) : title ? (
             <motion.h1
@@ -67,7 +67,7 @@ export default function MobileNavigation() {
               {title}
             </motion.h1>
           ) : (
-            <Brand className="[&_svg]:!h-8 [&_svg]:!w-8 [&_span]:!text-[16px]" />
+            <Brand height={18} className="text-white" />
           )}
 
           <div className="ml-auto flex items-center gap-2">
@@ -85,7 +85,7 @@ export default function MobileNavigation() {
               whileTap={{ scale: 0.92 }}
               onClick={() => navigate("/settings")}
               aria-label="Open profile and settings"
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-brand-light to-brand text-sm font-black uppercase text-[#090806] shadow-[0_8px_24px_rgba(214,178,94,.22)] ring-1 ring-white/20"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-sm font-black uppercase text-black"
             >
               {active?.userName?.[0] ?? "A"}
             </motion.button>
@@ -113,17 +113,17 @@ export default function MobileNavigation() {
                   <motion.span
                     layoutId="ios-active-tab"
                     transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                    className="absolute inset-x-2 inset-y-1 rounded-2xl bg-brand/[0.12] ring-1 ring-brand/10"
+                    className="absolute inset-x-2 inset-y-1 rounded-2xl bg-white/[0.12] ring-1 ring-white/10"
                   />
                 )}
                 <motion.span
                   whileTap={{ scale: 0.82 }}
                   animate={{ y: isActive ? -1 : 0, scale: isActive ? 1.06 : 1 }}
-                  className={`relative z-10 ${isActive ? "text-brand-light" : "text-zinc-500"}`}
+                  className={`relative z-10 ${isActive ? "text-white" : "text-zinc-400"}`}
                 >
                   <Icon size={19} strokeWidth={isActive ? 2.5 : 2} />
                 </motion.span>
-                <span className={`relative z-10 truncate ${isActive ? "text-brand-light" : "text-zinc-500"}`}>
+                <span className={`relative z-10 truncate ${isActive ? "text-white" : "text-zinc-400"}`}>
                   {label}
                 </span>
               </>

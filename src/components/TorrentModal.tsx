@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  AlertTriangle,
   Check,
   Copy,
   Download,
@@ -50,12 +51,27 @@ type LanguageFilter = "all" | SourceLanguage;
 type SourceFilter = "all" | "web" | "bluray" | "cam" | "other";
 type SpeedFilter = "all" | "fast" | "direct";
 
-const LANGUAGE_DETAILS: Record<SourceLanguage, { label: string; className: string }> = {
-  english: { label: "English", className: "bg-emerald-500/10 text-emerald-300" },
-  multi: { label: "Multi audio", className: "bg-amber-500/10 text-amber-200" },
-  unknown: { label: "Audio unlisted", className: "bg-white/[0.05] text-zinc-400" },
-  "non-english": { label: "Non English", className: "bg-red-500/10 text-red-300" },
+const LANGUAGE_DETAILS: Record<SourceLanguage, { label: string }> = {
+  english: { label: "English" },
+  multi: { label: "Multi audio" },
+  unknown: { label: "Audio unlisted" },
+  "non-english": { label: "Non English" },
 };
+
+/** Peer health as signal bars: the count of filled bars carries the meaning. */
+function HealthBars({ level, label }: { level: number; label: string }) {
+  return (
+    <span className="flex items-end gap-[3px]" role="img" aria-label={`Source health: ${label}`} title={label}>
+      {[1, 2, 3, 4].map((bar) => (
+        <span
+          key={bar}
+          className={`w-[3px] rounded-full ${bar <= level ? "bg-white" : "bg-white/20"}`}
+          style={{ height: `${4 + bar * 3}px` }}
+        />
+      ))}
+    </span>
+  );
+}
 
 function sourceFacts(result: TorrentResult) {
   let linkDetails = result.magnetUrl ?? result.downloadUrl ?? "";
@@ -146,14 +162,14 @@ function sourceFacts(result: TorrentResult) {
   const directPlay = !!result.streamUrl || (container === "MP4" && codec === "H.264");
   const health =
     hosted
-      ? { label: "Instant", color: "text-emerald-400" }
+      ? { label: "Instant", level: 4 }
       : result.seeders >= 500
-      ? { label: "Excellent", color: "text-emerald-400" }
+      ? { label: "Excellent", level: 4 }
       : result.seeders >= 100
-        ? { label: "Healthy", color: "text-lime-400" }
+        ? { label: "Healthy", level: 3 }
         : result.seeders >= 20
-          ? { label: "Fair", color: "text-amber-400" }
-          : { label: "Slow", color: "text-red-400" };
+          ? { label: "Fair", level: 2 }
+          : { label: "Slow", level: 1 };
   return {
     quality,
     qualityRank,
@@ -409,7 +425,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
           >
             <header className={`relative shrink-0 overflow-hidden border-b border-white/[0.07] ${mobileApple ? "px-4 pb-3 pt-2" : "px-5 pb-4 pt-5 md:px-6"}`}>
               {mobileApple && <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-white/20" />}
-              <div className="pointer-events-none absolute -right-20 -top-28 h-64 w-64 rounded-full bg-brand/10 blur-[90px]" />
+              <div className="pointer-events-none absolute -right-20 -top-28 h-64 w-64 rounded-full bg-white/[0.05] blur-[90px]" />
               <div className="relative flex items-start gap-4">
                 <Artwork
                   src={media?.posterUrl}
@@ -419,11 +435,11 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                 />
                 <div className="min-w-0 flex-1 pt-0.5">
                   <div className="flex items-center gap-2">
-                    <span className="rounded-full bg-brand/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.18em] text-brand-light ring-1 ring-brand/20">
+                    <span className="ak-badge !text-[9px] !tracking-[0.18em]">
                       {mobileApple ? "Hosted source" : "Manual source"}
                     </span>
                     {!loading && compatibleResults.length > 0 && (
-                      <span className="text-[10px] text-zinc-600">
+                      <span role="status" className="text-[10px] text-zinc-400">
                         {filtersActive ? `${filteredSorted.length} of ${compatibleResults.length} shown` : `${compatibleResults.length} available`}
                       </span>
                     )}
@@ -431,22 +447,22 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                   <h2 className={`${mobileApple ? "mt-1.5 text-[18px]" : "mt-2 text-xl"} truncate font-bold tracking-tight`}>
                     {mobileApple ? mediaTitle : `Choose a stream for ${mediaTitle}`}
                   </h2>
-                  <p className="mt-1 truncate text-xs text-zinc-500">{media?.subtitle ?? initialQuery}</p>
+                  <p className="mt-1 truncate text-xs text-zinc-400">{media?.subtitle ?? initialQuery}</p>
                 </div>
                 <button
                   onClick={onClose}
                   aria-label="Close source picker"
-                  className="rounded-xl p-2 text-zinc-500 transition hover:bg-white/10 hover:text-white"
+                  className="rounded-full p-2 text-zinc-300 transition hover:bg-white/10 hover:text-white"
                 >
                   <X size={20} />
                 </button>
               </div>
 
-              {!mobileApple && <div className="relative mt-4 flex items-start gap-3 rounded-2xl border border-brand/20 bg-brand/[0.055] px-4 py-3">
-                <ShieldCheck size={17} className="mt-0.5 shrink-0 text-brand-light" />
+              {!mobileApple && <div className="relative mt-4 flex items-start gap-3 rounded-2xl border border-white/15 bg-white/[0.04] px-4 py-3">
+                <ShieldCheck size={17} className="mt-0.5 shrink-0 text-white" aria-hidden="true" />
                 <div>
                   <p className="text-xs font-semibold text-zinc-100">Your choice stays selected</p>
-                  <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                  <p className="mt-1 text-[11px] leading-relaxed text-zinc-400">
                     {mobileApple
                       ? "Only hosted links that iPhone can open without a desktop peer engine are shown. Compare the available formats below."
                       : "Unlike Watch Now, manual mode does not race or replace your source. Compare audio, picture, size and peer health below."}
@@ -455,8 +471,8 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
               </div>}
 
               {mobileApple && (
-                <div className="mt-3 flex items-center gap-2 rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.055] px-3 py-2.5 text-[11px] text-emerald-200">
-                  <ShieldCheck size={15} className="shrink-0" /> Only iPhone-compatible hosted links are shown
+                <div className="mt-3 flex items-center gap-2 rounded-2xl border border-white/15 bg-white/[0.04] px-3 py-2.5 text-[11px] text-zinc-100">
+                  <ShieldCheck size={15} className="shrink-0" aria-hidden="true" /> Only iPhone-compatible hosted links are shown
                 </div>
               )}
 
@@ -467,17 +483,17 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                   runSearch(query);
                 }}
               >
-                <label className={`${mobileApple ? "hidden" : "flex"} min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/10 bg-black/25 px-3`}>
-                  <Search size={15} className="shrink-0 text-zinc-600" />
+                <label className={`${mobileApple ? "hidden" : "flex"} min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/15 bg-black/30 px-3 transition-colors focus-within:border-white/60`}>
+                  <Search size={15} className="shrink-0 text-zinc-400" aria-hidden="true" />
                   <input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="Search sources"
                     aria-label="Search sources"
-                    className="search-input w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-zinc-700"
+                    className="search-input w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-zinc-500"
                   />
                 </label>
-                <div className="no-scrollbar flex overflow-x-auto rounded-xl border border-white/10 bg-black/25 p-1">
+                <div role="group" aria-label="Sort sources" className="no-scrollbar flex overflow-x-auto rounded-xl border border-white/15 bg-black/30 p-1">
                   {(
                     [
                       ["recommended", "Best"],
@@ -490,10 +506,11 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                       key={mode}
                       type="button"
                       onClick={() => setSortMode(mode)}
+                      aria-pressed={sortMode === mode}
                       className={`shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition ${
                         sortMode === mode
                           ? "bg-white text-black"
-                          : "text-zinc-500 hover:text-white"
+                          : "text-zinc-400 hover:text-white"
                       }`}
                     >
                       {label}
@@ -508,7 +525,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                   <select
                     value={qualityFilter}
                     onChange={(event) => setQualityFilter(event.target.value as QualityFilter)}
-                    className="w-full rounded-xl border border-white/10 bg-[#11100e] px-3 py-2.5 text-[11px] font-semibold text-zinc-300 outline-none transition focus:border-brand/60"
+                    className="w-full rounded-xl border border-white/15 bg-[#0e0e0e] px-3 py-2.5 text-[11px] font-semibold text-zinc-200 outline-none transition focus:border-white/70"
                   >
                     <option value="all">All quality</option>
                     <option value="4k">4K and 8K</option>
@@ -522,7 +539,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                   <select
                     value={languageFilter}
                     onChange={(event) => setLanguageFilter(event.target.value as LanguageFilter)}
-                    className="w-full rounded-xl border border-white/10 bg-[#11100e] px-3 py-2.5 text-[11px] font-semibold text-zinc-300 outline-none transition focus:border-brand/60"
+                    className="w-full rounded-xl border border-white/15 bg-[#0e0e0e] px-3 py-2.5 text-[11px] font-semibold text-zinc-200 outline-none transition focus:border-white/70"
                   >
                     <option value="all">All audio</option>
                     <option value="english">English</option>
@@ -536,7 +553,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                   <select
                     value={sourceFilter}
                     onChange={(event) => setSourceFilter(event.target.value as SourceFilter)}
-                    className="w-full rounded-xl border border-white/10 bg-[#11100e] px-3 py-2.5 text-[11px] font-semibold text-zinc-300 outline-none transition focus:border-brand/60"
+                    className="w-full rounded-xl border border-white/15 bg-[#0e0e0e] px-3 py-2.5 text-[11px] font-semibold text-zinc-200 outline-none transition focus:border-white/70"
                   >
                     <option value="all">All sources</option>
                     <option value="web">WEB</option>
@@ -550,7 +567,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                   <select
                     value={speedFilter}
                     onChange={(event) => setSpeedFilter(event.target.value as SpeedFilter)}
-                    className="w-full rounded-xl border border-white/10 bg-[#11100e] px-3 py-2.5 text-[11px] font-semibold text-zinc-300 outline-none transition focus:border-brand/60"
+                    className="w-full rounded-xl border border-white/15 bg-[#0e0e0e] px-3 py-2.5 text-[11px] font-semibold text-zinc-200 outline-none transition focus:border-white/70"
                   >
                     <option value="all">Any speed</option>
                     <option value="fast">Fast peers</option>
@@ -561,7 +578,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                   <button
                     type="button"
                     onClick={clearFilters}
-                    className="col-span-2 rounded-xl border border-white/10 px-3 py-2.5 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/[0.06] hover:text-white sm:col-span-4 lg:col-span-1"
+                    className="col-span-2 rounded-xl border border-white/15 px-3 py-2.5 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/[0.06] hover:text-white sm:col-span-4 lg:col-span-1"
                   >
                     Clear filters
                   </button>
@@ -572,17 +589,17 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
             <div className={`min-h-0 flex-1 overflow-y-auto ${mobileApple ? "p-2" : "p-3 md:p-4"}`}>
               {loading && <Spinner label="Finding healthy sources…" />}
               {error && (
-                <div className="m-2 rounded-xl border border-red-500/20 bg-red-500/[0.06] p-4 text-sm text-red-300">
-                  {error}
+                <div role="alert" className="ak-notice ak-notice--error m-2 text-sm">
+                  <AlertTriangle size={17} aria-hidden="true" /> <span className="min-w-0 break-words">{error}</span>
                 </div>
               )}
               {!loading && !error && !results.length && (
-                <div className="py-16 text-center text-sm text-zinc-500">No playable sources found.</div>
+                <div role="status" className="py-16 text-center text-sm text-zinc-300">No playable sources found. Try another search or episode.</div>
               )}
               {!loading && !error && mobileApple && results.length > 0 && !compatibleResults.length && (
                 <div className="mx-auto max-w-md py-16 text-center">
                   <p className="text-sm font-semibold text-zinc-200">No hosted streams are configured</p>
-                  <p className="mt-2 text-xs leading-5 text-zinc-500">
+                  <p className="mt-2 text-xs leading-5 text-zinc-400">
                     This Torrentio setup returned peer links instead of direct video URLs. Add a debrid provider for instant iPhone playback.
                   </p>
                   <motion.button
@@ -592,19 +609,19 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                       onClose();
                       navigate("/settings#hosted-streaming");
                     }}
-                    className="mx-auto mt-5 flex h-11 items-center justify-center gap-2 rounded-xl bg-brand-light px-5 text-xs font-black text-[#090806]"
+                    className="mx-auto mt-5 flex h-11 items-center justify-center gap-2 rounded-full bg-white px-5 text-xs font-black text-black"
                   >
                     <ExternalLink size={15} /> Set up instant streaming
                   </motion.button>
                 </div>
               )}
               {!loading && !error && compatibleResults.length > 0 && !filteredSorted.length && (
-                <div className="flex flex-col items-center gap-3 py-16 text-center text-sm text-zinc-500">
+                <div className="flex flex-col items-center gap-3 py-16 text-center text-sm text-zinc-300">
                   <span>No sources match these filters.</span>
                   <button
                     type="button"
                     onClick={clearFilters}
-                    className="rounded-xl border border-white/10 px-4 py-2 text-xs font-semibold text-zinc-300 transition hover:bg-white/[0.06] hover:text-white"
+                    className="rounded-full border border-white/20 px-4 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/[0.06] hover:text-white"
                   >
                     Clear filters
                   </button>
@@ -634,28 +651,28 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                       }}
                       className={`relative overflow-hidden rounded-2xl border transition ${mobileApple ? "p-3" : "p-4"} ${
                         recommended
-                          ? "border-brand/30 bg-gradient-to-r from-brand/[0.08] to-white/[0.025]"
-                          : "border-white/[0.07] bg-white/[0.025] hover:border-white/15 hover:bg-white/[0.045]"
+                          ? "border-white/50 bg-white/[0.06]"
+                          : "border-white/[0.08] bg-white/[0.025] hover:border-white/20 hover:bg-white/[0.045]"
                       }`}
                     >
                       {recommended && (
-                        <div className="absolute right-0 top-0 rounded-bl-xl bg-brand px-3 py-1 text-[9px] font-bold uppercase tracking-[0.16em] text-white">
-                          <span className="flex items-center gap-1"><Sparkles size={10} /> Auto pick</span>
+                        <div className="absolute right-0 top-0 rounded-bl-xl bg-white px-3 py-1 text-[9px] font-bold uppercase tracking-[0.16em] text-black">
+                          <span className="flex items-center gap-1"><Sparkles size={10} aria-hidden="true" /> Auto pick</span>
                         </div>
                       )}
 
                       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_270px_auto] lg:items-center">
                         <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2 pr-24 text-[9px] font-bold uppercase tracking-[0.18em] text-zinc-600">
+                          <div className="flex flex-wrap items-center gap-2 pr-24 text-[9px] font-bold uppercase tracking-[0.18em] text-zinc-400">
                             <span>Source {String(index + 1).padStart(2, "0")}</span>
-                            <span className="h-1 w-1 rounded-full bg-zinc-700" />
-                            <span className="normal-case tracking-normal text-zinc-500">{result.indexer}</span>
+                            <span className="h-1 w-1 rounded-full bg-zinc-600" aria-hidden="true" />
+                            <span className="normal-case tracking-normal text-zinc-400">{result.indexer}</span>
                           </div>
                           <h3 className="mt-1.5 text-lg font-bold tracking-tight text-zinc-100">
                             {mediaTitle}
                           </h3>
                           {media?.isEpisode && media.subtitle && (
-                            <p className="mt-0.5 truncate text-[11px] text-zinc-500">{media.subtitle}</p>
+                            <p className="mt-0.5 truncate text-[11px] text-zinc-400">{media.subtitle}</p>
                           )}
                           <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[10px]">
                             <span className="rounded-md bg-white/[0.05] px-2 py-1 text-zinc-300">
@@ -678,8 +695,8 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                               </span>
                             )}
                             {facts.directPlay && (
-                              <span className="flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 font-semibold text-emerald-400">
-                                <ShieldCheck size={11} /> {facts.hosted ? "Hosted link" : "Direct play"}
+                              <span className="flex items-center gap-1 rounded-md bg-white px-2 py-1 font-semibold text-black">
+                                <ShieldCheck size={11} aria-hidden="true" /> {facts.hosted ? "Hosted link" : "Direct play"}
                               </span>
                             )}
                           </div>
@@ -687,13 +704,13 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
 
                         <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/[0.06] bg-black/20 p-2.5">
                           <div className="rounded-xl bg-white/[0.035] p-2.5">
-                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-600">
+                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-400">
                               <Gauge size={11} /> Quality
                             </span>
-                            <strong className="mt-1 block text-sm text-brand-light">{facts.quality}</strong>
+                            <strong className="mt-1 block text-sm text-white">{facts.quality}</strong>
                           </div>
                           <div className="rounded-xl bg-white/[0.035] p-2.5">
-                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-600">
+                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-400">
                               <Languages size={11} /> Audio
                             </span>
                             <strong className="mt-1 block truncate text-xs text-zinc-200">
@@ -701,7 +718,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                             </strong>
                           </div>
                           <div className="rounded-xl bg-white/[0.035] p-2.5">
-                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-600">
+                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-400">
                               <HardDrive size={11} /> Size
                             </span>
                             <strong className="mt-1 block text-xs text-zinc-200">
@@ -709,19 +726,20 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                             </strong>
                           </div>
                           <div className="rounded-xl bg-white/[0.035] p-2.5">
-                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-600">
+                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-400">
                               <Users size={11} /> {facts.hosted ? "Speed" : "Peers"}
                             </span>
-                            <strong className={`mt-1 block text-xs ${facts.health.color}`}>
+                            <strong className="mt-1 flex items-center gap-2 text-xs text-white">
                               {facts.hosted ? facts.health.label : result.seeders.toLocaleString()}
+                              <HealthBars level={facts.health.level} label={facts.health.label} />
                             </strong>
                           </div>
                         </div>
 
                         <div className={`flex shrink-0 items-stretch gap-2 ${mobileApple ? "w-full" : ""}`}>
                           {added ? (
-                            <div className="flex min-w-32 items-center justify-center gap-2 rounded-xl bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-400">
-                              <Check size={15} /> Added
+                            <div role="status" className="flex min-w-32 items-center justify-center gap-2 rounded-xl border border-white/40 px-4 py-2 text-xs font-semibold text-white">
+                              <Check size={15} aria-hidden="true" /> Added
                             </div>
                           ) : (
                             <>
@@ -730,7 +748,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                                 whileHover={!mobileApple ? { scale: 1.025 } : undefined}
                                 onClick={() => act(result, "stream")}
                                 disabled={!!actingGuid}
-                                className={`group/stream flex min-w-32 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-light to-brand px-4 py-2.5 text-xs font-bold text-[#090806] shadow-[0_10px_28px_rgba(152,117,47,.16)] transition hover:scale-[1.02] hover:brightness-110 disabled:opacity-50 ${mobileApple ? "h-11 flex-1" : ""}`}
+                                className={`group/stream flex min-w-32 items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 text-xs font-bold text-black transition hover:bg-zinc-200 disabled:opacity-50 ${mobileApple ? "h-11 flex-1" : ""}`}
                               >
                                 {acting ? <LoaderCircle size={15} className="animate-spin" /> : <Wifi size={15} />}
                                 {acting ? "Starting…" : "Watch this"}
@@ -740,7 +758,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                                   onClick={() => act(result, "download")}
                                   disabled={!!actingGuid}
                                   title="Download and keep offline"
-                                  className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-2.5 text-xs font-semibold transition hover:bg-white/10 disabled:opacity-50"
+                                  className="flex items-center justify-center gap-2 rounded-full border border-white/20 bg-white/[0.04] px-3.5 py-2.5 text-xs font-semibold transition hover:bg-white/10 disabled:opacity-50"
                                 >
                                   <Download size={15} /> Save
                                 </button>
@@ -751,7 +769,8 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                             <button
                               onClick={() => copyMagnet(result)}
                               title="Copy magnet"
-                              className="rounded-xl border border-white/[0.07] p-2.5 text-zinc-500 transition hover:bg-white/10 hover:text-white"
+                              aria-label="Copy magnet link"
+                              className="rounded-full border border-white/[0.12] p-2.5 text-zinc-300 transition hover:bg-white/10 hover:text-white"
                             >
                               <Copy size={15} />
                             </button>
@@ -765,7 +784,7 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
               </motion.div>
             </div>
 
-            <footer className={`${mobileApple ? "hidden" : "flex"} shrink-0 items-center justify-between gap-4 border-t border-white/[0.07] bg-black/20 px-5 py-3 text-[10px] text-zinc-600`}>
+            <footer className={`${mobileApple ? "hidden" : "flex"} shrink-0 items-center justify-between gap-4 border-t border-white/[0.08] bg-black/20 px-5 py-3 text-[10px] text-zinc-500`}>
               <span>⚖️ {t("torrent.disclaimer")}</span>
               <span className="hidden items-center gap-1 md:flex"><Radio size={11} /> {mobileApple ? "Hosted playback on iPhone" : "Powered by Torrentio + your local stream engine"}</span>
             </footer>

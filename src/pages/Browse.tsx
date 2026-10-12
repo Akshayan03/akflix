@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { RefreshCw } from "lucide-react";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 import { cinemeta } from "@/api/cinemeta";
 import DiscoverHero from "@/components/DiscoverHero";
 import DiscoverRow from "@/components/DiscoverRow";
@@ -64,10 +64,11 @@ export default function Browse({ type }: { type: StremioMediaType }) {
   if (error) {
     return (
       <div className="flex min-h-[80svh] items-center justify-center px-6 pt-24">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass-panel max-w-sm rounded-[26px] p-6 text-center">
+        <motion.div role="alert" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-sm rounded-[26px] bg-white p-6 text-center text-black">
+          <AlertTriangle size={26} className="mx-auto mb-3" aria-hidden="true" />
           <p className="text-lg font-black">Could not load {isSeries ? "shows" : "movies"}</p>
-          <p className="mt-2 text-sm leading-6 text-zinc-400">{error}</p>
-          <motion.button whileTap={{ scale: 0.96 }} onClick={() => setReloadKey((key) => key + 1)} className="ios-pressable mt-5 inline-flex items-center gap-2 rounded-2xl bg-white px-5 text-sm font-bold text-black">
+          <p className="mt-2 break-words text-sm leading-6 text-black/70">{error}</p>
+          <motion.button whileTap={{ scale: 0.96 }} onClick={() => setReloadKey((key) => key + 1)} className="ios-pressable mt-5 inline-flex items-center gap-2 rounded-full bg-black px-5 text-sm font-bold text-white">
             <RefreshCw size={15} /> Try again
           </motion.button>
         </motion.div>
@@ -94,8 +95,8 @@ export default function Browse({ type }: { type: StremioMediaType }) {
                 onClick={() => document.getElementById(`browse-row-${index}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}
                 className={`shrink-0 rounded-full border px-4 py-2 text-xs font-bold ${
                   index === 0
-                    ? "border-brand/30 bg-brand/15 text-brand-light"
-                    : "border-white/10 bg-white/[0.045] text-zinc-300"
+                    ? "border-white bg-white text-black"
+                    : "border-white/15 bg-white/[0.045] text-zinc-200"
                 }`}
               >
                 {index === 0 ? "Popular" : GENRES[index - 1]}
@@ -104,10 +105,10 @@ export default function Browse({ type }: { type: StremioMediaType }) {
           </motion.div>
         )}
         <div className={`mb-8 px-6 md:px-12 lg:px-16 ${mobileApple ? "sr-only" : ""}`}>
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-accent">
+          <p className="ak-eyebrow">
             {isSeries ? "Every season. Every episode." : "Your movie night starts here."}
           </p>
-          <h1 className="mt-2 text-3xl font-black tracking-[-0.04em]">
+          <h1 className="mt-2 font-display text-4xl tracking-[-0.03em]">
             {isSeries ? "TV Shows" : "Movies"}
           </h1>
         </div>

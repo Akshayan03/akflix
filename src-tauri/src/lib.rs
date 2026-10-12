@@ -1495,9 +1495,20 @@ pub fn run() {
                 let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
                 let menu = Menu::with_items(app, &[&open, &quit])?;
 
-                TrayIconBuilder::with_id("akflix-tray")
+                // One tray icon only (tauri.conf.json no longer declares a second,
+                // menu-less "main" tray). macOS gets the monochrome glyph as a
+                // template image so it follows the menu bar's light/dark tint;
+                // Windows/Linux keep the app icon (white glyph on a black tile),
+                // which stays visible on both light and dark taskbars.
+                #[cfg(target_os = "macos")]
+                let tray = TrayIconBuilder::with_id("akflix-tray")
+                    .icon(tauri::include_image!("icons/tray-template.png"))
+                    .icon_as_template(true);
+                #[cfg(not(target_os = "macos"))]
+                let tray = TrayIconBuilder::with_id("akflix-tray")
+                    .icon(app.default_window_icon().unwrap().clone());
+                tray
                     .tooltip("Akflix")
-                    .icon(app.default_window_icon().unwrap().clone())
                     .menu(&menu)
                     .show_menu_on_left_click(true)
                     .on_menu_event(|app, event| match event.id.as_ref() {

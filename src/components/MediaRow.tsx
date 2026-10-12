@@ -45,7 +45,7 @@ export default function MediaRow({ title, items, variant = "poster" }: Props) {
     <section className="group/row relative mb-11">
       <div className="mb-2 flex items-end gap-3 px-6 md:px-12 lg:px-16">
         <h2 className="text-xl font-bold tracking-[-0.025em] text-zinc-100">{title}</h2>
-        <span className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.17em] text-zinc-600">Your library</span>
+        <span className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.17em] text-zinc-500">Your library</span>
       </div>
 
       <div className="relative">

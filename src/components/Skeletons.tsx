@@ -74,7 +74,7 @@ export function TitleSkeleton() {
           </div>
         </div>
       </div>
-      <p className="absolute bottom-8 left-0 right-0 text-center text-xs font-medium text-zinc-500">
+      <p role="status" className="absolute bottom-8 left-0 right-0 text-center text-xs font-medium text-zinc-400">
         Loading title details
       </p>
     </div>
@@ -84,7 +84,7 @@ export function TitleSkeleton() {
 /** Full home-page skeleton: hero + a few rows. */
 export function HomeSkeleton() {
   return (
-    <div className="pb-16">
+    <div className="pb-16" role="status" aria-label="Loading catalog">
       <HeroSkeleton />
       <div className="relative z-10 -mt-24">
         <RowSkeleton variant="landscape" cards={5} />
@@ -98,7 +98,7 @@ export function HomeSkeleton() {
 /** Catalog placeholder with the same geometry as Movies and Shows pages. */
 export function CatalogSkeleton() {
   return (
-    <div className="min-h-screen pb-20 pt-[calc(env(safe-area-inset-top,0px)+4.75rem)] md:pt-0">
+    <div role="status" aria-label="Loading catalog" className="min-h-screen pb-20 pt-[calc(env(safe-area-inset-top,0px)+4.75rem)] md:pt-0">
       <div className="skeleton mx-4 aspect-[16/11] rounded-[28px] md:mx-0 md:h-[72vh] md:min-h-[520px] md:aspect-auto md:!rounded-none" />
       <div className="relative z-10 mt-7 md:-mt-20">
         <RowSkeleton />

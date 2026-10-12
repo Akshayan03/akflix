@@ -48,7 +48,17 @@ export default function MediaCard({ item, variant = "poster" }: Props) {
       whileTap={{ scale: 0.965 }}
       transition={{ type: "spring", stiffness: 350, damping: 25 }}
       onClick={goDetails}
-      className={`group relative shrink-0 cursor-pointer overflow-hidden rounded-[20px] border border-white/[0.08] bg-surface-raised shadow-[0_14px_35px_rgba(0,0,0,.18)] ${
+      role="button"
+      tabIndex={0}
+      aria-label={subtitle ? `${title}, ${subtitle}` : title}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          goDetails();
+        }
+      }}
+      className={`group relative shrink-0 cursor-pointer overflow-hidden rounded-2xl border border-white/[0.08] bg-surface-raised shadow-[0_14px_35px_rgba(0,0,0,.35)] ${
         variant === "landscape" ? "aspect-video w-[82vw] max-w-[340px] md:w-72" : "aspect-[2/3] w-[138px] md:w-48"
       }`}
     >
@@ -63,7 +73,7 @@ export default function MediaCard({ item, variant = "poster" }: Props) {
       />
 
       {/* Hover overlay */}
-      <div className={`absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/20 to-transparent p-3 transition-opacity duration-200 ${mobileApple ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+      <div className={`absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/20 to-transparent p-3 transition-opacity duration-200 ${mobileApple ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-within:opacity-100"}`}>
         <button
           onClick={goPlay}
           aria-label="Play"
@@ -72,13 +82,13 @@ export default function MediaCard({ item, variant = "poster" }: Props) {
           <Play size={16} fill="currentColor" />
         </button>
         <p className="truncate text-sm font-semibold">{title}</p>
-        {subtitle && <p className="truncate text-xs text-zinc-400">{subtitle}</p>}
+        {subtitle && <p className="truncate text-xs text-zinc-300">{subtitle}</p>}
       </div>
 
       {/* Continue-watching progress bar */}
       {progress > 0 && progress < 98 && (
-        <div className="absolute inset-x-0 bottom-0 h-1 bg-zinc-700/80">
-          <div className="h-full bg-gradient-to-r from-brand to-accent" style={{ width: `${progress}%` }} />
+        <div className="absolute inset-x-0 bottom-0 h-1 bg-white/25" role="progressbar" aria-label="Watched" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
+          <div className="h-full bg-white" style={{ width: `${progress}%` }} />
         </div>
       )}
     </motion.div>

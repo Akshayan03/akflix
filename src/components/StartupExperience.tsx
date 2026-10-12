@@ -143,37 +143,41 @@ export default function StartupExperience() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-[#090806]/95 px-6 backdrop-blur-2xl"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="akflix-startup-title"
+      aria-describedby="akflix-startup-detail"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 px-6 backdrop-blur-2xl"
     >
-      <div className="pointer-events-none absolute left-[12%] top-[8%] h-72 w-72 rounded-full bg-brand/10 blur-[110px]" />
       <motion.section
         initial={{ opacity: 0, y: 18, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ type: "spring", stiffness: 260, damping: 28 }}
         className="relative w-full max-w-md text-center"
       >
-        <div className="mb-10 flex justify-center"><Brand /></div>
-        <div className="glass-panel rounded-[30px] p-8 shadow-[0_30px_100px_rgba(0,0,0,.6)]">
+        <div className="mb-10 flex justify-center text-white"><Brand height={30} /></div>
+        <div className="glass-panel rounded-[28px] p-8">
           <motion.div
             key={phase}
             initial={{ opacity: 0, scale: 0.82 }}
             animate={{ opacity: 1, scale: 1 }}
-            className={`mx-auto flex h-16 w-16 items-center justify-center rounded-2xl ${
-              ready ? "bg-emerald-500/15 text-emerald-300" : action ? "bg-amber-500/15 text-amber-200" : "bg-brand/15 text-brand-light"
+            aria-hidden="true"
+            className={`mx-auto flex h-16 w-16 items-center justify-center rounded-full ${
+              ready ? "bg-white text-black" : action ? "border-2 border-dashed border-white/70 text-white" : "border border-white/15 text-white"
             }`}
           >
-            {ready ? <Check size={30} /> : action ? <HardDrive size={28} /> : <LoaderCircle size={30} className="animate-spin" />}
+            {ready ? <Check size={30} strokeWidth={2.5} /> : action ? <HardDrive size={28} /> : <LoaderCircle size={30} className="animate-spin" />}
           </motion.div>
-          <h1 className="mt-6 text-2xl font-black tracking-[-0.035em]">{readinessCopy(phase)}</h1>
-          <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-zinc-400">{detail}</p>
+          <h1 id="akflix-startup-title" className="mt-6 text-2xl font-black tracking-[-0.035em]">{readinessCopy(phase)}</h1>
+          <p id="akflix-startup-detail" role={action ? "alert" : "status"} className="mx-auto mt-3 max-w-sm text-sm leading-6 text-zinc-300">{detail}</p>
 
-          <div className="mt-7 grid grid-cols-3 gap-2 text-[10px] font-semibold text-zinc-500">
+          <div className="mt-7 grid grid-cols-3 gap-2 text-[10px] font-semibold text-zinc-400">
             {["Storage", "Player", "Browse"].map((label, index) => {
               const complete = completedSteps > index;
               return (
-              <div key={label} className={`rounded-xl border px-2 py-2.5 ${complete ? "border-emerald-500/15 bg-emerald-500/[0.07] text-emerald-300" : "border-white/[0.07] bg-white/[0.025]"}`}>
-                {complete ? <Check size={12} className="mx-auto mb-1" /> : <span className="mx-auto mb-1 block h-3 w-3 rounded-full border border-current" />}
-                {label}
+              <div key={label} className={`rounded-xl border px-2 py-2.5 transition-colors duration-300 ${complete ? "border-white bg-white text-black" : "border-white/[0.1] bg-white/[0.03]"}`}>
+                {complete ? <Check size={12} strokeWidth={3} className="mx-auto mb-1" aria-hidden="true" /> : <span aria-hidden="true" className="mx-auto mb-1 block h-3 w-3 rounded-full border border-current" />}
+                {label}<span className="sr-only">{complete ? ": done" : ": pending"}</span>
               </div>
               );
             })}
@@ -184,24 +188,24 @@ export default function StartupExperience() {
               <button
                 onClick={() => void check()}
                 disabled={busy}
-                className="flex h-11 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] text-sm font-semibold transition hover:bg-white/[0.09] disabled:opacity-50"
+                className="flex h-11 items-center justify-center gap-2 rounded-full border border-white/25 bg-transparent text-sm font-semibold transition hover:bg-white/[0.1] disabled:opacity-50"
               >
                 <RotateCcw size={15} /> Try again
               </button>
               <button
                 onClick={() => void useMacStorage()}
                 disabled={busy}
-                className="flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-light to-brand text-sm font-black text-[#090806] disabled:opacity-50"
+                className="flex h-11 items-center justify-center gap-2 rounded-full bg-white text-sm font-black text-black transition hover:bg-zinc-200 disabled:opacity-50"
               >
                 <Play size={15} fill="currentColor" /> Use this Mac
               </button>
-              <button onClick={() => setVisible(false)} className="min-h-11 text-sm text-zinc-400 underline sm:col-span-2">
+              <button onClick={() => setVisible(false)} className="min-h-11 text-sm text-zinc-300 underline underline-offset-4 hover:text-white sm:col-span-2">
                 Continue browsing without playback
               </button>
             </div>
           )}
         </div>
-        <p className="mt-5 text-[11px] text-zinc-600">Jellyfin and external playback tools remain optional in Settings.</p>
+        <p className="mt-5 text-[11px] text-zinc-500">Jellyfin and external playback tools remain optional in Settings.</p>
       </motion.section>
     </motion.div>
   );

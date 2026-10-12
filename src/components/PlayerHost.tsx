@@ -18,8 +18,10 @@ import { useNavigate } from "react-router-dom";
 import type Hls from "hls.js";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  AlertTriangle,
   ArrowLeft,
   AudioLines,
+  Check,
   Gauge,
   LoaderCircle,
   Maximize,
@@ -1596,8 +1598,8 @@ export default function PlayerHost() {
 
         {/* Buffering spinner */}
         {buffering && !error && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="h-12 w-12 animate-spin rounded-full border-2 border-white/20 border-t-brand" />
+          <div role="status" aria-label="Buffering" className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div className="ak-spinner h-12 w-12" aria-hidden="true" />
           </div>
         )}
 
@@ -1622,20 +1624,22 @@ export default function PlayerHost() {
 
         {/* Error state */}
         {error && expanded && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-8">
-            <p className="max-w-lg whitespace-pre-wrap text-center text-sm text-red-400">
-              {error}
-            </p>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                stop();
-                navigate(-1);
-              }}
-              className="rounded bg-zinc-800 px-4 py-2 text-sm hover:bg-zinc-700"
-            >
-              {t("player.back")}
-            </button>
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80 p-8">
+            <div role="alert" className="flex max-w-lg flex-col items-center gap-4 rounded-3xl bg-white px-8 py-7 text-center text-black shadow-2xl">
+              <AlertTriangle size={30} aria-hidden="true" />
+              <p className="text-base font-bold">This video couldn't play</p>
+              <p className="whitespace-pre-wrap text-sm leading-6 text-black/70">{error}</p>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  stop();
+                  navigate(-1);
+                }}
+                className="flex min-h-11 items-center gap-2 rounded-full bg-black px-5 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              >
+                <ArrowLeft size={16} aria-hidden="true" /> {t("player.back")}
+              </button>
+            </div>
           </div>
         )}
 
@@ -1759,7 +1763,7 @@ export default function PlayerHost() {
                     onClick={() => usePlayback.getState().controls?.toggle()}
                     aria-label={isPlaying ? "Pause" : "Play"}
                     title={isPlaying ? "Pause (Space)" : "Play (Space)"}
-                    className={mobileApple ? "order-2 flex h-14 w-14 items-center justify-center rounded-full bg-white text-black" : "flex h-11 w-11 items-center justify-center rounded-full bg-white text-black shadow-lg transition hover:scale-105 hover:bg-brand-light"}
+                    className={mobileApple ? "order-2 flex h-14 w-14 items-center justify-center rounded-full bg-white text-black" : "flex h-11 w-11 items-center justify-center rounded-full bg-white text-black shadow-lg transition hover:scale-105 hover:bg-zinc-200"}
                   >
                     {isPlaying ? (
                       <Pause size={mobileApple ? 25 : 28} fill={mobileApple ? "currentColor" : "none"} />
@@ -1859,11 +1863,13 @@ export default function PlayerHost() {
                             setSubMenuOpen((o) => !o);
                           }}
                           aria-label={t("player.subtitles")}
-                          className={
+                          aria-pressed={activeSub >= 0}
+                          aria-expanded={subMenuOpen}
+                          className={`rounded-lg p-1 transition ${
                             activeSub >= 0
-                              ? "text-brand"
-                              : "text-zinc-300 transition hover:text-white"
-                          }
+                              ? "bg-white text-black"
+                              : "text-zinc-300 hover:bg-white/10 hover:text-white"
+                          }`}
                         >
                           <Subtitles size={22} />
                         </motion.button>
@@ -1874,24 +1880,26 @@ export default function PlayerHost() {
                               animate={{ opacity: 1, y: 0, scale: 1 }}
                               exit={{ opacity: 0, y: 8, scale: 0.96 }}
                               transition={{ type: "spring", stiffness: 430, damping: 32 }}
-                              className="absolute bottom-10 right-0 max-h-[70vh] w-80 origin-bottom-right overflow-y-auto rounded-2xl border border-white/10 bg-[#15130f]/95 p-1.5 shadow-2xl backdrop-blur-xl"
+                              role="menu"
+                              aria-label="Captions"
+                              className="absolute bottom-10 right-0 max-h-[70vh] w-80 origin-bottom-right overflow-y-auto rounded-2xl border border-white/15 bg-[#101010]/95 p-1.5 shadow-2xl backdrop-blur-xl"
                             >
-                              <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">
+                              <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-400">
                                 Captions
                               </p>
                               <button
                                 onClick={() => void toggleGeneratedCaptions()}
                                 disabled={captionTask === "syncing" || !captionKey}
-                                className="mb-1 flex w-full items-center gap-3 rounded-xl border border-brand/20 bg-brand/[0.08] px-3 py-2.5 text-left transition hover:bg-brand/[0.14] disabled:cursor-not-allowed disabled:opacity-50"
+                                className="mb-1 flex w-full items-center gap-3 rounded-xl border border-white/20 bg-white/[0.06] px-3 py-2.5 text-left transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand/15 text-brand-light">
+                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-black">
                                   <AudioLines size={16} className={captionTask === "generating" ? "animate-pulse" : ""} />
                                 </span>
                                 <span className="min-w-0">
                                   <span className="block text-sm font-semibold text-zinc-100">
                                     {captionTask === "generating" ? "Pause live captions" : "Generate live captions"}
                                   </span>
-                                  <span className="block text-[10px] text-zinc-500">
+                                  <span className="block text-[10px] text-zinc-400">
                                     Private speech recognition, saved for this episode
                                   </span>
                                 </span>
@@ -1909,7 +1917,7 @@ export default function PlayerHost() {
                                   <span className="block text-sm font-semibold text-zinc-200">
                                     {captionTask === "syncing" ? "Matching dialogue..." : "Auto sync selected captions"}
                                   </span>
-                                  <span className="block text-[10px] text-zinc-500">
+                                  <span className="block text-[10px] text-zinc-400">
                                     Listens and corrects the caption timing
                                   </span>
                                 </span>
@@ -1922,7 +1930,7 @@ export default function PlayerHost() {
                                       <p className="truncate text-xs font-semibold text-zinc-200">
                                         {manualCaption.name}
                                       </p>
-                                      <p className="mt-0.5 text-[10px] text-zinc-500">
+                                      <p className="mt-0.5 text-[10px] text-zinc-400">
                                         {manualCaption.kind === "generated" ? "Generated from the video audio" : "Timing matched to spoken dialogue"}
                                       </p>
                                     </div>
@@ -1930,7 +1938,7 @@ export default function PlayerHost() {
                                       onClick={deleteManualCaption}
                                       aria-label="Remove Akflix captions"
                                       title="Remove Akflix captions"
-                                      className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-red-500/10 hover:text-red-300"
+                                      className="rounded-lg p-1.5 text-zinc-300 transition hover:bg-white hover:text-black"
                                     >
                                       <Trash2 size={14} />
                                     </button>
@@ -1945,7 +1953,7 @@ export default function PlayerHost() {
                                     <button
                                       onClick={() => adjustManualCaption(-manualCaption.offsetSeconds)}
                                       title="Reset caption timing"
-                                      className="min-w-[72px] rounded-lg px-2 py-1 text-center text-[11px] font-bold tabular-nums text-brand-light transition hover:bg-white/[0.06]"
+                                      className="min-w-[72px] rounded-lg px-2 py-1 text-center text-[11px] font-bold tabular-nums text-white transition hover:bg-white/[0.08]"
                                     >
                                       {manualCaption.offsetSeconds > 0 ? "+" : ""}
                                       {manualCaption.offsetSeconds.toFixed(1)}s
@@ -1957,7 +1965,7 @@ export default function PlayerHost() {
                                       <Plus size={12} /> 0.5s
                                     </button>
                                   </div>
-                                  <p className="mt-2 text-[9px] leading-4 text-zinc-600">
+                                  <p className="mt-2 text-[9px] leading-4 text-zinc-400">
                                     Timing is automatic. Minus and plus are available for a final personal adjustment.
                                   </p>
                                 </div>
@@ -1969,11 +1977,14 @@ export default function PlayerHost() {
                                   setActiveSub(-1);
                                   setSubMenuOpen(false);
                                 }}
-                                className={`block w-full rounded-xl px-3 py-2 text-left text-sm transition hover:bg-white/10 ${
-                                  activeSub === -1 ? "text-brand" : ""
+                                role="menuitemradio"
+                                aria-checked={activeSub === -1}
+                                className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition hover:bg-white/10 ${
+                                  activeSub === -1 ? "font-semibold text-white" : "text-zinc-300"
                                 }`}
                               >
                                 {t("player.subtitlesOff")}
+                                {activeSub === -1 && <Check size={15} aria-hidden="true" />}
                               </button>
                               {allSubTracks.map((s) => (
                                 <button
@@ -1982,22 +1993,27 @@ export default function PlayerHost() {
                                     setActiveSub(s.index);
                                     setSubMenuOpen(false);
                                   }}
+                                  role="menuitemradio"
+                                  aria-checked={activeSub === s.index}
                                   className={`block w-full truncate rounded-xl px-3 py-2 text-left text-sm transition hover:bg-white/10 ${
-                                    activeSub === s.index ? "text-brand" : ""
+                                    activeSub === s.index ? "font-semibold text-white" : "text-zinc-300"
                                   }`}
                                 >
                                   <span className="flex items-center justify-between gap-2">
                                     <span className="truncate">{s.label}</span>
-                                    {s.manual && (
-                                      <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-brand-light">
-                                        Akflix
-                                      </span>
-                                    )}
+                                    <span className="flex shrink-0 items-center gap-2">
+                                      {s.manual && (
+                                        <span className="rounded-full border border-white/30 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-zinc-200">
+                                          Akflix
+                                        </span>
+                                      )}
+                                      {activeSub === s.index && <Check size={15} aria-hidden="true" />}
+                                    </span>
                                   </span>
                                 </button>
                               ))}
                               {!allSubTracks.length && (
-                                <p className="px-3 py-2 text-xs leading-5 text-zinc-500">
+                                <p className="px-3 py-2 text-xs leading-5 text-zinc-400">
                                   No captions are available for this source.
                                 </p>
                               )}
@@ -2014,7 +2030,8 @@ export default function PlayerHost() {
                           setSpeedMenuOpen((open) => !open);
                         }}
                         aria-label={`Playback speed ${playbackRate}x`}
-                        className="flex items-center gap-1 text-zinc-300 transition hover:text-white"
+                        aria-expanded={speedMenuOpen}
+                        className={`flex items-center gap-1 rounded-lg px-1 py-0.5 transition ${playbackRate !== 1 ? "bg-white text-black" : "text-zinc-300 hover:bg-white/10 hover:text-white"}`}
                       >
                         <Gauge size={21} />
                         <span className="text-[11px] font-bold tabular-nums">{playbackRate}x</span>
@@ -2026,9 +2043,11 @@ export default function PlayerHost() {
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: 8, scale: 0.96 }}
                             transition={{ type: "spring", stiffness: 430, damping: 32 }}
-                            className="absolute bottom-10 right-0 w-40 origin-bottom-right overflow-hidden rounded-2xl border border-white/10 bg-[#15130f]/95 p-1.5 shadow-2xl backdrop-blur-xl"
+                            role="menu"
+                            aria-label="Playback speed"
+                            className="absolute bottom-10 right-0 w-40 origin-bottom-right overflow-hidden rounded-2xl border border-white/15 bg-[#101010]/95 p-1.5 shadow-2xl backdrop-blur-xl"
                           >
-                            <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">
+                            <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-400">
                               Playback speed
                             </p>
                             {PLAYBACK_RATES.map((rate) => (
@@ -2038,12 +2057,14 @@ export default function PlayerHost() {
                                   usePlayback.getState().controls?.setPlaybackRate(rate);
                                   setSpeedMenuOpen(false);
                                 }}
+                                role="menuitemradio"
+                                aria-checked={playbackRate === rate}
                                 className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition hover:bg-white/10 ${
-                                  playbackRate === rate ? "text-brand" : "text-zinc-200"
+                                  playbackRate === rate ? "font-semibold text-white" : "text-zinc-300"
                                 }`}
                               >
                                 <span>{rate === 1 ? "Normal" : `${rate}x`}</span>
-                                {playbackRate === rate && <span className="h-1.5 w-1.5 rounded-full bg-brand" />}
+                                {playbackRate === rate && <Check size={15} aria-hidden="true" />}
                               </button>
                             ))}
                           </motion.div>
@@ -2058,8 +2079,9 @@ export default function PlayerHost() {
                       }}
                       aria-label={pictureInPicture ? "Close picture in picture" : "Picture in picture"}
                       title={pictureInPicture ? "Close picture in picture" : "Picture in picture"}
-                      className={`rounded-lg p-1 transition hover:bg-white/10 hover:text-white ${
-                        pictureInPicture ? "text-brand" : "text-zinc-300"
+                      aria-pressed={pictureInPicture}
+                      className={`rounded-lg p-1 transition ${
+                        pictureInPicture ? "bg-white text-black" : "text-zinc-300 hover:bg-white/10 hover:text-white"
                       }`}
                     >
                       <PictureInPicture2 size={22} />

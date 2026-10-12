@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { ChevronRight, Clock3, ListFilter, LoaderCircle, Play, Sparkles, Star } from "lucide-react";
+import {
+  AlertTriangle,
+  Clock3,
+  ListFilter,
+  LoaderCircle,
+  Play,
+  RefreshCw,
+  Sparkles,
+  Star,
+} from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { cinemeta } from "@/api/cinemeta";
@@ -102,12 +111,12 @@ function RelatedShelf({ title, items }: { title: string; items: StremioMeta[] })
     <section className="mx-auto max-w-6xl px-4 pt-12 sm:px-6 md:px-12">
       <div className="mb-5 flex items-end justify-between gap-4">
         <div>
-          <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-accent">
-            <Sparkles size={12} /> Discover next
+          <p className="ak-eyebrow flex items-center gap-1.5">
+            <Sparkles size={12} aria-hidden="true" /> Discover next
           </p>
-          <h2 className="mt-1 text-2xl font-black tracking-tight">More Like This</h2>
+          <h2 className="mt-1 font-display text-3xl tracking-[-0.02em]">More Like This</h2>
         </div>
-        <p className="hidden max-w-sm text-right text-xs leading-5 text-zinc-500 sm:block">
+        <p className="hidden max-w-sm text-right text-xs leading-5 text-zinc-400 sm:block">
           Related to {title} by genre, collection, release period and rating
         </p>
       </div>
@@ -211,18 +220,19 @@ export default function DiscoverDetails() {
   if (error)
     return (
       <div className="flex min-h-screen items-center justify-center bg-surface px-6 text-center">
-        <div className="glass-panel max-w-md rounded-3xl p-8">
+        <div role="alert" className="max-w-md rounded-3xl bg-white p-8 text-black">
+          <AlertTriangle size={28} className="mx-auto mb-3" aria-hidden="true" />
           <h1 className="text-xl font-bold">This title could not load</h1>
-          <p className="mt-3 text-sm leading-6 text-zinc-400">Check your connection and try again. Your saved progress is safe.</p>
+          <p className="mt-3 text-sm leading-6 text-black/70">Check your connection and try again. Your saved progress is safe.</p>
           <button
             onClick={() => {
               setError(null);
               setMeta(null);
               setLoadAttempt((value) => value + 1);
             }}
-            className="mt-6 rounded-xl bg-gradient-to-r from-brand-light to-brand px-5 py-3 text-sm font-black text-[#090806]"
+            className="mt-6 inline-flex items-center gap-2 rounded-full bg-black px-5 py-3 text-sm font-black text-white"
           >
-            Try again
+            <RefreshCw size={15} aria-hidden="true" /> Try again
           </button>
         </div>
       </div>
@@ -407,7 +417,7 @@ export default function DiscoverDetails() {
             />
           </motion.div>
           <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-surface" />
-          <div className="absolute inset-x-0 bottom-0 h-[62%] bg-[linear-gradient(0deg,#090806_3%,rgba(9,8,6,.82)_34%,transparent_100%)]" />
+          <div className="absolute inset-x-0 bottom-0 h-[62%] bg-[linear-gradient(0deg,#000_3%,rgba(0,0,0,.82)_34%,transparent_100%)]" />
         </section>
 
         <motion.section
@@ -430,7 +440,7 @@ export default function DiscoverDetails() {
               />
             </motion.div>
             <div className="min-w-0 flex-1 pb-1">
-              <p className="mb-2 text-[9px] font-bold uppercase tracking-[0.22em] text-accent">
+              <p className="ak-eyebrow mb-2 !text-[9px]">
                 {type === "series" ? "Series" : "Feature film"}
               </p>
               <h1 className="text-[31px] font-black leading-[0.94] tracking-[-0.055em]">
@@ -439,8 +449,8 @@ export default function DiscoverDetails() {
               <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-zinc-400">
                 <span>{meta.releaseInfo ?? meta.year}</span>
                 {meta.imdbRating && (
-                  <span className="flex items-center gap-1 text-accent">
-                    <Star size={11} fill="currentColor" /> {meta.imdbRating}
+                  <span className="flex items-center gap-1 font-bold text-white">
+                    <Star size={11} fill="currentColor" aria-hidden="true" /> {meta.imdbRating}
                   </span>
                 )}
                 {meta.runtime && <span>{meta.runtime}</span>}
@@ -453,7 +463,7 @@ export default function DiscoverDetails() {
               whileTap={{ scale: 0.965 }}
               onClick={() => void watchNow()}
               disabled={!lookup}
-              className="flex h-[52px] items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-brand-light to-brand px-5 text-sm font-black text-[#090806] shadow-[0_14px_38px_rgba(152,117,47,.24)] disabled:opacity-40"
+              className="flex h-[52px] items-center justify-center gap-2 rounded-2xl bg-white px-5 text-sm font-black text-black disabled:opacity-40"
             >
               {starting ? <LoaderCircle size={18} className="animate-spin" /> : <Play size={18} fill="currentColor" />}
               {starting ? "Cancel" : resumeActionLabel}
@@ -463,18 +473,18 @@ export default function DiscoverDetails() {
               onClick={() => setSourceOpen(true)}
               disabled={!lookup}
               aria-label="Choose hosted stream"
-              className="flex h-[52px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.055] text-zinc-200 backdrop-blur-xl disabled:opacity-40"
+              className="flex h-[52px] items-center justify-center rounded-2xl border border-white/20 bg-white/[0.055] text-zinc-100 backdrop-blur-xl disabled:opacity-40"
             >
               <ListFilter size={20} />
             </motion.button>
           </div>
-          <p className="mt-2.5 text-center text-[10px] font-medium text-zinc-600">
+          <p role="status" className="mt-2.5 text-center text-[10px] font-medium text-zinc-400">
             {starting ? startPhase : "Watch uses the best compatible hosted source. Tap the filter to choose."}
           </p>
 
           <div className="mt-6 flex flex-wrap gap-2">
             {meta.genres?.slice(0, 4).map((genre) => (
-              <span key={genre} className="rounded-full border border-white/[0.08] bg-white/[0.035] px-3 py-1.5 text-[10px] font-semibold text-zinc-400">
+              <span key={genre} className="rounded-full border border-white/15 px-3 py-1.5 text-[10px] font-semibold text-zinc-300">
                 {genre}
               </span>
             ))}
@@ -492,7 +502,7 @@ export default function DiscoverDetails() {
           )}
 
           <div className="mt-4 rounded-3xl border border-white/[0.07] bg-white/[0.03] p-4">
-            <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+            <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400">
               Your rating
             </p>
             <RatingControl value={personalRating} onChange={(value) => setRating(historyTitle, value)} />
@@ -503,10 +513,10 @@ export default function DiscoverDetails() {
           <section className="mt-8">
             <div className="mb-4 flex items-center justify-between px-4">
               <div>
-                <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-accent">Episodes</p>
+                <p className="ak-eyebrow !text-[9px]">Episodes</p>
                 <h2 className="mt-1 text-[24px] font-black tracking-[-0.04em]">Season {selectedSeason}</h2>
               </div>
-              <span className="text-xs text-zinc-600">{episodes.length} episodes</span>
+              <span className="text-xs text-zinc-400">{episodes.length} episodes</span>
             </div>
 
             <div className="no-scrollbar mb-4 flex snap-x gap-2 overflow-x-auto px-4 pb-1">
@@ -520,8 +530,8 @@ export default function DiscoverDetails() {
                   }}
                   className={`shrink-0 rounded-full px-4 py-2 text-xs font-bold transition ${
                     selectedSeason === season
-                      ? "bg-brand text-[#090806]"
-                      : "border border-white/10 bg-white/[0.04] text-zinc-400"
+                      ? "bg-white text-black"
+                      : "border border-white/15 bg-white/[0.04] text-zinc-300"
                   }`}
                 >
                   Season {season}
@@ -539,8 +549,8 @@ export default function DiscoverDetails() {
                   transition={{ delay: Math.min(index * 0.025, 0.16) }}
                   className={`overflow-hidden rounded-[22px] border ${
                     selectedEpisode?.id === episode.id
-                      ? "border-brand/25 bg-brand/[0.055]"
-                      : "border-white/[0.07] bg-white/[0.028]"
+                      ? "border-white/45 bg-white/[0.06]"
+                      : "border-white/[0.08] bg-white/[0.028]"
                   }`}
                 >
                   <div className="flex items-center gap-3 p-3">
@@ -568,7 +578,7 @@ export default function DiscoverDetails() {
                         </span>
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-600">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-400">
                           Episode {episode.episode}
                         </p>
                         <p className="mt-1 line-clamp-2 text-[13px] font-bold leading-4">
@@ -583,13 +593,13 @@ export default function DiscoverDetails() {
                         setSourceOpen(true);
                       }}
                       aria-label={`Choose stream for episode ${episode.episode}`}
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/20 text-zinc-400"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-black/20 text-zinc-300"
                     >
                       <ListFilter size={15} />
                     </motion.button>
                   </div>
                   {episode.overview && (
-                    <p className="line-clamp-2 px-3 pb-3 text-[11px] leading-[1.5] text-zinc-500">
+                    <p className="line-clamp-2 px-3 pb-3 text-[11px] leading-[1.5] text-zinc-400">
                       {episode.overview}
                     </p>
                   )}
@@ -632,7 +642,7 @@ export default function DiscoverDetails() {
         <motion.div
             initial={{ scale: 1.04, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            transition={{ duration: 0.8 }}
+            transition={{ duration: 1.1, ease: [0.22, 1, 0.36, 1] }}
             className="absolute inset-0 h-full w-full object-cover"
         >
           <Artwork
@@ -644,7 +654,7 @@ export default function DiscoverDetails() {
           />
         </motion.div>
         <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/20 to-black/25" />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(9,8,6,.97)_0%,rgba(9,8,6,.7)_44%,rgba(9,8,6,.08)_82%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,.95)_0%,rgba(0,0,0,.68)_44%,rgba(0,0,0,.06)_82%)]" />
 
         <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/70 to-transparent" />
 
@@ -652,8 +662,8 @@ export default function DiscoverDetails() {
           <motion.div
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="hidden aspect-[2/3] w-44 shrink-0 overflow-hidden rounded-2xl shadow-[0_24px_70px_rgba(0,0,0,.65)] ring-1 ring-white/10 lg:block"
+              transition={{ delay: 0.1, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+              className="hidden aspect-[2/3] w-44 shrink-0 overflow-hidden rounded-2xl shadow-[0_24px_70px_rgba(0,0,0,.65)] ring-1 ring-white/15 lg:block"
           >
             <Artwork
               src={meta.poster}
@@ -663,23 +673,28 @@ export default function DiscoverDetails() {
               draggable={false}
             />
           </motion.div>
-          <div className="max-w-2xl pb-1">
-            <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.26em] text-accent">
-              Selected for tonight
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.16, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+            className="max-w-2xl pb-1"
+          >
+            <p className="ak-eyebrow mb-3 !text-zinc-200">
+              {type === "series" ? "Series" : "Film"}
             </p>
             <h1 className="hero-shadow text-5xl font-black tracking-[-0.04em] md:text-7xl">{meta.name}</h1>
             <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-zinc-300">
-              <span className="rounded-full bg-white/10 px-3 py-1.5 ring-1 ring-white/10">
+              <span className="rounded-full px-3 py-1.5 ring-1 ring-white/20">
                 {meta.releaseInfo ?? meta.year}
               </span>
               {meta.imdbRating && (
-                <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-3 py-1.5 font-semibold text-emerald-400 ring-1 ring-emerald-500/15">
-                  <Star size={12} fill="currentColor" /> {meta.imdbRating}
+                <span className="flex items-center gap-1 rounded-full bg-white px-3 py-1.5 font-bold text-black" aria-label={`IMDb rating ${meta.imdbRating}`}>
+                  <Star size={12} fill="currentColor" aria-hidden="true" /> {meta.imdbRating}
                 </span>
               )}
               {meta.runtime && (
-                <span className="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1.5 ring-1 ring-white/10">
-                  <Clock3 size={12} /> {meta.runtime}
+                <span className="flex items-center gap-1 rounded-full px-3 py-1.5 ring-1 ring-white/20">
+                  <Clock3 size={12} aria-hidden="true" /> {meta.runtime}
                 </span>
               )}
               {meta.genres?.slice(0, 3).map((genre) => (
@@ -713,11 +728,19 @@ export default function DiscoverDetails() {
               >
                 <ListFilter size={18} /> {mobileApple ? "Choose hosted stream" : "Choose stream"}
               </button>
-              <span className="text-[11px] text-zinc-500">
-                {starting ? startPhase : mobileApple ? "Direct hosted playback with no local download" : "Auto pick or choose quality, language and size"}
-              </span>
+              {!starting && (
+                <span className="text-[11px] text-zinc-400">
+                  {mobileApple ? "Direct hosted playback with no local download" : "Auto pick or choose quality, language and size"}
+                </span>
+              )}
             </div>
-          </div>
+            {starting && (
+              <div role="status" aria-live="polite" className="mt-4 max-w-sm">
+                <p className="mb-2 text-xs font-semibold text-white">{startPhase ?? "Starting playback"}…</p>
+                <div className="ak-progress-indeterminate" />
+              </div>
+            )}
+          </motion.div>
         </div>
       </section>
 
@@ -725,8 +748,8 @@ export default function DiscoverDetails() {
         <section className="mx-auto max-w-6xl px-6 pt-10 md:px-12">
           <div className="mb-4 flex items-center gap-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-accent">Browse</p>
-              <h2 className="mt-1 text-2xl font-bold">Episodes</h2>
+              <p className="ak-eyebrow">Browse</p>
+              <h2 className="mt-1 font-display text-3xl tracking-[-0.02em]">Episodes</h2>
             </div>
             <select
               value={selectedSeason}
@@ -735,7 +758,8 @@ export default function DiscoverDetails() {
                 setSelectedSeason(season);
                 setSelectedEpisode(meta.videos?.find((video) => video.season === season) ?? null);
               }}
-              className="ml-auto rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm outline-none"
+              aria-label="Season"
+              className="ml-auto rounded-full border border-white/20 bg-white/[0.06] px-4 py-2.5 text-sm outline-none transition-colors hover:border-white/40"
             >
               {seasons.map((season) => <option key={season} value={season}>Season {season}</option>)}
             </select>
@@ -744,10 +768,11 @@ export default function DiscoverDetails() {
             {episodes.map((episode) => (
               <div
                 key={episode.id}
-                className={`group flex w-full items-center rounded-2xl border text-left transition ${
+                aria-current={selectedEpisode?.id === episode.id ? "true" : undefined}
+                className={`group flex w-full items-center rounded-2xl border text-left transition-colors ${
                   selectedEpisode?.id === episode.id
-                    ? "border-brand/30 bg-brand/[0.06]"
-                    : "border-white/[0.07] bg-white/[0.03] hover:border-white/15 hover:bg-white/[0.05]"
+                    ? "border-white/45 bg-white/[0.06]"
+                    : "border-white/[0.08] bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]"
                 }`}
               >
                 <button
@@ -756,9 +781,10 @@ export default function DiscoverDetails() {
                     void watchNow(episode);
                   }}
                   disabled={starting}
+                  aria-label={`Play episode ${episode.episode}: ${episode.name ?? episode.title ?? `Episode ${episode.episode}`}`}
                   className="flex min-w-0 flex-1 items-center gap-3 p-3 text-left disabled:opacity-50 sm:gap-4"
                 >
-                  <span className="w-7 text-center text-zinc-500">{episode.episode}</span>
+                  <span className="w-7 text-center font-semibold tabular-nums text-zinc-400">{episode.episode}</span>
                   <Artwork
                     src={episode.thumbnail}
                     title={episode.name ?? episode.title ?? `Episode ${episode.episode}`}
@@ -774,7 +800,9 @@ export default function DiscoverDetails() {
                       <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{episode.overview}</p>
                     )}
                   </div>
-                  <ChevronRight size={18} className="shrink-0 text-zinc-600 transition group-hover:translate-x-0.5 group-hover:text-white" />
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 text-zinc-300 transition group-hover:border-white group-hover:bg-white group-hover:text-black" aria-hidden="true">
+                    <Play size={14} fill="currentColor" />
+                  </span>
                 </button>
                 <button
                   onClick={() => {
@@ -783,7 +811,8 @@ export default function DiscoverDetails() {
                   }}
                   disabled={starting}
                   title={`Choose a stream for episode ${episode.episode}`}
-                  className="mr-3 flex shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-black/20 p-2 text-[11px] font-semibold text-zinc-400 transition hover:border-brand/30 hover:bg-brand/[0.08] hover:text-brand-light disabled:opacity-50 sm:px-3"
+                  aria-label={`Choose a stream for episode ${episode.episode}`}
+                  className="mr-3 flex shrink-0 items-center gap-2 rounded-full border border-white/15 bg-black/20 p-2 text-[11px] font-semibold text-zinc-300 transition hover:border-white/50 hover:text-white disabled:opacity-50 sm:px-3"
                 >
                   <ListFilter size={14} /> <span className="hidden sm:inline">Sources</span>
                 </button>

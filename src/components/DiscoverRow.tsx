@@ -54,15 +54,15 @@ export default function DiscoverRow({
     >
       <div className="mb-3 flex items-end gap-3 pr-4 md:mb-4">
         <h2 className="text-[19px] font-black tracking-[-0.03em] md:text-xl md:font-bold">{title}</h2>
-        <span className="mb-0.5 hidden text-[10px] font-bold uppercase tracking-[0.17em] text-zinc-600 sm:inline">{tagline}</span>
+        <span className="mb-0.5 hidden text-[10px] font-bold uppercase tracking-[0.17em] text-zinc-500 sm:inline">{tagline}</span>
       </div>
       <button
         onClick={() => scroll(-1)}
         disabled={!edges.left}
         aria-label="Scroll left"
-        className={`absolute bottom-3 left-0 top-10 z-20 hidden w-11 items-center justify-center bg-gradient-to-r from-surface to-transparent transition md:flex ${edges.left ? "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100" : "pointer-events-none opacity-0"}`}
+        className={`absolute bottom-3 left-0 top-10 z-20 hidden w-14 items-center justify-center bg-gradient-to-r from-surface via-surface/70 to-transparent transition md:flex ${edges.left ? "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100" : "pointer-events-none opacity-0"}`}
       >
-        <ChevronLeft />
+        <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/70 backdrop-blur"><ChevronLeft size={20} /></span>
       </button>
       <div ref={rowRef} onScroll={updateEdges} className="no-scrollbar flex snap-x snap-proximity gap-3 overflow-x-auto pb-4 pr-4 md:gap-4 md:pb-5 md:pr-12 lg:pr-16">
         {items.map((item) => (
@@ -78,9 +78,9 @@ export default function DiscoverRow({
         onClick={() => scroll(1)}
         disabled={!edges.right}
         aria-label="Scroll right"
-        className={`absolute bottom-3 right-0 top-10 z-20 hidden w-14 items-center justify-center bg-gradient-to-l from-surface to-transparent transition md:flex ${edges.right ? "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100" : "pointer-events-none opacity-0"}`}
+        className={`absolute bottom-3 right-0 top-10 z-20 hidden w-16 items-center justify-center bg-gradient-to-l from-surface via-surface/70 to-transparent transition md:flex ${edges.right ? "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100" : "pointer-events-none opacity-0"}`}
       >
-        <ChevronRight />
+        <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/70 backdrop-blur"><ChevronRight size={20} /></span>
       </button>
     </motion.section>
   );

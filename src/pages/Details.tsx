@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Check, ListFilter, Play, Plus } from "lucide-react";
+import { AlertTriangle, Check, ListFilter, Play, Plus } from "lucide-react";
 import { useAuth } from "@/stores/authStore";
 import { useT } from "@/i18n";
 import { formatRuntime, ticksToSeconds } from "@/lib/utils";
@@ -102,7 +102,13 @@ export default function Details() {
   }, [activeSeason, item?.Id]);
 
   if (error)
-    return <p className="p-24 text-center text-sm text-red-400">{error}</p>;
+    return (
+      <div className="flex justify-center p-24">
+        <p role="alert" className="ak-notice ak-notice--error max-w-lg text-sm">
+          <AlertTriangle size={18} aria-hidden="true" /> <span className="min-w-0 break-words">{error}</span>
+        </p>
+      </div>
+    );
   if (!item || !client)
     return <div className="pt-40"><Spinner label={t("common.loading")} /></div>;
 
@@ -182,17 +188,17 @@ export default function Details() {
         <div className="absolute inset-0 bg-gradient-to-r from-black/70 to-transparent" />
 
         <div className="absolute bottom-8 left-6 max-w-2xl md:left-12">
-          <h1 className="hero-shadow mb-3 text-4xl font-extrabold md:text-5xl">{item.Name}</h1>
+          <h1 className="hero-shadow mb-3 font-display text-5xl tracking-[-0.03em] md:text-6xl">{item.Name}</h1>
           <div className="mb-4 flex flex-wrap items-center gap-3 text-sm text-zinc-300">
             {item.ProductionYear && <span>{item.ProductionYear}</span>}
             {item.OfficialRating && (
-              <span className="border border-zinc-500 px-1.5 py-0.5 text-xs">
+              <span className="rounded border border-white/40 px-1.5 py-0.5 text-xs">
                 {item.OfficialRating}
               </span>
             )}
             {item.RunTimeTicks && <span>{formatRuntime(item.RunTimeTicks)}</span>}
             {item.CommunityRating && (
-              <span className="text-green-400">★ {item.CommunityRating.toFixed(1)}</span>
+              <span className="font-bold text-white">★ {item.CommunityRating.toFixed(1)}</span>
             )}
             {item.Genres?.slice(0, 3).map((g) => (
               <span key={g} className="text-zinc-400">
@@ -211,7 +217,7 @@ export default function Details() {
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => navigate(`/play/${playTarget}`)}
-              className="flex items-center gap-2 rounded bg-white px-6 py-2.5 font-semibold text-black hover:bg-zinc-200"
+              className="desktop-control desktop-primary"
             >
               <Play size={18} fill="currentColor" />
               {resumePos > 0 ? t("details.resume") : t("details.play")}
@@ -219,7 +225,8 @@ export default function Details() {
 
             <button
               onClick={toggleFavorite}
-              className="flex items-center gap-2 rounded bg-zinc-700/80 px-5 py-2.5 font-semibold hover:bg-zinc-600"
+              aria-pressed={favorite}
+              className="desktop-control desktop-secondary"
             >
               {favorite ? <Check size={18} /> : <Plus size={18} />}
               {favorite ? t("details.inList") : t("details.myList")}
@@ -228,7 +235,7 @@ export default function Details() {
             <button
               onClick={() => setTorrentOpen(true)}
               title="Choose stream"
-              className="flex items-center gap-2 rounded border border-zinc-600 px-5 py-2.5 text-sm text-zinc-300 hover:border-white hover:text-white"
+              className="desktop-control desktop-ghost"
             >
               <ListFilter size={16} />
               Choose stream
@@ -252,7 +259,8 @@ export default function Details() {
             <select
               value={activeSeason ?? ""}
               onChange={(e) => setActiveSeason(e.target.value)}
-              className="rounded bg-surface-raised px-3 py-1.5 text-sm ring-1 ring-zinc-700 outline-none"
+              aria-label={t("details.seasons")}
+              className="rounded-full border border-white/20 bg-surface-raised px-4 py-2 text-sm outline-none"
             >
               {seasons.map((s) => (
                 <option key={s.Id} value={s.Id}>
@@ -284,8 +292,8 @@ export default function Details() {
                       draggable={false}
                     />
                     {pct > 0 && (
-                      <div className="absolute inset-x-0 bottom-0 h-1 bg-zinc-700">
-                        <div className="h-full bg-brand" style={{ width: `${pct}%` }} />
+                      <div className="absolute inset-x-0 bottom-0 h-1 bg-white/25">
+                        <div className="h-full bg-white" style={{ width: `${pct}%` }} />
                       </div>
                     )}
                   </div>

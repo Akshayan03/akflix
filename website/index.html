@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#090806" />
+  <meta name="theme-color" content="#000000" />
   <title>Akflix | One app. Press play.</title>
   <meta name="description" content="A cinematic desktop app for movies and series. Akflix includes its own playback engine, resilient source fallback, balanced recommendations, and FFmpeg. No Docker, Jellyfin, or qBittorrent setup required." />
   <meta property="og:type" content="website" />
@@ -17,27 +17,28 @@
   <meta name="twitter:title" content="Akflix | One app. Press play." />
   <meta name="twitter:description" content="Standalone movie and series streaming for Mac and Windows, with resilient playback and balanced recommendations." />
   <meta name="twitter:image" content="https://akshayan03.github.io/akflix/og.png" />
-  <link rel="icon" href="icon.png" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="icon.png" sizes="512x512" type="image/png" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <meta name="theme-color" content="#000000" />
   <style>
     :root {
-      --ink: #090806;
-      --ink-soft: #0e0c09;
-      --panel: #15130f;
-      --panel-2: #1f1b14;
+      --ink: #000000;
+      --ink-soft: #0a0a0a;
+      --panel: #121212;
+      --panel-2: #1c1c1c;
       --line: rgba(255, 255, 255, .09);
-      --line-gold: rgba(214, 178, 94, .28);
-      --gold: #d6b25e;
-      --gold-light: #f0d58a;
-      --gold-deep: #98752f;
-      --ivory: #f4e9cf;
-      --white: #fffdf8;
-      --muted: #aaa59b;
-      --dim: #716d65;
-      --display: "Manrope", "Avenir Next", sans-serif;
-      --body: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      /* Monochrome: the accent tokens are white/grey; names kept for the rules below. */
+      --line-gold: rgba(255, 255, 255, .28);
+      --gold: #ffffff;
+      --gold-light: #ffffff;
+      --gold-deep: #a8a8a8;
+      --ivory: #f4f4f4;
+      --white: #ffffff;
+      --muted: #ababab;
+      --dim: #8e8e8e;
+      --display: ui-serif, "New York", "Iowan Old Style", Georgia, "Times New Roman", serif;
+      --body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", Inter, Roboto, sans-serif;
     }
 
     * { box-sizing: border-box; }
@@ -47,17 +48,17 @@
       min-width: 320px;
       overflow-x: hidden;
       background:
-        radial-gradient(circle at 12% -8%, rgba(214, 178, 94, .12), transparent 31rem),
-        radial-gradient(circle at 92% 13%, rgba(244, 233, 207, .045), transparent 27rem),
+        radial-gradient(circle at 12% -8%, rgba(255, 255, 255, .12), transparent 31rem),
+        radial-gradient(circle at 92% 13%, rgba(255, 255, 255, .045), transparent 27rem),
         var(--ink);
       color: var(--white);
       font: 400 16px/1.6 var(--body);
       -webkit-font-smoothing: antialiased;
     }
-    ::selection { background: rgba(214, 178, 94, .42); color: var(--white); }
+    ::selection { background: rgba(255, 255, 255, .42); color: var(--white); }
     a { color: inherit; }
     button, a { -webkit-tap-highlight-color: transparent; }
-    a:focus-visible { outline: 2px solid var(--gold-light); outline-offset: 4px; }
+    a:focus-visible, button:focus-visible { outline: 2px solid #ffffff; outline-offset: 4px; }
     img { display: block; max-width: 100%; }
     .wrap { width: min(1180px, calc(100% - 40px)); margin-inline: auto; }
 
@@ -66,17 +67,13 @@
       inset: 0 0 auto;
       z-index: 50;
       border-bottom: 1px solid rgba(255, 255, 255, .055);
-      background: rgba(9, 8, 6, .74);
+      background: rgba(0, 0, 0, .74);
       backdrop-filter: blur(22px) saturate(150%);
     }
     nav { height: 72px; display: flex; align-items: center; gap: 34px; }
     .brand { display: inline-flex; align-items: center; gap: 11px; text-decoration: none; }
-    .brand img { width: 38px; height: 38px; border-radius: 11px; box-shadow: 0 0 30px rgba(214, 178, 94, .16); }
-    .brand-word {
-      font: 800 17px/1 var(--display);
-      letter-spacing: .13em;
-    }
-    .brand-word span { color: #8f8b84; font-weight: 600; }
+    .brand { color: var(--white); }
+    .brand-word { display: block; height: 20px; width: auto; }
     .navlinks { display: flex; align-items: center; gap: 28px; margin-left: 28px; }
     .navlinks a { color: var(--muted); font-size: 13px; text-decoration: none; transition: color .18s; }
     .navlinks a:hover { color: var(--white); }
@@ -88,14 +85,14 @@
       padding: 10px 16px;
       border: 1px solid var(--line-gold);
       border-radius: 12px;
-      background: rgba(214, 178, 94, .09);
+      background: rgba(255, 255, 255, .09);
       color: var(--ivory);
       font-size: 13px;
       font-weight: 700;
       text-decoration: none;
       transition: transform .18s, background .18s;
     }
-    .nav-download:hover { transform: translateY(-1px); background: rgba(214, 178, 94, .15); }
+    .nav-download:hover { transform: translateY(-1px); background: rgba(255, 255, 255, .15); }
     .nav-download::before { content: "↓"; color: var(--gold-light); font-size: 16px; }
 
     .hero {
@@ -122,7 +119,7 @@
       padding: 7px 11px;
       border: 1px solid var(--line-gold);
       border-radius: 999px;
-      background: rgba(214, 178, 94, .075);
+      background: rgba(255, 255, 255, .075);
       color: var(--gold-light);
       font-size: 10px;
       font-weight: 800;
@@ -133,14 +130,15 @@
     h1 {
       max-width: 680px;
       margin: 24px 0 22px;
-      font: 800 clamp(54px, 7.5vw, 104px)/.93 var(--display);
-      letter-spacing: -.07em;
+      font: 400 clamp(54px, 7.5vw, 104px)/.98 var(--display);
+      letter-spacing: -.04em;
     }
-    h1 .gold {
+    h1 .em {
       color: transparent;
-      background: linear-gradient(115deg, var(--gold-light), var(--gold) 52%, #b98c39);
+      background: linear-gradient(115deg, #ffffff 30%, #8e8e8e);
       background-clip: text;
       -webkit-background-clip: text;
+      font-style: italic;
     }
     .hero-copy { max-width: 570px; margin: 0; color: var(--muted); font-size: clamp(16px, 1.55vw, 19px); line-height: 1.7; }
     .hero-copy strong { color: var(--ivory); font-weight: 600; }
@@ -162,7 +160,7 @@
     .button.primary {
       background: linear-gradient(115deg, var(--gold-light), var(--gold));
       color: var(--ink);
-      box-shadow: 0 18px 52px rgba(152, 117, 47, .23);
+      box-shadow: 0 18px 52px rgba(0, 0, 0, .23);
     }
     .button.primary:hover { filter: brightness(1.07); }
     .button.ghost { border: 1px solid var(--line); background: rgba(255, 255, 255, .035); color: var(--white); }
@@ -177,7 +175,7 @@
       width: 68%;
       aspect-ratio: 1;
       border-radius: 50%;
-      background: rgba(214, 178, 94, .17);
+      background: rgba(255, 255, 255, .17);
       filter: blur(100px);
     }
     .app-window {
@@ -185,54 +183,54 @@
       width: min(740px, 58vw);
       aspect-ratio: 1.4;
       overflow: hidden;
-      border: 1px solid rgba(240, 213, 138, .3);
+      border: 1px solid rgba(255, 255, 255, .3);
       border-radius: 24px;
-      background: #0c0b08;
+      background: #0c0c0c;
       box-shadow: 0 52px 130px rgba(0, 0, 0, .62), 0 0 0 8px rgba(255, 255, 255, .018);
       transform: perspective(1500px) rotateY(-7deg) rotateX(2deg);
     }
-    .app-chrome { height: 48px; padding: 0 18px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); background: #0a0907; }
-    .traffic { width: 9px; height: 9px; border-radius: 50%; background: #3b372f; }
-    .app-mini-brand { margin-left: 13px; color: var(--gold-light); font: 800 10px/1 var(--display); letter-spacing: .14em; }
-    .app-nav { margin-left: 20px; display: flex; gap: 17px; color: #6e6b65; font-size: 8px; }
+    .app-chrome { height: 48px; padding: 0 18px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); background: #0a0a0a; }
+    .traffic { width: 9px; height: 9px; border-radius: 50%; background: #3b3b3b; }
+    .app-mini-brand { margin-left: 13px; color: var(--white); display: block; }
+    .app-nav { margin-left: 20px; display: flex; gap: 17px; color: #8e8e8e; font-size: 8px; }
     .avatar { margin-left: auto; width: 25px; height: 25px; display: grid; place-items: center; border-radius: 8px; background: linear-gradient(135deg, var(--gold-light), var(--gold-deep)); color: var(--ink); font-size: 9px; font-weight: 900; }
     .screen { position: relative; height: calc(100% - 48px); overflow: hidden; }
     .screen-hero {
       position: absolute;
       inset: 0 0 36%;
       background:
-        linear-gradient(90deg, #090806 4%, rgba(9, 8, 6, .74) 37%, rgba(9, 8, 6, .07) 75%),
-        linear-gradient(0deg, #090806, transparent 46%),
-        radial-gradient(circle at 78% 34%, #9f7b32 0 4%, transparent 4.5%),
-        radial-gradient(circle at 74% 40%, rgba(214,178,94,.48), transparent 23%),
-        linear-gradient(135deg, #15130f 33%, #44371f 64%, #12100c);
+        linear-gradient(90deg, #000000 4%, rgba(0, 0, 0, .74) 37%, rgba(0, 0, 0, .07) 75%),
+        linear-gradient(0deg, #000000, transparent 46%),
+        radial-gradient(circle at 78% 34%, #bdbdbd 0 4%, transparent 4.5%),
+        radial-gradient(circle at 74% 40%, rgba(255,255,255,.48), transparent 23%),
+        linear-gradient(135deg, #121212 33%, #3a3a3a 64%, #121212);
     }
     .screen-copy { position: absolute; z-index: 2; left: 5%; top: 17%; width: 44%; }
     .screen-kicker { color: var(--gold-light); font-size: 7px; letter-spacing: .2em; text-transform: uppercase; }
-    .screen-title { margin: 8px 0 5px; font: 800 clamp(19px, 3vw, 39px)/.95 var(--display); letter-spacing: -.05em; }
-    .screen-meta { color: #a6a197; font-size: 7px; }
-    .screen-desc { width: 95%; margin-top: 9px; color: #8e8980; font-size: 7px; line-height: 1.5; }
+    .screen-title { margin: 8px 0 5px; font: 400 clamp(19px, 3vw, 39px)/1 var(--display); letter-spacing: -.03em; }
+    .screen-meta { color: #ababab; font-size: 7px; }
+    .screen-desc { width: 95%; margin-top: 9px; color: #8e8e8e; font-size: 7px; line-height: 1.5; }
     .screen-actions { display: flex; gap: 6px; margin-top: 12px; }
     .screen-actions span { padding: 7px 11px; border-radius: 7px; color: var(--ink); background: var(--gold); font-size: 7px; font-weight: 800; }
-    .screen-actions span + span { color: #d8d4cc; border: 1px solid var(--line); background: rgba(255,255,255,.05); }
+    .screen-actions span + span { color: #d8d8d8; border: 1px solid var(--line); background: rgba(255,255,255,.05); }
     .poster-row { position: absolute; z-index: 4; inset: 62% 0 0; padding: 0 5%; }
-    .poster-row h3 { margin: 0 0 9px; color: #d9d5ce; font-size: 8px; }
+    .poster-row h3 { margin: 0 0 9px; color: #d9d9d9; font-size: 8px; }
     .posters { display: grid; grid-template-columns: repeat(6, 1fr); gap: 7px; }
-    .poster { aspect-ratio: 2/3; border: 1px solid rgba(255,255,255,.07); border-radius: 7px; background: linear-gradient(145deg, hsl(var(--h) 30% 28%), #0f0d09 74%); overflow: hidden; }
-    .poster::before { content: ""; display: block; width: 60%; height: 46%; margin: 18% auto; border-radius: 50%; background: radial-gradient(circle at 40% 40%, rgba(240,213,138,.88), rgba(214,178,94,.08) 50%, transparent 52%); }
+    .poster { aspect-ratio: 2/3; border: 1px solid rgba(255,255,255,.07); border-radius: 7px; background: linear-gradient(145deg, hsl(0 0% calc(var(--h) * .55%)), #0f0f0f 74%); overflow: hidden; }
+    .poster::before { content: ""; display: block; width: 60%; height: 46%; margin: 18% auto; border-radius: 50%; background: radial-gradient(circle at 40% 40%, rgba(255,255,255,.88), rgba(255,255,255,.08) 50%, transparent 52%); }
 
-    .trust-strip { position: relative; z-index: 3; border-block: 1px solid var(--line); background: rgba(21, 19, 15, .58); }
+    .trust-strip { position: relative; z-index: 3; border-block: 1px solid var(--line); background: rgba(18, 18, 18, .58); }
     .trust-grid { min-height: 92px; display: grid; grid-template-columns: repeat(4, 1fr); align-items: center; }
     .trust-item { padding: 10px 24px; border-right: 1px solid var(--line); }
     .trust-item:first-child { padding-left: 0; }
     .trust-item:last-child { border-right: 0; }
-    .trust-item b { display: block; color: var(--ivory); font: 700 14px/1.2 var(--display); }
+    .trust-item b { display: block; color: var(--ivory); font: 700 14px/1.2 var(--body); }
     .trust-item span { color: var(--dim); font-size: 11px; }
 
     section { position: relative; padding: 118px 0; }
     .section-head { max-width: 720px; margin-bottom: 56px; }
     .kicker { margin: 0 0 12px; color: var(--gold); font-size: 10px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; }
-    h2 { margin: 0; font: 800 clamp(38px, 5vw, 68px)/1 var(--display); letter-spacing: -.055em; }
+    h2 { margin: 0; font: 400 clamp(38px, 5vw, 68px)/1.02 var(--display); letter-spacing: -.03em; }
     .lead { max-width: 650px; margin: 18px 0 0; color: var(--muted); font-size: 17px; }
 
     .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
@@ -241,12 +239,12 @@
       padding: 28px;
       border: 1px solid var(--line);
       border-radius: 22px;
-      background: linear-gradient(145deg, rgba(31,27,20,.84), rgba(12,11,8,.8));
+      background: linear-gradient(145deg, rgba(28,28,28,.84), rgba(12,12,12,.8));
       transition: transform .2s, border-color .2s;
     }
     .step:hover { transform: translateY(-4px); border-color: var(--line-gold); }
-    .step-num { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--line-gold); border-radius: 12px; color: var(--gold-light); background: rgba(214,178,94,.08); font-weight: 800; }
-    .step h3 { margin: 52px 0 11px; font: 700 22px/1.1 var(--display); letter-spacing: -.025em; }
+    .step-num { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--line-gold); border-radius: 12px; color: var(--gold-light); background: rgba(255,255,255,.08); font-weight: 800; }
+    .step h3 { margin: 52px 0 11px; font: 650 22px/1.15 var(--body); letter-spacing: -.02em; }
     .step p { margin: 0; color: var(--muted); font-size: 14px; }
 
     .speed { overflow: hidden; border-block: 1px solid var(--line); background: var(--ink-soft); }
@@ -262,16 +260,16 @@
       border-radius: 16px;
       background: rgba(255,255,255,.025);
     }
-    .route:first-child { border-color: var(--line-gold); background: rgba(214,178,94,.055); }
+    .route:first-child { border-color: var(--line-gold); background: rgba(255,255,255,.055); }
     .route-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 14px; background: var(--panel-2); color: var(--gold-light); font-size: 18px; }
     .route b { display: block; color: var(--ivory); font-size: 14px; }
     .route small { color: var(--dim); font-size: 11px; }
-    .route-tag { padding: 5px 8px; border-radius: 999px; background: rgba(214,178,94,.11); color: var(--gold-light); font-size: 8px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .route-tag { padding: 5px 8px; border-radius: 999px; background: rgba(255,255,255,.11); color: var(--gold-light); font-size: 8px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 
     .features { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-    .feature { padding: 27px; border: 1px solid var(--line); border-radius: 19px; background: rgba(21,19,15,.5); }
+    .feature { padding: 27px; border: 1px solid var(--line); border-radius: 19px; background: rgba(18,18,18,.5); }
     .feature-mark { color: var(--gold-light); font-size: 21px; }
-    .feature h3 { margin: 22px 0 7px; font: 700 18px/1.2 var(--display); }
+    .feature h3 { margin: 22px 0 7px; font: 650 18px/1.25 var(--body); }
     .feature p { margin: 0; color: var(--muted); font-size: 13px; }
 
     .download-section { padding-top: 70px; }
@@ -285,17 +283,17 @@
       border: 1px solid var(--line-gold);
       border-radius: 30px;
       background:
-        radial-gradient(circle at 88% 12%, rgba(214,178,94,.2), transparent 24rem),
-        linear-gradient(145deg, #1d1912, #0d0b08 68%);
+        radial-gradient(circle at 88% 12%, rgba(255,255,255,.2), transparent 24rem),
+        linear-gradient(145deg, #1c1c1c, #0d0d0d 68%);
       box-shadow: 0 44px 110px rgba(0,0,0,.28);
     }
-    .download-card::after { content: "A"; position: absolute; right: -30px; bottom: -130px; color: rgba(214,178,94,.035); font: 800 440px/1 var(--display); }
+    .download-card::after { content: "A"; position: absolute; right: -30px; bottom: -130px; color: rgba(255,255,255,.035); font: 400 440px/1 var(--display); }
     .download-copy, .download-meta { position: relative; z-index: 2; }
     .download-copy h2 { max-width: 650px; }
     .download-copy p { max-width: 590px; color: var(--muted); }
     .download-options { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-    .download-meta { padding: 24px; border: 1px solid var(--line); border-radius: 18px; background: rgba(9,8,6,.58); backdrop-filter: blur(16px); }
-    .download-meta h3 { margin: 0 0 20px; font: 800 23px/1.2 var(--display); }
+    .download-meta { padding: 24px; border: 1px solid var(--line); border-radius: 18px; background: rgba(0,0,0,.58); backdrop-filter: blur(16px); }
+    .download-meta h3 { margin: 0 0 20px; font: 700 23px/1.2 var(--body); }
     .download-meta .button + .button { margin-top: 10px; }
     .download-meta dl { display: grid; grid-template-columns: 1fr auto; gap: 11px 25px; margin: 0 0 19px; }
     .download-meta dt { color: var(--dim); font-size: 12px; }
@@ -335,7 +333,7 @@
     @media (max-width: 720px) {
       .wrap { width: min(100% - 28px, 1180px); }
       nav { height: 64px; }
-      .brand img { width: 34px; height: 34px; }
+      .brand-word { height: 18px; }
       .navlinks { display: none; }
       .nav-download { padding: 9px 12px; }
       .nav-download span { display: none; }
@@ -365,8 +363,7 @@
   <header class="topbar">
     <nav class="wrap" aria-label="Primary navigation">
       <a class="brand" href="#top" aria-label="Akflix home">
-        <img src="icon.png" alt="" />
-        <span class="brand-word">AK<span>FLIX</span></span>
+        <svg class="brand-word" role="img" aria-label="Akflix" viewBox="0 0 2394.74 860" width="55.7" height="20"><path fill="currentColor" d="M450 260H600V860H450V819.81A300 300 0 1 1 450 300.19ZM256.99 424.42A34 34 0 0 0 206 453.87L206 666.13A34 34 0 0 0 256.99 695.58L440.95 589.45A34 34 0 0 0 440.95 530.55ZM666 0h140v860h-140ZM805 630L805 385.71L893.91 260L1064.74 260ZM805 720L805 475.71L1074.74 860L903.9 860ZM1194.74 860V250A250 250 0 0 1 1444.74 0H1514.74V140H1444.74A110 110 0 0 0 1334.74 250V860ZM1134.74 260h328v124h-328ZM1580.74 0h140v860h-140ZM1786.74 260h140v600h-140ZM1772.74 100a84 84 0 1 0 168 0a84 84 0 1 0 -168 0ZM2242.74 260L2394.74 260L2136.74 860L1984.74 860ZM1984.74 260L2136.74 260L2394.74 860L2242.74 860Z"/></svg>
       </a>
       <div class="navlinks">
         <a href="#how">How it works</a>
@@ -383,7 +380,7 @@
       <div class="wrap hero-grid">
         <div>
           <span class="eyebrow">Standalone for Mac + Windows</span>
-          <h1>One app.<br /><span class="gold">Press play.</span></h1>
+          <h1>One app.<br /><span class="em">Press play.</span></h1>
           <p class="hero-copy">Browse movies and series, find a title quickly, and watch. <strong>Akflix carries its own playback engine and FFmpeg, with source fallback and recommendations that mix highly-rated classics with newer picks.</strong> No Docker stack, Jellyfin server, qBittorrent, or Homebrew setup required.</p>
           <p class="gatekeeper"><strong>Known issues:</strong> “Playback engine unavailable”, titles that never start and storage leftovers have been reported. Versions 1.0.18 and 1.0.19 fix the causes we could reproduce, but the reports are not confirmed resolved on users’ computers. <a href="#known-issues">Read before downloading →</a></p>
           <div class="actions">
@@ -397,7 +394,7 @@
           <div class="app-window">
             <div class="app-chrome">
               <i class="traffic"></i><i class="traffic"></i><i class="traffic"></i>
-              <span class="app-mini-brand">AKFLIX</span>
+              <svg class="app-mini-brand" role="img" aria-label="Akflix" viewBox="0 0 2394.74 860" height="10" width="27.8"><path fill="currentColor" d="M450 260H600V860H450V819.81A300 300 0 1 1 450 300.19ZM256.99 424.42A34 34 0 0 0 206 453.87L206 666.13A34 34 0 0 0 256.99 695.58L440.95 589.45A34 34 0 0 0 440.95 530.55ZM666 0h140v860h-140ZM805 630L805 385.71L893.91 260L1064.74 260ZM805 720L805 475.71L1074.74 860L903.9 860ZM1194.74 860V250A250 250 0 0 1 1444.74 0H1514.74V140H1444.74A110 110 0 0 0 1334.74 250V860ZM1134.74 260h328v124h-328ZM1580.74 0h140v860h-140ZM1786.74 260h140v600h-140ZM1772.74 100a84 84 0 1 0 168 0a84 84 0 1 0 -168 0ZM2242.74 260L2394.74 260L2136.74 860L1984.74 860ZM1984.74 260L2136.74 260L2394.74 860L2242.74 860Z"/></svg>
               <div class="app-nav"><span>Home</span><span>Movies</span><span>Series</span></div>
               <span class="avatar">A</span>
             </div>
@@ -496,6 +493,7 @@
           <aside class="download-meta" id="known-issues" aria-labelledby="known-issues-title">
             <h3 id="known-issues-title">Known issues — please read before installing</h3>
             <p><strong>Users have reported “Playback engine unavailable”, titles that never start playing, and storage leftovers after playback or cleanup. Versions 1.0.18 and 1.0.19 fix the causes we reproduced, but these reports are not confirmed resolved on users’ computers.</strong> Bundled engines and build checks do not guarantee successful playback or complete cleanup on your computer, and every source depends on other people still sharing it.</p>
+            <p>The <strong>1.0.20 design update</strong> gives Akflix a black-and-white interface, a new logo and app icon, calmer motion that respects Reduce Motion, clearer keyboard focus and errors that are easier to spot. It removes a second menu-bar icon that had no menu, shows the installed version in Settings, no longer says “Wi-Fi ready” on the stream card when nothing was checked, and shows an error with Try again when the catalog cannot load. Playback and download code is unchanged from 1.0.19, so the reports above still apply.</p>
             <p>The <strong>1.0.19 playback update</strong> follows reports that Game of Thrones and The Walking Dead would not play. A source missing the chosen episode no longer leaves an endless spinner while a whole season pack downloads: Akflix tries the next source or says what was wrong. A listing that points at a spin-off (Tales of the Walking Dead) is no longer played as the episode you chose, Russian and Polish dubbed releases are no longer picked as English, and MP4 files the built-in player cannot decode (HEVC tagged hev1) or play with sound (DTS audio) switch to the conversion stream automatically. These changes were checked with automated tests, generated media and source listings, not by playing those shows, and an episode still cannot play when nobody is sharing it.</p>
             <p>The <strong>1.0.18 playback reliability update</strong> resumes titles the engine had paused instead of buffering forever, gives every new stream its own folder so empty files from a failed attempt no longer block that release, keeps the engine’s state on the drive you chose for media so a full startup disk no longer stops every stream, keeps the window responsive while a stream is prepared, and stops one failed cleanup from hiding new streams. Keep offline and saved season episodes are no longer removed during playback. These fixes were verified with automated tests on generated media and one public-domain film, not on every computer or source. Leftover files from older versions are not deleted automatically. Download versions below are generated from actual published installers; while a platform build is pending, its previous verified installer remains available.</p>
             <p>Build provenance: see the per-platform release notes below and the installer manifest for the published version and source revision. Historical 1.0.16 builds: <a href="https://github.com/Akshayan03/akflix/actions/runs/36370150671">Mac, September 28, 2026 (18f0492)</a>; <a href="https://github.com/Akshayan03/akflix/actions/runs/37508503458">Windows, October 6, 2026 (bf164c4)</a>. File integrity is checked during deployment; this is not confirmation that the reported issues are fixed.</p>
@@ -555,7 +553,7 @@
 
   <footer>
     <div class="wrap footer-row">
-      <a class="brand" href="#top"><img src="icon.png" alt="" /><span class="brand-word">AK<span>FLIX</span></span></a>
+      <a class="brand" href="#top" aria-label="Akflix home"><svg class="brand-word" role="img" aria-label="Akflix" viewBox="0 0 2394.74 860" width="55.7" height="20"><path fill="currentColor" d="M450 260H600V860H450V819.81A300 300 0 1 1 450 300.19ZM256.99 424.42A34 34 0 0 0 206 453.87L206 666.13A34 34 0 0 0 256.99 695.58L440.95 589.45A34 34 0 0 0 440.95 530.55ZM666 0h140v860h-140ZM805 630L805 385.71L893.91 260L1064.74 260ZM805 720L805 475.71L1074.74 860L903.9 860ZM1194.74 860V250A250 250 0 0 1 1444.74 0H1514.74V140H1444.74A110 110 0 0 0 1334.74 250V860ZM1134.74 260h328v124h-328ZM1580.74 0h140v860h-140ZM1786.74 260h140v600h-140ZM1772.74 100a84 84 0 1 0 168 0a84 84 0 1 0 -168 0ZM2242.74 260L2394.74 260L2136.74 860L1984.74 860ZM1984.74 260L2136.74 260L2394.74 860L2242.74 860Z"/></svg></a>
       <div class="footer-links"><a href="https://github.com/Akshayan03/akflix">GitHub</a><a href="https://github.com/Akshayan03/akflix/releases">All releases</a><a href="https://github.com/Akshayan03/akflix/blob/main/LEGAL.md">Legal</a></div>
       <p class="legal-copy">Akflix ships with no media. Use source and download features only for public-domain, Creative Commons, personally owned, or otherwise authorized content.</p>
     </div>

@@ -280,10 +280,11 @@ export default function StreamController() {
     <motion.aside
       initial={{ opacity: 0, y: 24, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      className="glass-panel fixed bottom-6 right-6 z-[60] w-[410px] overflow-hidden rounded-3xl shadow-[0_24px_80px_rgba(0,0,0,.65)]"
+      aria-label="Stream status"
+      className="glass-panel fixed bottom-6 right-6 z-[60] w-[410px] overflow-hidden rounded-3xl"
     >
       <div className="relative p-5">
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand to-transparent" />
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/70 to-transparent" />
         <div className="flex items-start gap-3">
           <Artwork
             src={displayMedia?.posterUrl}
@@ -293,7 +294,7 @@ export default function StreamController() {
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <p className="text-sm font-semibold">
+              <p role="status" aria-live="polite" className="text-sm font-semibold">
                 {streamLaunchPhase || (sourceRaceActive
                   ? "Checking the best sources"
                   : waitingForPeers
@@ -304,15 +305,13 @@ export default function StreamController() {
                     ? "Preparing compatibility stream"
                     : "Fast-starting your stream")}
               </p>
-              <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400">
-                temporary
-              </span>
+              <span className="ak-badge ak-badge--quiet !px-2 !py-0.5">temporary</span>
             </div>
             <p className="mt-1 truncate text-xs font-medium text-zinc-300" title={displayTitle}>
               {displayTitle || "Connecting to source…"}
             </p>
             {displaySubtitle && (
-              <p className="mt-0.5 truncate text-[11px] text-zinc-500">{displaySubtitle}</p>
+              <p className="mt-0.5 truncate text-[11px] text-zinc-400">{displaySubtitle}</p>
             )}
           </div>
           <button
@@ -321,29 +320,33 @@ export default function StreamController() {
             }
             aria-label="Cancel stream"
             title="Cancel and clear temporary cache"
-            className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-white/10 hover:text-white"
+            className="rounded-lg p-1.5 text-zinc-300 transition hover:bg-white/10 hover:text-white"
           >
             <X size={17} />
           </button>
         </div>
 
-        <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/10">
-          <motion.div
-            className="h-full rounded-full bg-gradient-to-r from-brand-dark via-brand to-accent"
-            animate={
-              sourceRaceActive || (!pendingStreamHash && !!streamLaunchPhase)
-                ? { width: ["8%", "55%", "22%"], x: ["0%", "70%", "0%"] }
-                : { width: `${Math.max(3, bufferProgress)}%`, x: "0%" }
-            }
-            transition={
-              sourceRaceActive || (!pendingStreamHash && !!streamLaunchPhase)
-                ? { duration: 1.6, repeat: Infinity, ease: "easeInOut" }
-                : undefined
-            }
-          />
-        </div>
+        {sourceRaceActive || (!pendingStreamHash && !!streamLaunchPhase) ? (
+          // Unknown duration: CSS indeterminate bar (static under reduced motion).
+          <div className="ak-progress-indeterminate mt-5 !h-1.5" role="progressbar" aria-label="Finding a source" />
+        ) : (
+          <div
+            className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/10"
+            role="progressbar"
+            aria-label="Opening buffer"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(bufferProgress)}
+          >
+            <motion.div
+              className="h-full rounded-full bg-white"
+              animate={{ width: `${Math.max(3, bufferProgress)}%` }}
+              transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+            />
+          </div>
+        )}
 
-        <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-500">
+        <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-400">
           <span>
             {streamLaunchPhase
               ? pendingStreamHash
@@ -360,10 +363,14 @@ export default function StreamController() {
               : "Loading torrent metadata"}
           </span>
           <span className="tabular-nums">
-            {torrent?.dlspeed ? `${formatSpeed(torrent.dlspeed)} · ${torrent.num_seeds} peers` : "Wi-Fi ready"}
+            {torrent?.dlspeed
+              ? `${formatSpeed(torrent.dlspeed)} · ${torrent.num_seeds} peers`
+              : torrent
+                ? `${torrent.num_seeds} peers`
+                : "Connecting…"}
           </span>
         </div>
-        <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
+        <p className="mt-3 text-[11px] leading-relaxed text-zinc-400">
           Only the selected video is prioritized. The temporary cache clears when you close playback.
         </p>
       </div>

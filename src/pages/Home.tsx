@@ -5,6 +5,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 import { useAuth } from "@/stores/authStore";
 import { useT } from "@/i18n";
 import HeroBanner from "@/components/HeroBanner";
@@ -47,6 +48,8 @@ export default function Home() {
   const [data, setData] = useState<HomeData | null>(null);
   const [discover, setDiscover] = useState<DiscoverData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalogReload, setCatalogReload] = useState(0);
 
   useEffect(() => {
     if (!client) {
@@ -164,11 +167,19 @@ export default function Home() {
           ],
         });
       })
-      .catch(() => {
-        if (!ctrl.signal.aborted) setDiscover({ hero: null, rows: [] });
+      .catch((reason) => {
+        if (ctrl.signal.aborted) return;
+        setDiscover({ hero: null, rows: [] });
+        setCatalogError(reason instanceof Error ? reason.message : String(reason));
       });
     return () => ctrl.abort();
-  }, []);
+  }, [catalogReload]);
+
+  const retryCatalog = () => {
+    setCatalogError(null);
+    setDiscover(null);
+    setCatalogReload((value) => value + 1);
+  };
 
   const profileHistory = useMemo(
     () => historyEntries.filter((entry) => entry.profileId === profileId),
@@ -309,8 +320,9 @@ export default function Home() {
   if (error)
     return (
       <div className="flex min-h-screen items-center justify-center p-8">
-        <p className="max-w-lg whitespace-pre-wrap text-center text-sm text-red-400">
-          {t("common.error")}: {error}
+        <p role="alert" className="ak-notice ak-notice--error max-w-lg whitespace-pre-wrap text-sm">
+          <AlertTriangle size={18} aria-hidden="true" />
+          <span>{t("common.error")}: {error}</span>
         </p>
       </div>
     );
@@ -329,6 +341,20 @@ export default function Home() {
       ) : discover.hero ? (
         <DiscoverHero item={discover.hero} />
       ) : null}
+      {catalogError && (
+        <div className={`px-6 md:px-12 lg:px-16 ${data.hero ? "mb-10" : "pb-6 pt-28"}`}>
+          <div role="alert" className="ak-notice ak-notice--error max-w-2xl">
+            <AlertTriangle size={18} aria-hidden="true" />
+            <div className="min-w-0">
+              <p><strong>The movie and series catalog didn't load.</strong> Check your internet connection, then try again.</p>
+              <p className="mt-1 break-words text-xs opacity-75">{catalogError}</p>
+              <button onClick={retryCatalog} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-full bg-black px-4 text-xs font-bold text-white">
+                <RefreshCw size={14} aria-hidden="true" /> Try again
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {rows}
     </motion.main>
   );

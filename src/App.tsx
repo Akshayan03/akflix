@@ -98,9 +98,11 @@ export default function App() {
       {/* Global Torrentio temporary-cache handoff and buffering status. */}
       {!isLogin && !mobileApple && <StreamController />}
 
-      {/* Toast notifications (Sonner), styled for the dark theme. */}
+      {/* Toast notifications (Sonner). Monochrome palette lives in index.css:
+          errors render as inverted white toasts so they can't be missed. */}
       <Toaster
         theme="dark"
+        richColors
         position={mobileApple ? "bottom-center" : "bottom-right"}
         offset={{ bottom: mobileApple ? 104 : 96 }}
         visibleToasts={mobileApple ? 2 : 4}
@@ -109,10 +111,7 @@ export default function App() {
         closeButton={!mobileApple}
         toastOptions={{
           style: {
-            background: "rgba(21,19,15,.96)",
-            border: "1px solid rgba(255,255,255,.1)",
-            color: "#fff",
-            borderRadius: "16px",
+            borderRadius: "14px",
             backdropFilter: "blur(20px)",
             ...(mobileApple ? { width: "calc(100vw - 24px)", fontSize: "13px" } : {}),
           },

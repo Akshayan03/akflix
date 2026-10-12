@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { Search, Download, Settings, ChevronDown, Home, RadioTower, Film, Tv } from "lucide-react";
+import { Search, Download, Settings, ChevronDown, Home, RadioTower, Film, Tv, Check } from "lucide-react";
 import { useAuth } from "@/stores/authStore";
 import { isAppleMobile, isDesktopMac } from "@/lib/platform";
 import { useT } from "@/i18n";
@@ -57,10 +57,10 @@ export default function Navbar() {
   if (mobileApple) return <MobileNavigation />;
 
   const linkCls = ({ isActive }: { isActive: boolean }) =>
-    `flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition ${
+    `flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition-colors duration-200 ${
       isActive
-        ? "bg-white/[0.10] text-white shadow-inner shadow-white/[0.04]"
-        : "text-zinc-400 hover:bg-white/[0.05] hover:text-white"
+        ? "bg-white text-black"
+        : "text-zinc-400 hover:bg-white/[0.08] hover:text-white"
     }`;
   return (
     <>
@@ -73,11 +73,11 @@ export default function Navbar() {
         data-tauri-drag-region
         className={`flex h-14 w-full items-center rounded-2xl border px-3 transition-all md:px-4 ${
           scrolled
-            ? "border-white/10 bg-[#0b0a08]/88 shadow-[0_14px_45px_rgba(0,0,0,.4)] backdrop-blur-2xl"
-            : "border-white/[0.07] bg-black/20 backdrop-blur-md"
+            ? "border-white/[0.12] bg-black/85 shadow-[0_14px_45px_rgba(0,0,0,.5)] backdrop-blur-2xl"
+            : "border-white/[0.08] bg-black/25 backdrop-blur-md"
         }`}
       >
-      <Link to="/" className="mr-5"><Brand /></Link>
+      <Link to="/" aria-label="Akflix home" className="mr-6 rounded-md px-1 py-1 text-white"><Brand height={19} /></Link>
 
       <nav className="hidden items-center gap-1 md:flex">
         <NavLink to="/" className={linkCls} end>
@@ -127,12 +127,13 @@ export default function Navbar() {
             onClick={() => setMenuOpen((o) => !o)}
             aria-expanded={menuOpen}
             aria-haspopup="menu"
+            aria-label={`Profile: ${active?.userName ?? "not signed in"}`}
             className="ml-1 flex items-center gap-2 rounded-xl p-1 text-sm text-zinc-200 transition hover:bg-white/[0.06] hover:text-white"
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand-light via-brand to-brand-dark font-bold uppercase text-[#090806] shadow-[0_0_20px_rgba(214,178,94,.18)]">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white font-bold uppercase text-black">
               {active?.userName?.[0] ?? "?"}
             </span>
-            <ChevronDown size={14} className={menuOpen ? "rotate-180" : ""} />
+            <ChevronDown size={14} className={`transition-transform duration-200 ${menuOpen ? "rotate-180" : ""}`} />
           </motion.button>
 
           <AnimatePresence>
@@ -148,23 +149,29 @@ export default function Navbar() {
               {profiles.map((p) => (
                 <button
                   key={p.id}
+                  role="menuitem"
                   onClick={() => {
                     switchProfile(p.id);
                     setMenuOpen(false);
                     navigate("/");
                   }}
-                  className={`block w-full rounded-xl px-3 py-2.5 text-left text-sm hover:bg-white/[0.07] ${
+                  aria-current={p.id === activeId ? "true" : undefined}
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-white/[0.08] ${
                     p.id === activeId ? "text-white" : "text-zinc-300"
                   }`}
                 >
-                  <span className="font-medium">{p.userName}</span>
-                  <span className="block truncate text-xs text-zinc-500">
-                    {p.serverName ?? p.serverUrl}
+                  <span className="min-w-0 flex-1">
+                    <span className="font-medium">{p.userName}</span>
+                    <span className="block truncate text-xs text-zinc-500">
+                      {p.serverName ?? p.serverUrl}
+                    </span>
                   </span>
+                  {p.id === activeId && <Check size={15} aria-hidden="true" />}
                 </button>
               ))}
               <div className="mt-1 border-t border-white/[0.07] pt-1">
                 <button
+                  role="menuitem"
                   onClick={() => {
                     logout();
                     navigate("/login");
