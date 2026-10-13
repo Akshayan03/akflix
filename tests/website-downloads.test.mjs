@@ -27,6 +27,7 @@ test("website prominently discloses unresolved reports and existing installer pr
   // A design release must not read as a playback fix.
   for (const text of ["1.0.20 design update", "Playback and download code is unchanged from 1.0.19"]) assert.ok(html.includes(text), text);
   for (const text of ["1.0.21 startup fix", "keeping your profile, watch history, settings and captions"]) assert.ok(html.includes(text), text);
+  for (const text of ["1.0.22 design polish", "It changes only how screens look and move."]) assert.ok(html.includes(text), text);
 });
 
 test("a Mac-only update retains the newest complete Windows release", () => {

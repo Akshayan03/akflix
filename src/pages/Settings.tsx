@@ -258,7 +258,7 @@ export default function Settings() {
       className="mx-auto min-h-screen max-w-3xl px-4 pb-32 pt-32 sm:px-6 sm:pb-24 sm:pt-28"
     >
       <p className="ak-eyebrow mb-2">Tune your space</p>
-      <h1 className="mb-9 font-display text-5xl tracking-[-0.03em]">{t("settings.title")}</h1>
+      <h1 className={mobileApple ? "mb-9 font-display text-5xl tracking-[-0.03em]" : "ak-page-title mb-9"}>{t("settings.title")}</h1>
 
       {mobileApple && (
         <motion.section

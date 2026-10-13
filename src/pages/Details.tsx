@@ -187,7 +187,7 @@ export default function Details() {
         <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/30 to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-r from-black/70 to-transparent" />
 
-        <div className="absolute bottom-8 left-6 max-w-2xl md:left-12">
+        <div className="absolute bottom-8 left-[var(--ak-gutter)] right-[var(--ak-gutter)] max-w-2xl">
           <h1 className="hero-shadow mb-3 font-display text-5xl tracking-[-0.03em] md:text-6xl">{item.Name}</h1>
           <div className="mb-4 flex flex-wrap items-center gap-3 text-sm text-zinc-300">
             {item.ProductionYear && <span>{item.ProductionYear}</span>}
@@ -246,16 +246,16 @@ export default function Details() {
 
       {/* Overview */}
       {item.Overview && (
-        <p className="max-w-3xl px-6 pt-8 leading-relaxed text-zinc-300 md:px-12">
+        <p className="ak-gutter max-w-[calc(48rem+2*var(--ak-gutter))] pt-8 leading-relaxed text-zinc-300">
           {item.Overview}
         </p>
       )}
 
       {/* Season / episode browser */}
       {item.Type === "Series" && seasons.length > 0 && (
-        <section className="px-6 pt-10 md:px-12">
+        <section className="ak-gutter pt-10">
           <div className="mb-4 flex items-center gap-4">
-            <h2 className="text-lg font-semibold">{t("details.seasons")}</h2>
+            <h2 className="ak-section-title">{t("details.seasons")}</h2>
             <select
               value={activeSeason ?? ""}
               onChange={(e) => setActiveSeason(e.target.value)}

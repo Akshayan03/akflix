@@ -6,12 +6,56 @@ const LABELS = ["", "Not for me", "Disliked", "It was okay", "Liked it", "Loved 
 export default function RatingControl({
   value,
   onChange,
+  compact = false,
 }: {
   value?: number;
   onChange: (value: number | null) => void;
+  /** Inline stars without the panel (desktop title pages). */
+  compact?: boolean;
 }) {
   const [hovered, setHovered] = useState(0);
   const displayed = hovered || value || 0;
+
+  if (compact) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <div className="flex items-center" role="group" aria-label="Rate this title" onMouseLeave={() => setHovered(0)}>
+          {[1, 2, 3, 4, 5].map((rating) => (
+            <button
+              key={rating}
+              type="button"
+              aria-label={`${rating} star${rating === 1 ? "" : "s"}: ${LABELS[rating]}`}
+              aria-pressed={value === rating}
+              title={LABELS[rating]}
+              onMouseEnter={() => setHovered(rating)}
+              onFocus={() => setHovered(rating)}
+              onBlur={() => setHovered(0)}
+              onClick={() => onChange(rating)}
+              className={`rounded-md p-1 transition duration-100 active:scale-90 ${
+                rating <= displayed ? "text-white" : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              <Star size={17} fill={rating <= displayed ? "currentColor" : "none"} />
+            </button>
+          ))}
+        </div>
+        <span aria-live="polite" className="min-w-[88px] text-xs font-medium text-zinc-400">
+          {displayed ? LABELS[displayed] : "Rate it"}
+        </span>
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            aria-label="Clear rating"
+            title="Clear rating"
+            className="ak-icon-button !h-7 !w-7 text-zinc-400"
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/[0.1] bg-black/30 px-4 py-3 backdrop-blur-xl">

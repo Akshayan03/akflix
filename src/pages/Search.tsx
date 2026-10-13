@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, Check, Download, LoaderCircle, PlayCircle, SearchIcon, X } from "lucide-react";
+import { AlertTriangle, Check, Download, LoaderCircle, PlayCircle, Scale, SearchIcon, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/stores/authStore";
 import { useTorrents } from "@/stores/torrentStore";
@@ -109,16 +109,18 @@ export default function Search() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="min-h-screen bg-[radial-gradient(circle_at_50%_-12%,rgba(255,255,255,.06),transparent_34rem)] px-4 pb-32 pt-28 md:px-12 md:pb-16 lg:px-16"
+      transition={{ duration: 0.2 }}
+      className={`min-h-screen bg-[radial-gradient(circle_at_50%_-12%,rgba(255,255,255,.06),transparent_34rem)] ${
+        mobileApple ? "px-4 pb-32 pt-28" : "ak-gutter pb-16 pt-[calc(var(--ak-nav-h)+44px)]"
+      }`}
     >
       {/* Search input */}
-      <div className="mx-auto mb-8 max-w-3xl text-center md:mb-12">
-        <p className="ak-eyebrow mb-2">One search, every screen</p>
-        <h1 className="mb-5 font-display text-4xl tracking-[-0.03em] md:mb-7 md:text-5xl">What are we watching?</h1>
+      <div className="mx-auto mb-8 max-w-3xl text-center md:mb-10">
+        <h1 className={mobileApple ? "mb-5 font-display text-4xl tracking-[-0.03em]" : "ak-page-title mb-6"}>What are we watching?</h1>
       <form role="search" onSubmit={(event) => {
         event.preventDefault();
         (event.currentTarget.querySelector("input") as HTMLInputElement | null)?.blur();
-      }} className="glass-panel flex items-center gap-3 rounded-full px-5 transition-colors focus-within:border-white/60 md:px-6">
+      }} className="glass-panel flex items-center gap-3 rounded-full px-5 transition-colors duration-150 focus-within:border-white/60 hover:border-white/30 md:px-6">
         {loading ? <LoaderCircle size={20} className="animate-spin text-white" aria-label="Searching" /> : <SearchIcon size={20} className="text-white" aria-hidden="true" />}
         <input
           autoFocus={!mobileApple}
@@ -131,7 +133,7 @@ export default function Search() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t("search.placeholder")}
-          className="search-input min-w-0 flex-1 bg-transparent py-3.5 text-base outline-none placeholder:text-zinc-500 md:py-4 md:text-lg"
+          className="search-input min-w-0 flex-1 bg-transparent py-3.5 text-base outline-none placeholder:text-zinc-500 md:py-[15px] md:text-[17px]"
         />
         {query && (
           <motion.button
@@ -139,25 +141,26 @@ export default function Search() {
             whileTap={{ scale: 0.86 }}
             onClick={() => setQuery("")}
             aria-label="Clear search"
-            className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-300 hover:bg-white/[0.1] hover:text-white"
+            className="ak-icon-button -mr-2"
           >
             <X size={14} />
           </motion.button>
         )}
       </form>
         {!query && (
-          <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className={`no-scrollbar mt-4 flex gap-2 overflow-x-auto pb-1 text-left ${mobileApple ? "" : "justify-center"}`}>
+          <div className={`no-scrollbar mt-4 flex items-center gap-2 overflow-x-auto pb-1 text-left ${mobileApple ? "" : "justify-center"}`}>
+            <span className="shrink-0 pr-1 text-xs text-zinc-500">Try</span>
             {QUICK_SEARCHES.map((suggestion) => (
-              <motion.button
+              <button
                 key={suggestion}
-                whileTap={{ scale: 0.94 }}
+                type="button"
                 onClick={() => setQuery(suggestion)}
-                className="shrink-0 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/40 hover:text-white"
+                className="ak-chip shrink-0"
               >
                 {suggestion}
-              </motion.button>
+              </button>
             ))}
-          </motion.div>
+          </div>
         )}
       </div>
 
@@ -173,8 +176,8 @@ export default function Search() {
         </div>
       )}
       {libResults.length > 0 && (
-        <motion.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="mb-10 md:mb-12">
-          <h2 className="mb-4 text-lg font-black">{t("search.library")}</h2>
+        <motion.section initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }} className="mb-10 md:mb-12">
+          <h2 className="ak-section-title mb-4">{t("search.library")}</h2>
           <div className="flex flex-wrap gap-3">
             {libResults.map((item) => (
               <MediaCard key={item.Id} item={item} />
@@ -185,29 +188,39 @@ export default function Search() {
 
       {/* Stremio/Cinemeta discover results — Torrentio resolves sources on detail. */}
       {discoverResults.length > 0 && (
-        <motion.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="mb-10 md:mb-12">
-          <h2 className="mb-4 text-lg font-black">Movies and series</h2>
-          <div aria-label="Filter catalog results" className="mb-4 flex gap-2">
+        <motion.section initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }} className="mb-10 md:mb-12">
+          <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-3">
+          <h2 className="ak-section-title">Movies and series</h2>
+          <div role="group" aria-label="Filter catalog results" className="flex gap-2">
             {(["all", "movie", "series"] as const).map((type) => (
-              <button key={type} onClick={() => setMediaFilter(type)} aria-pressed={mediaFilter === type}
-                className={`min-h-11 rounded-full border px-4 text-xs font-semibold transition-colors ${mediaFilter === type ? "border-white bg-white text-black" : "border-white/15 text-zinc-300 hover:border-white/40 hover:text-white"}`}>
+              <button key={type} type="button" onClick={() => setMediaFilter(type)} aria-pressed={mediaFilter === type}
+                className={mobileApple ? `min-h-11 rounded-full border px-4 text-xs font-semibold transition-colors ${mediaFilter === type ? "border-white bg-white text-black" : "border-white/15 text-zinc-300 hover:border-white/40 hover:text-white"}` : "ak-chip"}>
                 {type === "all" ? "All" : type === "movie" ? "Movies" : "Shows"} ({discoverResults.filter((item) => type === "all" || item.type === type).length})
               </button>
             ))}
           </div>
+          </div>
           {!visibleDiscover.length && <p className="py-6 text-sm text-zinc-500">No {mediaFilter === "series" ? "shows" : "movies"} match this search. Try All or another title.</p>}
-          <div className={mobileApple ? "grid grid-cols-2 gap-3" : "flex flex-wrap gap-3"}>
+          <div className={mobileApple ? "grid grid-cols-2 gap-3" : "ak-poster-grid"}>
             {visibleDiscover.map((item) => (
-              <DiscoverCard key={`${item.type}:${item.id}`} item={item} fluid={mobileApple} />
+              <DiscoverCard key={`${item.type}:${item.id}`} item={item} fluid caption />
             ))}
           </div>
         </motion.section>
       )}
 
       {loading && query.trim().length >= 2 && !discoverResults.length && !libResults.length && (
-        <div role="status" aria-label="Searching" className={mobileApple ? "grid grid-cols-2 gap-3" : "flex flex-wrap gap-3"}>
-          {Array.from({ length: mobileApple ? 4 : 6 }).map((_, index) => (
-            <div key={index} className={`skeleton aspect-[2/3] ${mobileApple ? "w-full" : "w-[138px] md:w-48"}`} />
+        <div role="status" aria-label="Searching" className={mobileApple ? "grid grid-cols-2 gap-3" : "ak-poster-grid mt-[52px]"}>
+          {Array.from({ length: mobileApple ? 4 : 12 }).map((_, index) => (
+            <div key={index}>
+              <div className="skeleton aspect-[2/3] w-full" />
+              {!mobileApple && (
+                <>
+                  <div className="skeleton mt-2.5 h-3 w-3/4 !rounded-md" />
+                  <div className="skeleton mt-1.5 h-3 w-1/3 !rounded-md" />
+                </>
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -215,7 +228,7 @@ export default function Search() {
       {/* Torrent "Discover" results */}
       {(torResults.length > 0 || torrentError) && (
         <section>
-          <h2 className="mb-4 text-lg font-semibold">{t("search.torrents")}</h2>
+          <h2 className="ak-section-title mb-4">{t("search.torrents")}</h2>
 
           {torrentError && (
             <p role="alert" className="ak-notice ak-notice--error mb-4 whitespace-pre-wrap text-xs">
@@ -259,7 +272,7 @@ export default function Search() {
             ))}
           </div>
 
-          <p className="mt-3 text-[11px] text-zinc-500">⚖️ {t("torrent.disclaimer")}</p>
+          <p className="mt-3 flex items-center gap-1.5 text-[11px] text-zinc-500"><Scale size={12} aria-hidden="true" /> {t("torrent.disclaimer")}</p>
         </section>
       )}
 

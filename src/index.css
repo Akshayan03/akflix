@@ -26,10 +26,15 @@
   --ak-radius-lg: 18px;
   --ak-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ak-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --ak-dur-fast: 140ms;
-  --ak-dur: 220ms;
-  --ak-dur-slow: 420ms;
+  /* Motion is short and never gates a click: feedback 120ms, state 180ms,
+     entrances 280ms at most. */
+  --ak-dur-fast: 120ms;
+  --ak-dur: 180ms;
+  --ak-dur-slow: 280ms;
   --ak-shadow-pop: 0 24px 70px rgba(0, 0, 0, 0.62);
+  /* One page gutter shared by the header, heroes, rows and detail sections. */
+  --ak-gutter: clamp(20px, 4vw, 64px);
+  --ak-nav-h: 64px;
   color-scheme: dark;
 }
 
@@ -152,6 +157,62 @@ summary:focus-visible,
   color: var(--ak-text-3);
 }
 
+/* Desktop type scale: serif page titles, sans section titles, quiet meta. */
+.ak-page-title {
+  font-family: var(--ak-font-display);
+  font-weight: 400;
+  font-size: clamp(34px, 3.2vw, 46px);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+.ak-section-title {
+  font-size: 19px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: var(--ak-text);
+}
+
+.ak-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ak-text-2);
+}
+.ak-meta > * + *::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  margin-right: 10px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.55;
+  vertical-align: middle;
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+.ak-gutter {
+  padding-left: var(--ak-gutter);
+  padding-right: var(--ak-gutter);
+}
+
+/* Page entrances: a short fade that never delays input. */
+.ak-page-in {
+  animation: ak-page-in var(--ak-dur-slow) var(--ak-ease-out) both;
+}
+
+/* Opacity only: a transform here would re-anchor fixed descendants. */
+@keyframes ak-page-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
@@ -194,6 +255,282 @@ summary:focus-visible,
 .desktop-ghost { background: transparent; color: var(--ak-text-2); }
 .desktop-ghost:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); color: #fff; }
 .desktop-control:disabled { opacity: 0.4; cursor: not-allowed; }
+.desktop-control--sm { min-height: 34px; padding: 7px 14px; font-size: 12px; gap: 6px; }
+.desktop-control--sm svg { width: 15px; height: 15px; }
+
+/* Round icon-only control (header, sheets, episode rows). */
+.ak-icon-button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  color: var(--ak-text-2);
+  transition:
+    background-color var(--ak-dur-fast) var(--ak-ease-out),
+    color var(--ak-dur-fast) var(--ak-ease-out),
+    transform var(--ak-dur-fast) var(--ak-ease-out);
+}
+.ak-icon-button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.ak-icon-button:active:not(:disabled) { transform: scale(0.94); }
+.ak-icon-button:disabled { opacity: 0.4; }
+.ak-icon-button--outline { border: 1px solid var(--ak-line-strong); }
+.ak-icon-button--outline:hover:not(:disabled) { border-color: rgba(255, 255, 255, 0.6); }
+
+/* Segmented control and filter chips. */
+.ak-segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--ak-line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.ak-segmented > button,
+.ak-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 13px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--ak-text-3);
+  transition:
+    background-color var(--ak-dur-fast) var(--ak-ease-out),
+    color var(--ak-dur-fast) var(--ak-ease-out),
+    border-color var(--ak-dur-fast) var(--ak-ease-out);
+}
+.ak-segmented > button:hover { color: #fff; }
+.ak-segmented > button[aria-pressed="true"] { background: #fff; color: #000; }
+.ak-chip { border: 1px solid var(--ak-line-strong); color: var(--ak-text-2); }
+.ak-chip:hover { border-color: rgba(255, 255, 255, 0.6); color: #fff; }
+.ak-chip[aria-pressed="true"] { border-color: #fff; background: #fff; color: #000; }
+
+/* Quiet field used by selects and inline searches on dark surfaces. */
+.ak-field {
+  min-height: 36px;
+  border: 1px solid var(--ak-line-strong);
+  border-radius: 10px;
+  background: #0e0e0e;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ak-text-2);
+  outline: none;
+  transition: border-color var(--ak-dur-fast) var(--ak-ease-out);
+}
+.ak-field:hover { border-color: rgba(255, 255, 255, 0.45); }
+.ak-field:focus-visible { border-color: #fff; outline: 2px solid #fff; outline-offset: 2px; }
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.ak-nav {
+  height: var(--ak-nav-h);
+  padding-left: var(--ak-gutter);
+  padding-right: var(--ak-gutter);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.32) 60%, rgba(0, 0, 0, 0) 100%);
+  transition: background-color var(--ak-dur) var(--ak-ease-out), box-shadow var(--ak-dur) var(--ak-ease-out);
+}
+.ak-nav[data-scrolled="true"] {
+  background-color: rgba(0, 0, 0, 0.86);
+  box-shadow: 0 1px 0 var(--ak-line);
+  backdrop-filter: blur(20px) saturate(140%);
+}
+/* macOS overlay title bar: the traffic lights sit at x 18–72. */
+.ak-nav--mac { padding-left: max(var(--ak-gutter), 92px); }
+
+.ak-nav-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ak-text-3);
+  transition: color var(--ak-dur-fast) var(--ak-ease-out), background-color var(--ak-dur-fast) var(--ak-ease-out);
+}
+.ak-nav-link:hover { color: #fff; background: rgba(255, 255, 255, 0.07); }
+.ak-nav-link[aria-current="page"] { color: #fff; }
+.ak-nav-indicator {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 999px;
+  background: #fff;
+}
+
+/* ── Artwork cards ──────────────────────────────────────────────────────── */
+/* Artwork leads: the poster carries the title, so names and facts appear on
+   hover or keyboard focus (always on touch screens). */
+.ak-card {
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  /* Neutral fill while lazy artwork decodes. */
+  background: linear-gradient(160deg, #181818 0%, #0d0d0d 100%);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  text-align: left;
+  scroll-snap-align: start;
+  transition: transform var(--ak-dur) var(--ak-ease-out), box-shadow var(--ak-dur) var(--ak-ease-out);
+}
+.ak-card:focus-visible { outline-offset: 3px; }
+.ak-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+  transition: box-shadow var(--ak-dur) var(--ak-ease-out);
+}
+.ak-card:hover::after { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55); }
+.ak-card:active { transform: scale(0.985); }
+.ak-card-art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform var(--ak-dur-slow) var(--ak-ease-out);
+}
+.ak-card:hover .ak-card-art,
+.ak-card:focus-visible .ak-card-art { transform: scale(1.035); }
+.ak-card-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.35) 38%, rgba(0, 0, 0, 0) 62%);
+  opacity: 0;
+  transition: opacity var(--ak-dur) var(--ak-ease-out);
+}
+.ak-card-meta {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 12px 12px 13px;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity var(--ak-dur) var(--ak-ease-out), transform var(--ak-dur) var(--ak-ease-out);
+}
+.ak-card-play {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  display: flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #fff;
+  color: #000;
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity var(--ak-dur) var(--ak-ease-out), transform var(--ak-dur) var(--ak-ease-out);
+}
+.ak-card:hover .ak-card-scrim,
+.ak-card:focus-visible .ak-card-scrim,
+.ak-card:has(:focus-visible) .ak-card-scrim,
+.ak-card[data-meta="always"] .ak-card-scrim,
+.ak-card:hover .ak-card-meta,
+.ak-card:focus-visible .ak-card-meta,
+.ak-card:has(:focus-visible) .ak-card-meta,
+.ak-card[data-meta="always"] .ak-card-meta { opacity: 1; transform: none; }
+.ak-card:hover .ak-card-play,
+.ak-card:focus-visible .ak-card-play,
+.ak-card:has(:focus-visible) .ak-card-play { opacity: 1; transform: none; }
+@media (hover: none) {
+  .ak-card .ak-card-scrim,
+  .ak-card .ak-card-meta { opacity: 1; transform: none; }
+}
+
+/* Responsive poster grid (search results): fills the width, no ragged edge. */
+.ak-poster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 22px 14px;
+}
+@media (min-width: 1280px) {
+  .ak-poster-grid { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); }
+}
+
+/* Horizontal rows: the scroller pads by the gutter so the first card lines up
+   with page copy and snapping keeps that alignment. Vertical padding leaves
+   room for focus rings, which overflow would otherwise clip. */
+.ak-row-scroller {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: var(--ak-gutter);
+  padding: 6px var(--ak-gutter) 14px;
+  margin: -6px 0 -14px;
+}
+@media (min-width: 1280px) {
+  .ak-row-scroller { gap: 14px; }
+}
+.ak-row-arrow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  width: var(--ak-gutter);
+  min-width: 44px;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--ak-dur) var(--ak-ease-out);
+}
+.ak-row-arrow--left { left: 0; background: linear-gradient(90deg, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0)); }
+.ak-row-arrow--right { right: 0; background: linear-gradient(270deg, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0)); }
+.group\/row:hover .ak-row-arrow:not(:disabled),
+.ak-row-arrow:focus-visible { opacity: 1; }
+.ak-row-arrow:disabled { pointer-events: none; }
+.ak-row-arrow > span {
+  display: flex;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ak-line-strong);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(10px);
+  transition: background-color var(--ak-dur-fast) var(--ak-ease-out), color var(--ak-dur-fast) var(--ak-ease-out);
+}
+.ak-row-arrow:hover > span { background: #fff; color: #000; }
+
+/* ── Sheets ─────────────────────────────────────────────────────────────── */
+/* Desktop source picker: a right-hand sheet keeps the title visible beside it;
+   below 900px it becomes a centred panel. */
+.ak-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  height: 100%;
+  overflow: hidden;
+  border-left: 1px solid var(--ak-line);
+  background: rgba(10, 10, 10, 0.97);
+  box-shadow: -30px 0 90px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(24px);
+}
+@media (max-width: 899px) {
+  .ak-sheet {
+    height: auto;
+    max-height: calc(100% - 32px);
+    border: 1px solid var(--ak-line);
+    border-radius: 22px;
+    box-shadow: var(--ak-shadow-pop);
+  }
+}
 
 /* ── Status: notices, badges, progress ──────────────────────────────────── */
 .ak-notice {
@@ -258,10 +595,11 @@ summary:focus-visible,
   animation: ak-spin 0.8s linear infinite;
 }
 
-/* Skeleton shimmer for loading cards */
+/* Skeleton shimmer for loading cards. Placeholders mirror the real layout so
+   nothing jumps when content arrives. */
 .skeleton {
-  @apply animate-shimmer rounded-2xl;
-  background: linear-gradient(90deg, #0f0f0f 0%, #1f1f1f 40%, #0f0f0f 80%);
+  @apply animate-shimmer rounded-xl;
+  background: linear-gradient(90deg, #101010 0%, #1b1b1b 40%, #101010 80%);
   background-size: 400px 100%;
 }
 
@@ -313,13 +651,34 @@ summary:focus-visible,
   background: linear-gradient(120deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.05) 42%, rgba(255, 255, 255, 0.18));
 }
 
+/* Artwork fades in over the neutral placeholder once decoded. Opacity only:
+   card hover and hero framing own the transform. */
 .akflix-artwork {
-  animation: akflix-artwork-in 520ms var(--ak-ease-out) both;
+  animation: akflix-artwork-in var(--ak-dur-slow) var(--ak-ease-out) both;
 }
 
 @keyframes akflix-artwork-in {
-  from { opacity: 0; transform: scale(1.018); }
-  to { opacity: 1; transform: scale(1); }
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Large backdrops settle in once (no slow Ken Burns that outlives the click). */
+.ak-backdrop-in {
+  animation: ak-backdrop-in 600ms var(--ak-ease-out) both;
+}
+
+@keyframes ak-backdrop-in {
+  from { opacity: 0; transform: scale(1.025); }
+  to { opacity: 1; transform: none; }
+}
+
+.ak-rise-in {
+  animation: ak-rise-in var(--ak-dur-slow) var(--ak-ease-out) both;
+}
+
+@keyframes ak-rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
 }
 
 @keyframes ak-spin {

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useIsPresent } from "framer-motion";
 import {
   AlertTriangle,
   Check,
@@ -14,7 +14,9 @@ import {
   HardDrive,
   Languages,
   LoaderCircle,
+  Play,
   Radio,
+  Scale,
   Search,
   ShieldCheck,
   Sparkles,
@@ -186,6 +188,145 @@ function sourceFacts(result: TorrentResult) {
   };
 }
 
+/** The dimmed backdrop. While it fades out it no longer hit-tests, so the page
+    underneath is clickable immediately after closing. */
+function SheetBackdrop({
+  className,
+  onClose,
+  children,
+}: {
+  className: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const present = useIsPresent();
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, transition: { duration: 0.14 } }}
+      transition={{ duration: 0.18 }}
+      style={present ? undefined : { pointerEvents: "none" }}
+      className={className}
+      onClick={onClose}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+/** One desktop source: quality first, the facts on one line, compact actions. */
+function SourceRow({
+  result,
+  index,
+  mediaTitle,
+  recommended,
+  acting,
+  added,
+  busy,
+  onAct,
+  onCopy,
+}: {
+  result: TorrentResult;
+  index: number;
+  mediaTitle: string;
+  recommended: boolean;
+  acting: boolean;
+  added: boolean;
+  busy: boolean;
+  onAct: (result: TorrentResult, mode: TorrentAddMode) => void;
+  onCopy: (result: TorrentResult) => void;
+}) {
+  const facts = sourceFacts(result);
+  const format = [facts.releaseType, facts.codec, facts.container, facts.picture, facts.audio].filter(Boolean).join(" · ");
+  return (
+    <li
+      aria-label={`Source ${index + 1} for ${mediaTitle}`}
+      className={`grid grid-cols-[60px_minmax(0,1fr)_auto] items-center gap-4 rounded-xl border px-4 py-3 transition-colors duration-150 ${
+        recommended
+          ? "border-white/40 bg-white/[0.05]"
+          : "border-white/[0.07] bg-white/[0.015] hover:border-white/25 hover:bg-white/[0.035]"
+      }`}
+    >
+      <div className="min-w-0">
+        <strong className="block text-[19px] font-semibold leading-none tracking-tight text-white">{facts.quality}</strong>
+        <span className="mt-1.5 block text-[10px] font-semibold tabular-nums tracking-[0.12em] text-zinc-500">
+          {String(index + 1).padStart(2, "0")}
+        </span>
+      </div>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {recommended && (
+            <span className="ak-badge ak-badge--solid !py-0.5">
+              <Sparkles size={10} aria-hidden="true" /> Auto pick
+            </span>
+          )}
+          {facts.directPlay && (
+            <span className="ak-badge !py-0.5">
+              <ShieldCheck size={10} aria-hidden="true" /> {facts.hosted ? "Hosted link" : "Direct play"}
+            </span>
+          )}
+          <span className="min-w-0 truncate text-[13px] font-medium text-zinc-100">{format}</span>
+        </div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-400">
+          <span className="flex items-center gap-1.5">
+            <Languages size={12} aria-hidden="true" /> {facts.language.label}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <HardDrive size={12} aria-hidden="true" /> {result.size ? formatBytes(result.size) : "Hosted"}
+          </span>
+          <span className="flex items-center gap-1.5 text-zinc-300">
+            <HealthBars level={facts.health.level} label={facts.health.label} />
+            {facts.hosted ? facts.health.label : `${result.seeders.toLocaleString()} peers`}
+          </span>
+          <span className="min-w-0 truncate">{result.indexer}</span>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {added ? (
+          <div role="status" className="flex h-[34px] items-center gap-1.5 rounded-full border border-white/40 px-3.5 text-xs font-semibold text-white">
+            <Check size={14} aria-hidden="true" /> Added
+          </div>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => onAct(result, "stream")}
+              disabled={busy}
+              className="desktop-control desktop-primary desktop-control--sm min-w-[96px]"
+            >
+              {acting ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Play fill="currentColor" aria-hidden="true" />}
+              {acting ? "Starting…" : "Watch"}
+            </button>
+            {!result.streamUrl && (
+              <button
+                type="button"
+                onClick={() => onAct(result, "download")}
+                disabled={busy}
+                title="Download and keep offline"
+                className="desktop-control desktop-secondary desktop-control--sm"
+              >
+                <Download aria-hidden="true" /> Save
+              </button>
+            )}
+          </>
+        )}
+        {result.magnetUrl && (
+          <button
+            type="button"
+            onClick={() => onCopy(result)}
+            title="Copy magnet"
+            aria-label="Copy magnet link"
+            className="ak-icon-button !h-[34px] !w-[34px]"
+          >
+            <Copy size={14} />
+          </button>
+        )}
+      </div>
+    </li>
+  );
+}
+
 export default function TorrentModal({ initialQuery, open, onClose, lookup, media }: Props) {
   const t = useT();
   const navigate = useNavigate();
@@ -207,12 +348,42 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
   const [speedFilter, setSpeedFilter] = useState<SpeedFilter>("all");
   const searchController = useRef<AbortController | null>(null);
 
+  const dialogRef = useRef<HTMLElement>(null);
+
+  // Focus moves into the picker when it opens and back to the opener on close.
+  useEffect(() => {
+    if (!open) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = requestAnimationFrame(() => dialogRef.current?.focus({ preventScroll: true }));
+    return () => {
+      cancelAnimationFrame(frame);
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
+      // Keep Tab inside the modal.
+      const dialog = dialogRef.current;
+      if (event.key !== "Tab" || !dialog) return;
+      const focusable = [...dialog.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), input:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex='-1'])"
+      )].filter((element) => element.getClientRects().length > 0);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || active === dialog)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => {
@@ -399,30 +570,30 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
   return createPortal((
     <AnimatePresence>
       {open && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className={`fixed inset-0 z-50 flex bg-black/80 backdrop-blur-md ${
-            mobileApple ? "items-end p-0" : "items-center justify-center p-4"
+        <SheetBackdrop
+          className={`fixed inset-0 z-50 flex ${
+            mobileApple
+              ? "items-end bg-black/80 p-0 backdrop-blur-md"
+              : "items-center justify-center bg-black/70 p-4 backdrop-blur-[2px] min-[900px]:items-stretch min-[900px]:justify-end min-[900px]:p-0"
           }`}
-          onClick={onClose}
+          onClose={onClose}
         >
           <motion.section
-            initial={mobileApple ? { opacity: 0, y: "100%" } : { opacity: 0, scale: 0.97, y: 24 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={mobileApple ? { opacity: 0, y: "100%" } : { opacity: 0, scale: 0.98, y: 12 }}
-            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            ref={dialogRef}
+            tabIndex={-1}
+            initial={mobileApple ? { opacity: 0, y: "100%" } : { opacity: 0, x: 28 }}
+            animate={mobileApple ? { opacity: 1, y: 0 } : { opacity: 1, x: 0 }}
+            exit={mobileApple ? { opacity: 0, y: "100%" } : { opacity: 0, x: 16, transition: { duration: 0.14 } }}
+            transition={mobileApple ? { type: "spring", stiffness: 300, damping: 30 } : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-label={`Choose a source for ${mediaTitle}`}
-            className={`glass-panel flex w-full max-w-5xl flex-col overflow-hidden shadow-[0_30px_120px_rgba(0,0,0,.8)] ${
-              mobileApple
-                ? "max-h-[94svh] rounded-b-none rounded-t-[32px] border-x-0 border-b-0"
-                : "max-h-[90vh] rounded-[30px]"
-            }`}
+            className={mobileApple
+              ? "glass-panel flex max-h-[94svh] w-full max-w-5xl flex-col overflow-hidden rounded-b-none rounded-t-[32px] border-x-0 border-b-0 shadow-[0_30px_120px_rgba(0,0,0,.8)] outline-none"
+              : "ak-sheet outline-none"}
           >
+            {mobileApple ? (
             <header className={`relative shrink-0 overflow-hidden border-b border-white/[0.07] ${mobileApple ? "px-4 pb-3 pt-2" : "px-5 pb-4 pt-5 md:px-6"}`}>
               {mobileApple && <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-white/20" />}
               <div className="pointer-events-none absolute -right-20 -top-28 h-64 w-64 rounded-full bg-white/[0.05] blur-[90px]" />
@@ -585,9 +756,137 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                 )}
               </div>
             </header>
+            ) : (
+            <header className="shrink-0 border-b border-white/[0.07] px-6 pb-4 pt-5">
+              <div className="flex items-start gap-4">
+                <Artwork
+                  src={media?.posterUrl}
+                  title={media?.title ?? initialQuery}
+                  variant="poster"
+                  className="h-[72px] w-12 shrink-0 rounded-lg object-cover ring-1 ring-white/10"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="ak-eyebrow">Choose a source</p>
+                  <h2 className="mt-1.5 truncate text-[19px] font-semibold tracking-tight">{mediaTitle}</h2>
+                  <p className="mt-0.5 truncate text-xs text-zinc-400">
+                    {media?.subtitle ?? initialQuery}
+                    {!loading && compatibleResults.length > 0 && (
+                      <span role="status">
+                        {" · "}
+                        {filtersActive ? `${filteredSorted.length} of ${compatibleResults.length} shown` : `${compatibleResults.length} available`}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <button type="button" onClick={onClose} aria-label="Close source picker" className="ak-icon-button -mr-2 -mt-1">
+                  <X size={18} />
+                </button>
+              </div>
+              <p className="mt-3 flex items-center gap-2 text-xs text-zinc-400">
+                <ShieldCheck size={14} className="shrink-0 text-zinc-300" aria-hidden="true" />
+                A source you pick here stays locked. Akflix won’t race or replace it.
+              </p>
 
-            <div className={`min-h-0 flex-1 overflow-y-auto ${mobileApple ? "p-2" : "p-3 md:p-4"}`}>
-              {loading && <Spinner label="Finding healthy sources…" />}
+              <form
+                className="mt-4 flex flex-wrap items-center gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  runSearch(query);
+                }}
+              >
+                <label className="flex min-w-[220px] flex-1 items-center gap-2 rounded-full border border-white/[0.16] bg-white/[0.03] px-3.5 transition-colors duration-150 focus-within:border-white/70 hover:border-white/30">
+                  <Search size={15} className="shrink-0 text-zinc-400" aria-hidden="true" />
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search sources"
+                    aria-label="Search sources"
+                    className="search-input w-full bg-transparent py-2 text-[13px] outline-none placeholder:text-zinc-500"
+                  />
+                </label>
+                <div role="group" aria-label="Sort sources" className="ak-segmented">
+                  {(
+                    [
+                      ["recommended", "Best"],
+                      ["quality", "Quality"],
+                      ["seeders", "Seeders"],
+                      ["smallest", "Smallest"],
+                    ] as [SortMode, string][]
+                  ).map(([mode, label]) => (
+                    <button key={mode} type="button" onClick={() => setSortMode(mode)} aria-pressed={sortMode === mode}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </form>
+
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                <select
+                  value={qualityFilter}
+                  onChange={(event) => setQualityFilter(event.target.value as QualityFilter)}
+                  aria-label="Filter by quality"
+                  className="ak-field"
+                >
+                  <option value="all">All quality</option>
+                  <option value="4k">4K and 8K</option>
+                  <option value="1080p">1080p</option>
+                  <option value="720p">720p</option>
+                  <option value="sd">SD and Auto</option>
+                </select>
+                <select
+                  value={languageFilter}
+                  onChange={(event) => setLanguageFilter(event.target.value as LanguageFilter)}
+                  aria-label="Filter by audio language"
+                  className="ak-field"
+                >
+                  <option value="all">All audio</option>
+                  <option value="english">English</option>
+                  <option value="multi">Multi audio</option>
+                  <option value="unknown">Audio unlisted</option>
+                  <option value="non-english">Non English</option>
+                </select>
+                <select
+                  value={sourceFilter}
+                  onChange={(event) => setSourceFilter(event.target.value as SourceFilter)}
+                  aria-label="Filter by source type"
+                  className="ak-field"
+                >
+                  <option value="all">All sources</option>
+                  <option value="web">WEB</option>
+                  <option value="bluray">BluRay</option>
+                  <option value="cam">CAM or TeleSync</option>
+                  <option value="other">Other</option>
+                </select>
+                <select
+                  value={speedFilter}
+                  onChange={(event) => setSpeedFilter(event.target.value as SpeedFilter)}
+                  aria-label="Filter by stream speed"
+                  className="ak-field"
+                >
+                  <option value="all">Any speed</option>
+                  <option value="fast">Fast peers</option>
+                  <option value="direct">Direct play</option>
+                </select>
+                {filtersActive && (
+                  <button type="button" onClick={clearFilters} className="desktop-control desktop-ghost desktop-control--sm">
+                    <X aria-hidden="true" /> Clear filters
+                  </button>
+                )}
+              </div>
+            </header>
+            )}
+
+            <div className={`min-h-0 flex-1 overflow-y-auto ${mobileApple ? "p-2" : "px-4 py-3"}`}>
+              {loading && (mobileApple ? <Spinner label="Finding healthy sources…" /> : (
+                <div role="status" aria-live="polite">
+                  <p className="px-1 pb-2.5 text-xs text-zinc-400">Finding sources…</p>
+                  <div className="space-y-2" aria-hidden="true">
+                    {Array.from({ length: 6 }).map((_, index) => (
+                      <div key={index} className="skeleton h-[70px] w-full" style={{ opacity: 1 - index * 0.13 }} />
+                    ))}
+                  </div>
+                </div>
+              ))}
               {error && (
                 <div role="alert" className="ak-notice ak-notice--error m-2 text-sm">
                   <AlertTriangle size={17} aria-hidden="true" /> <span className="min-w-0 break-words">{error}</span>
@@ -621,13 +920,14 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                   <button
                     type="button"
                     onClick={clearFilters}
-                    className="rounded-full border border-white/20 px-4 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/[0.06] hover:text-white"
+                    className="desktop-control desktop-secondary desktop-control--sm"
                   >
                     Clear filters
                   </button>
                 </div>
               )}
 
+              {mobileApple ? (
               <motion.div layout className="space-y-2">
                 <AnimatePresence initial={false} mode="popLayout">
                 {filteredSorted.map((result, index) => {
@@ -782,14 +1082,32 @@ export default function TorrentModal({ initialQuery, open, onClose, lookup, medi
                 })}
                 </AnimatePresence>
               </motion.div>
+              ) : !loading && (
+              <ul className="space-y-2" aria-label="Sources">
+                {filteredSorted.map((result, index) => (
+                  <SourceRow
+                    key={result.guid}
+                    result={result}
+                    index={index}
+                    mediaTitle={mediaTitle}
+                    recommended={result.guid === recommendedGuid}
+                    acting={actingGuid === result.guid}
+                    added={addedGuid === result.guid}
+                    busy={!!actingGuid}
+                    onAct={(source, mode) => void act(source, mode)}
+                    onCopy={copyMagnet}
+                  />
+                ))}
+              </ul>
+              )}
             </div>
 
-            <footer className={`${mobileApple ? "hidden" : "flex"} shrink-0 items-center justify-between gap-4 border-t border-white/[0.08] bg-black/20 px-5 py-3 text-[10px] text-zinc-500`}>
-              <span>⚖️ {t("torrent.disclaimer")}</span>
-              <span className="hidden items-center gap-1 md:flex"><Radio size={11} /> {mobileApple ? "Hosted playback on iPhone" : "Powered by Torrentio + your local stream engine"}</span>
+            <footer className={`${mobileApple ? "hidden" : "flex"} shrink-0 items-center justify-between gap-4 border-t border-white/[0.07] px-6 py-3 text-[11px] text-zinc-500`}>
+              <span className="flex items-center gap-1.5"><Scale size={12} aria-hidden="true" /> {t("torrent.disclaimer")}</span>
+              <span className="hidden shrink-0 items-center gap-1 md:flex"><Radio size={11} aria-hidden="true" /> Torrentio + your local stream engine</span>
             </footer>
           </motion.section>
-        </motion.div>
+        </SheetBackdrop>
       )}
     </AnimatePresence>
   ), document.body);

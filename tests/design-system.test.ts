@@ -185,3 +185,17 @@ test("settings shows the shipped version, not a stale constant", () => {
 test("stream status never claims connectivity it did not measure", () => {
   assert.doesNotMatch(read("src/components/StreamController.tsx"), /Wi-Fi ready/);
 });
+
+test("desktop motion stays short and Reduce Motion still turns it off", () => {
+  const css = read("src/index.css");
+  const ms = (name: string) => Number(css.match(new RegExp(`--ak-${name}:\\s*(\\d+)ms`))?.[1]);
+  for (const token of ["dur-fast", "dur", "dur-slow"]) {
+    assert.ok(ms(token) > 0 && ms(token) <= 300, `--ak-${token} must be at most 300ms`);
+  }
+  // The one longer entrance (hero backdrops) never delays input: it is a
+  // single opacity/scale settle, not a looping or click-gating animation.
+  const backdrop = Number(css.match(/\.ak-backdrop-in\s*\{\s*animation:\s*ak-backdrop-in (\d+)ms/)?.[1]);
+  assert.ok(backdrop > 0 && backdrop <= 600, "hero backdrop settle must be at most 600ms");
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*animation-duration: 0\.01ms !important/);
+  assert.match(read("src/App.tsx"), /<MotionConfig reducedMotion="user">/);
+});

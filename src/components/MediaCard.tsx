@@ -1,8 +1,7 @@
 /**
- * A single poster card with Netflix-style hover zoom + info reveal.
+ * A Jellyfin poster card: artwork first, name and play control on hover/focus.
  */
 
-import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { Play } from "lucide-react";
 import { useAuth } from "@/stores/authStore";
@@ -43,10 +42,7 @@ export default function MediaCard({ item, variant = "poster" }: Props) {
   };
 
   return (
-    <motion.div
-      whileHover={mobileApple ? undefined : { y: -7, scale: 1.018, zIndex: 10 }}
-      whileTap={{ scale: 0.965 }}
-      transition={{ type: "spring", stiffness: 350, damping: 25 }}
+    <div
       onClick={goDetails}
       role="button"
       tabIndex={0}
@@ -58,39 +54,43 @@ export default function MediaCard({ item, variant = "poster" }: Props) {
           goDetails();
         }
       }}
-      className={`group relative shrink-0 cursor-pointer overflow-hidden rounded-2xl border border-white/[0.08] bg-surface-raised shadow-[0_14px_35px_rgba(0,0,0,.35)] ${
-        variant === "landscape" ? "aspect-video w-[82vw] max-w-[340px] md:w-72" : "aspect-[2/3] w-[138px] md:w-48"
+      data-meta={mobileApple || variant === "landscape" ? "always" : undefined}
+      className={`ak-card group cursor-pointer ${
+        variant === "landscape" ? "aspect-video w-[82vw] max-w-[340px] md:w-[300px] xl:w-[340px]" : "aspect-[2/3] w-[138px] md:w-[164px] xl:w-[184px] 2xl:w-[204px]"
       }`}
     >
       <Artwork
         src={img}
         title={title}
         variant={variant}
-        alt={title}
+        alt=""
         loading="lazy"
-        className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.045]"
+        className="ak-card-art"
         draggable={false}
       />
+      <div className="ak-card-scrim" aria-hidden="true" />
 
-      {/* Hover overlay */}
-      <div className={`absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/20 to-transparent p-3 transition-opacity duration-200 ${mobileApple ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-within:opacity-100"}`}>
-        <button
-          onClick={goPlay}
-          aria-label="Play"
-          className={`${mobileApple ? "hidden" : "flex"} mb-2 h-9 w-9 items-center justify-center rounded-xl bg-white text-black shadow-xl transition hover:scale-105`}
-        >
-          <Play size={16} fill="currentColor" />
-        </button>
-        <p className="truncate text-sm font-semibold">{title}</p>
-        {subtitle && <p className="truncate text-xs text-zinc-300">{subtitle}</p>}
+      <div className="ak-card-meta">
+        <p className="truncate text-[13px] font-semibold leading-tight tracking-tight text-white">{title}</p>
+        {subtitle && <p className="mt-1 truncate text-[11px] font-medium text-zinc-300">{subtitle}</p>}
       </div>
+      {!mobileApple && (
+        <button
+          type="button"
+          onClick={goPlay}
+          aria-label={`Play ${title}`}
+          className="ak-card-play transition-transform hover:scale-105 group-focus-within:opacity-100"
+        >
+          <Play size={13} fill="currentColor" />
+        </button>
+      )}
 
       {/* Continue-watching progress bar */}
       {progress > 0 && progress < 98 && (
-        <div className="absolute inset-x-0 bottom-0 h-1 bg-white/25" role="progressbar" aria-label="Watched" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
+        <div className="absolute inset-x-0 bottom-0 z-10 h-1 bg-white/25" role="progressbar" aria-label="Watched" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
           <div className="h-full bg-white" style={{ width: `${progress}%` }} />
         </div>
       )}
-    </motion.div>
+    </div>
   );
 }

@@ -1,11 +1,11 @@
-import { ArrowRight, Info, Play, Sparkles } from "lucide-react";
+import { Info, Play, Sparkles, Star } from "lucide-react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import type { StremioMeta } from "@/types/stremio";
 import Artwork from "@/components/Artwork";
 import { isAppleMobile } from "@/lib/platform";
 
-export default function DiscoverHero({ item }: { item: StremioMeta }) {
+export default function DiscoverHero({ item, eyebrow }: { item: StremioMeta; eyebrow?: string }) {
   const navigate = useNavigate();
   const mobileApple = isAppleMobile();
 
@@ -80,61 +80,50 @@ export default function DiscoverHero({ item }: { item: StremioMeta }) {
     );
   }
 
+  const kind = item.type === "series" ? "Series" : "Movie";
+  const open = () => navigate(`/discover/${item.type}/${item.id}`);
+
   return (
-    <section className="editorial-hero relative h-[76vh] min-h-[560px] overflow-hidden">
-      <motion.div
-        key={item.id}
-        initial={{ scale: 1.06, opacity: 0 }}
-        animate={{ scale: 1.015, opacity: 1 }}
-        transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
-        className="absolute inset-0"
-      >
+    <section aria-label={`Featured: ${item.name}`} className="editorial-hero relative h-[min(80vh,860px)] min-h-[540px] overflow-hidden">
+      <div key={item.id} className="ak-backdrop-in absolute inset-0">
         <Artwork
           src={item.background ?? item.poster}
           title={item.name}
           variant="backdrop"
-          className="h-full w-full object-cover"
+          className="h-full w-full object-cover object-[center_22%]"
           draggable={false}
         />
-      </motion.div>
-      <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/15 to-black/10" />
-      <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,.94)_0%,rgba(0,0,0,.62)_38%,rgba(0,0,0,.06)_75%)]" />
-      <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-surface to-transparent" />
+      </div>
+      <div className="absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-black/60 to-transparent" />
+      <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,.86)_0%,rgba(0,0,0,.5)_34%,rgba(0,0,0,0)_66%)]" />
+      <div className="absolute inset-x-0 bottom-0 h-[58%] bg-gradient-to-t from-surface via-surface/60 to-transparent" />
 
-      <motion.div
-        key={`${item.id}-copy`}
-        initial={{ opacity: 0, y: 18 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
-        className="absolute bottom-32 left-6 max-w-2xl md:left-12 lg:left-16"
-      >
-        <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/30 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-100 backdrop-blur-xl">
-          <Sparkles size={12} aria-hidden="true" /> Tonight's spotlight
+      <div className="ak-gutter absolute inset-x-0 bottom-[clamp(104px,15vh,156px)]">
+        <div key={`${item.id}-copy`} className="ak-rise-in max-w-[660px]">
+          <p className="ak-eyebrow mb-4 !text-zinc-200">{eyebrow ?? `Featured ${kind.toLowerCase()}`}</p>
+          <h1 className="hero-shadow">{item.name}</h1>
+          <div className="ak-meta mt-4">
+            {item.imdbRating && (
+              <span className="flex items-center gap-1 font-semibold text-white" aria-label={`IMDb rating ${item.imdbRating}`}>
+                <Star size={13} fill="currentColor" aria-hidden="true" /> {item.imdbRating}
+              </span>
+            )}
+            {(item.releaseInfo ?? item.year) && <span>{item.releaseInfo ?? item.year}</span>}
+            <span>{kind}</span>
+            {!!item.genres?.length && <span>{item.genres.slice(0, 2).join(", ")}</span>}
+          </div>
+          {item.description && (
+            <p className="mt-4 line-clamp-3 max-w-[580px] text-[15px] leading-[1.6] text-zinc-300">
+              {item.description}
+            </p>
+          )}
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button type="button" onClick={open} className="desktop-control desktop-primary">
+              <Info size={17} aria-hidden="true" /> More info
+            </button>
+          </div>
         </div>
-        <h1 className="hero-shadow max-w-2xl text-5xl font-black leading-[0.92] tracking-[-0.055em] md:text-7xl lg:text-[84px]">{item.name}</h1>
-        <div className="mt-5 flex items-center gap-3 text-xs font-semibold text-zinc-300">
-          {item.imdbRating && <span className="font-bold text-white" aria-label={`IMDb rating ${item.imdbRating}`}>★ {item.imdbRating}</span>}
-          <span>{item.releaseInfo ?? item.year}</span>
-          <span className="rounded-full border border-white/25 px-2 py-0.5 uppercase">{item.type === "series" ? "Series" : "Movie"}</span>
-        </div>
-        <p className="mt-5 line-clamp-3 max-w-xl text-sm leading-6 text-zinc-300 md:text-base">
-          {item.description}
-        </p>
-        <div className="mt-7 flex flex-wrap gap-3">
-          <button
-            onClick={() => navigate(`/discover/${item.type}/${item.id}`)}
-            className="desktop-control desktop-primary"
-          >
-            <Play size={17} fill="currentColor" /> Watch now
-          </button>
-          <button
-            onClick={() => navigate(`/discover/${item.type}/${item.id}`)}
-            className="desktop-control desktop-secondary"
-          >
-            <Info size={17} /> Details <ArrowRight size={14} className="text-zinc-400" />
-          </button>
-        </div>
-      </motion.div>
+      </div>
     </section>
   );
 }

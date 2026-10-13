@@ -17,6 +17,7 @@ import { TitleSkeleton } from "@/components/Skeletons";
 import TorrentModal from "@/components/TorrentModal";
 import Artwork from "@/components/Artwork";
 import DiscoverCard from "@/components/DiscoverCard";
+import DiscoverRow from "@/components/DiscoverRow";
 import type { StremioMediaType, StremioMeta, StremioVideo } from "@/types/stremio";
 import { useTorrents } from "@/stores/torrentStore";
 import { usePlayback } from "@/stores/playbackStore";
@@ -270,7 +271,9 @@ export default function DiscoverDetails() {
       ? `Continue S${savedProgress.season} E${savedProgress.episode}`
       : canResume
         ? "Resume"
-        : "Watch now";
+        : type === "series" && selectedEpisode
+          ? `Watch S${selectedEpisode.season} E${selectedEpisode.episode}`
+          : "Watch now";
   const catalogMetadata = {
     catalogId: meta.id,
     mediaType: type,
@@ -636,193 +639,204 @@ export default function DiscoverDetails() {
     );
   }
 
+  const episodeTitle = (episode: StremioVideo) => episode.name ?? episode.title ?? `Episode ${episode.episode}`;
+  const selectSeason = (season: number) => {
+    setSelectedSeason(season);
+    setSelectedEpisode(meta.videos?.find((video) => video.season === season) ?? null);
+  };
+
   return (
-    <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="editorial-title min-h-screen bg-surface pb-20">
-      <section className="relative h-[82vh] min-h-[620px] overflow-hidden">
-        <motion.div
-            initial={{ scale: 1.04, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ duration: 1.1, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute inset-0 h-full w-full object-cover"
-        >
+    <motion.main
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.2 }}
+      className="editorial-title min-h-screen bg-surface pb-20"
+    >
+      <section className="relative h-[min(86vh,880px)] min-h-[580px] overflow-hidden">
+        <div className="ak-backdrop-in absolute inset-0">
           <Artwork
             src={meta.background ?? meta.poster}
             title={meta.name}
             variant="backdrop"
-            className="h-full w-full object-cover"
+            className="h-full w-full object-cover object-[center_20%]"
             draggable={false}
           />
-        </motion.div>
-        <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/20 to-black/25" />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,.95)_0%,rgba(0,0,0,.68)_44%,rgba(0,0,0,.06)_82%)]" />
+        </div>
+        <div className="absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-black/65 to-transparent" />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,.9)_0%,rgba(0,0,0,.58)_38%,rgba(0,0,0,0)_72%)]" />
+        <div className="absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-surface via-surface/70 to-transparent" />
 
-        <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/70 to-transparent" />
-
-        <div className="absolute bottom-12 left-6 right-6 flex max-w-6xl items-end gap-8 md:left-12">
-          <motion.div
-              initial={{ opacity: 0, y: 18 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-              className="hidden aspect-[2/3] w-44 shrink-0 overflow-hidden rounded-2xl shadow-[0_24px_70px_rgba(0,0,0,.65)] ring-1 ring-white/15 lg:block"
-          >
-            <Artwork
-              src={meta.poster}
-              title={meta.name}
-              variant="poster"
-              className="h-full w-full object-cover"
-              draggable={false}
-            />
-          </motion.div>
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.16, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-            className="max-w-2xl pb-1"
-          >
-            <p className="ak-eyebrow mb-3 !text-zinc-200">
-              {type === "series" ? "Series" : "Film"}
-            </p>
-            <h1 className="hero-shadow text-5xl font-black tracking-[-0.04em] md:text-7xl">{meta.name}</h1>
-            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-zinc-300">
-              <span className="rounded-full px-3 py-1.5 ring-1 ring-white/20">
-                {meta.releaseInfo ?? meta.year}
-              </span>
+        <div className="ak-gutter absolute inset-x-0 bottom-0 flex items-end gap-8 pb-[clamp(36px,6vh,64px)]">
+          {/* A poster only when there is no backdrop; otherwise the artwork leads. */}
+          {!meta.background && (
+            <div className="ak-rise-in hidden aspect-[2/3] w-40 shrink-0 overflow-hidden rounded-xl shadow-[0_24px_70px_rgba(0,0,0,.65)] ring-1 ring-white/15 lg:block">
+              <Artwork src={meta.poster} title={meta.name} variant="poster" className="h-full w-full object-cover" draggable={false} />
+            </div>
+          )}
+          <div className="ak-rise-in min-w-0 max-w-[700px]">
+            <p className="ak-eyebrow mb-3 !text-zinc-200">{type === "series" ? "Series" : "Film"}</p>
+            <h1 className="hero-shadow">{meta.name}</h1>
+            <div className="ak-meta mt-4">
               {meta.imdbRating && (
-                <span className="flex items-center gap-1 rounded-full bg-white px-3 py-1.5 font-bold text-black" aria-label={`IMDb rating ${meta.imdbRating}`}>
-                  <Star size={12} fill="currentColor" aria-hidden="true" /> {meta.imdbRating}
+                <span className="flex items-center gap-1 font-semibold text-white" aria-label={`IMDb rating ${meta.imdbRating}`}>
+                  <Star size={13} fill="currentColor" aria-hidden="true" /> {meta.imdbRating}
                 </span>
               )}
+              {(meta.releaseInfo ?? meta.year) && <span>{meta.releaseInfo ?? meta.year}</span>}
               {meta.runtime && (
-                <span className="flex items-center gap-1 rounded-full px-3 py-1.5 ring-1 ring-white/20">
-                  <Clock3 size={12} aria-hidden="true" /> {meta.runtime}
+                <span className="inline-flex items-center gap-1">
+                  <Clock3 size={13} aria-hidden="true" /> {meta.runtime}
                 </span>
               )}
-              {meta.genres?.slice(0, 3).map((genre) => (
-                <span key={genre} className="text-zinc-400">{genre}</span>
-              ))}
+              {!!meta.genres?.length && <span>{meta.genres.slice(0, 3).join(", ")}</span>}
             </div>
             {meta.description && (
-              <p className="mt-5 line-clamp-3 max-w-xl text-sm leading-6 text-zinc-300 md:text-base">
+              <p className="mt-4 line-clamp-3 max-w-[600px] text-[15px] leading-[1.6] text-zinc-300">
                 {meta.description}
               </p>
             )}
-            <div className="mt-5 max-w-md">
-              <RatingControl
-                value={personalRating}
-                onChange={(value) => setRating(historyTitle, value)}
-              />
-            </div>
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <button
+                type="button"
                 onClick={() => void watchNow()}
                 disabled={!lookup}
-                className="desktop-control desktop-primary"
+                className="desktop-control desktop-primary min-w-[148px]"
               >
-                {starting ? <LoaderCircle size={18} className="animate-spin" /> : <Play size={18} fill="currentColor" />}
+                {starting ? <LoaderCircle size={18} className="animate-spin" aria-hidden="true" /> : <Play size={18} fill="currentColor" aria-hidden="true" />}
                 {starting ? "Cancel" : resumeActionLabel}
               </button>
               <button
+                type="button"
                 onClick={() => setSourceOpen(true)}
                 disabled={!lookup}
                 className="desktop-control desktop-secondary"
               >
-                <ListFilter size={18} /> {mobileApple ? "Choose hosted stream" : "Choose stream"}
+                <ListFilter size={17} aria-hidden="true" /> Choose stream
               </button>
-              {!starting && (
-                <span className="text-[11px] text-zinc-400">
-                  {mobileApple ? "Direct hosted playback with no local download" : "Auto pick or choose quality, language and size"}
-                </span>
+              <div className="ml-1">
+                <RatingControl compact value={personalRating} onChange={(value) => setRating(historyTitle, value)} />
+              </div>
+            </div>
+            <div className="mt-3 min-h-[22px] max-w-[560px]" role="status" aria-live="polite">
+              {starting ? (
+                <div className="max-w-sm">
+                  <p className="mb-2 text-xs font-semibold text-white">{startPhase ?? "Starting playback"}…</p>
+                  <div className="ak-progress-indeterminate" />
+                </div>
+              ) : (
+                <p className="text-xs text-zinc-400">Watch picks the fastest source. Choose stream to pick quality, audio and size.</p>
               )}
             </div>
-            {starting && (
-              <div role="status" aria-live="polite" className="mt-4 max-w-sm">
-                <p className="mb-2 text-xs font-semibold text-white">{startPhase ?? "Starting playback"}…</p>
-                <div className="ak-progress-indeterminate" />
-              </div>
-            )}
-          </motion.div>
+          </div>
         </div>
       </section>
 
       {type === "series" && seasons.length > 0 && (
-        <section className="mx-auto max-w-6xl px-6 pt-10 md:px-12">
-          <div className="mb-4 flex items-center gap-4">
-            <div>
-              <p className="ak-eyebrow">Browse</p>
-              <h2 className="mt-1 font-display text-3xl tracking-[-0.02em]">Episodes</h2>
+        <section aria-labelledby="episodes-heading" className="ak-gutter pt-6">
+          <div className="max-w-[1120px]">
+            <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-3">
+              <h2 id="episodes-heading" className="ak-section-title !text-[22px]">Episodes</h2>
+              {seasons.length <= 8 ? (
+                <div role="group" aria-label="Season" className="no-scrollbar flex gap-1.5 overflow-x-auto">
+                  {seasons.map((season) => (
+                    <button
+                      key={season}
+                      type="button"
+                      onClick={() => selectSeason(season)}
+                      aria-pressed={selectedSeason === season}
+                      className="ak-chip"
+                    >
+                      Season {season}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <select
+                  value={selectedSeason}
+                  onChange={(event) => selectSeason(Number(event.target.value))}
+                  aria-label="Season"
+                  className="ak-field !rounded-full !px-4 !text-[13px]"
+                >
+                  {seasons.map((season) => <option key={season} value={season}>Season {season}</option>)}
+                </select>
+              )}
+              <span className="ml-auto text-xs text-zinc-400">
+                {episodes.length} episode{episodes.length === 1 ? "" : "s"}
+              </span>
             </div>
-            <select
-              value={selectedSeason}
-              onChange={(event) => {
-                const season = Number(event.target.value);
-                setSelectedSeason(season);
-                setSelectedEpisode(meta.videos?.find((video) => video.season === season) ?? null);
-              }}
-              aria-label="Season"
-              className="ml-auto rounded-full border border-white/20 bg-white/[0.06] px-4 py-2.5 text-sm outline-none transition-colors hover:border-white/40"
-            >
-              {seasons.map((season) => <option key={season} value={season}>Season {season}</option>)}
-            </select>
-          </div>
-          <div className="grid gap-3">
-            {episodes.map((episode) => (
-              <div
-                key={episode.id}
-                aria-current={selectedEpisode?.id === episode.id ? "true" : undefined}
-                className={`group flex w-full items-center rounded-2xl border text-left transition-colors ${
-                  selectedEpisode?.id === episode.id
-                    ? "border-white/45 bg-white/[0.06]"
-                    : "border-white/[0.08] bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]"
-                }`}
-              >
-                <button
-                  onClick={() => {
-                    setSelectedEpisode(episode);
-                    void watchNow(episode);
-                  }}
-                  disabled={starting}
-                  aria-label={`Play episode ${episode.episode}: ${episode.name ?? episode.title ?? `Episode ${episode.episode}`}`}
-                  className="flex min-w-0 flex-1 items-center gap-3 p-3 text-left disabled:opacity-50 sm:gap-4"
-                >
-                  <span className="w-7 text-center font-semibold tabular-nums text-zinc-400">{episode.episode}</span>
-                  <Artwork
-                    src={episode.thumbnail}
-                    title={episode.name ?? episode.title ?? `Episode ${episode.episode}`}
-                    variant="landscape"
-                    className="aspect-video w-24 shrink-0 rounded-xl object-cover sm:w-40"
-                    draggable={false}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">
-                      {episode.name ?? episode.title ?? `Episode ${episode.episode}`}
-                    </p>
-                    {episode.overview && (
-                      <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{episode.overview}</p>
-                    )}
-                  </div>
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 text-zinc-300 transition group-hover:border-white group-hover:bg-white group-hover:text-black" aria-hidden="true">
-                    <Play size={14} fill="currentColor" />
-                  </span>
-                </button>
-                <button
-                  onClick={() => {
-                    setSelectedEpisode(episode);
-                    setSourceOpen(true);
-                  }}
-                  disabled={starting}
-                  title={`Choose a stream for episode ${episode.episode}`}
-                  aria-label={`Choose a stream for episode ${episode.episode}`}
-                  className="mr-3 flex shrink-0 items-center gap-2 rounded-full border border-white/15 bg-black/20 p-2 text-[11px] font-semibold text-zinc-300 transition hover:border-white/50 hover:text-white disabled:opacity-50 sm:px-3"
-                >
-                  <ListFilter size={14} /> <span className="hidden sm:inline">Sources</span>
-                </button>
-              </div>
-            ))}
+            <ol key={selectedSeason} className="ak-page-in divide-y divide-white/[0.06] border-y border-white/[0.06]">
+              {episodes.map((episode) => {
+                const selected = selectedEpisode?.id === episode.id;
+                return (
+                  <li
+                    key={episode.id}
+                    aria-current={selected ? "true" : undefined}
+                    className={`group relative flex items-center gap-2 transition-colors duration-150 ${
+                      selected ? "bg-white/[0.05]" : "hover:bg-white/[0.035]"
+                    }`}
+                  >
+                    {selected && <span aria-hidden="true" className="absolute inset-y-3 left-0 w-0.5 rounded-full bg-white" />}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedEpisode(episode);
+                        void watchNow(episode);
+                      }}
+                      disabled={starting}
+                      aria-label={`Play episode ${episode.episode}: ${episodeTitle(episode)}`}
+                      className="flex min-w-0 flex-1 items-center gap-4 rounded-lg py-3 pl-4 pr-2 text-left disabled:opacity-50 lg:gap-5"
+                    >
+                      <span className="relative aspect-video w-36 shrink-0 overflow-hidden rounded-lg bg-surface-raised lg:w-48">
+                        <Artwork
+                          src={episode.thumbnail}
+                          title={episodeTitle(episode)}
+                          variant="landscape"
+                          className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.04]"
+                          draggable={false}
+                        />
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black">
+                            <Play size={14} fill="currentColor" aria-hidden="true" />
+                          </span>
+                        </span>
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-400">
+                          Episode {episode.episode}
+                          {selected && <span className="ml-2 normal-case tracking-normal text-white">· Selected</span>}
+                        </span>
+                        <span className="mt-1 block truncate text-[15px] font-semibold text-zinc-100">{episodeTitle(episode)}</span>
+                        {episode.overview && (
+                          <span className="mt-1 line-clamp-2 block max-w-[640px] text-[13px] leading-5 text-zinc-400">{episode.overview}</span>
+                        )}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedEpisode(episode);
+                        setSourceOpen(true);
+                      }}
+                      disabled={starting}
+                      title={`Choose a stream for episode ${episode.episode}`}
+                      aria-label={`Choose a stream for episode ${episode.episode}`}
+                      className="desktop-control desktop-ghost desktop-control--sm mr-3 shrink-0 opacity-70 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                    >
+                      <ListFilter size={15} aria-hidden="true" /> Sources
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
           </div>
         </section>
       )}
 
-      <RelatedShelf title={meta.name} items={related} />
+      {related.length > 0 && (
+        <div className="pt-12">
+          <DiscoverRow title="More like this" tagline="Related by genre, era and rating" items={related} />
+        </div>
+      )}
 
       <TorrentModal
         initialQuery={query}

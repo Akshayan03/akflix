@@ -78,8 +78,8 @@ export default function Browse({ type }: { type: StremioMediaType }) {
   if (!data) return <CatalogSkeleton />;
 
   return (
-    <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen pb-16">
-      {data.hero && <DiscoverHero item={data.hero} />}
+    <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }} className="min-h-screen pb-16">
+      {data.hero && <DiscoverHero item={data.hero} eyebrow={isSeries ? "Shows · Featured" : "Movies · Featured"} />}
       <div className="relative z-10 -mt-7 md:-mt-20">
         {mobileApple && (
           <motion.div
@@ -104,14 +104,8 @@ export default function Browse({ type }: { type: StremioMediaType }) {
             ))}
           </motion.div>
         )}
-        <div className={`mb-8 px-6 md:px-12 lg:px-16 ${mobileApple ? "sr-only" : ""}`}>
-          <p className="ak-eyebrow">
-            {isSeries ? "Every season. Every episode." : "Your movie night starts here."}
-          </p>
-          <h1 className="mt-2 font-display text-4xl tracking-[-0.03em]">
-            {isSeries ? "TV Shows" : "Movies"}
-          </h1>
-        </div>
+        {/* The hero eyebrow names the page; keep a real heading for assistive tech. */}
+        <h1 className="sr-only">{isSeries ? "TV Shows" : "Movies"}</h1>
         {data.rows.map((row, index) => (
           <DiscoverRow id={`browse-row-${index}`} key={row.title} title={row.title} items={row.items} />
         ))}

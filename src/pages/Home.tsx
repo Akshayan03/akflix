@@ -334,6 +334,7 @@ export default function Home() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
       className="pb-16"
     >
       {data.hero ? (
@@ -342,7 +343,7 @@ export default function Home() {
         <DiscoverHero item={discover.hero} />
       ) : null}
       {catalogError && (
-        <div className={`px-6 md:px-12 lg:px-16 ${data.hero ? "mb-10" : "pb-6 pt-28"}`}>
+        <div className={`ak-gutter ${data.hero ? "mb-10" : "pb-6 pt-28"}`}>
           <div role="alert" className="ak-notice ak-notice--error max-w-2xl">
             <AlertTriangle size={18} aria-hidden="true" />
             <div className="min-w-0">

@@ -1,87 +1,64 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
 import DiscoverCard from "@/components/DiscoverCard";
 import type { DiscoverCardState } from "@/components/DiscoverCard";
 import type { StremioMeta } from "@/types/stremio";
+import { useRowScroller } from "@/components/MediaRow";
 
 export default function DiscoverRow({
   title,
   items,
-  tagline = "Curated for you",
+  tagline,
   cardState,
   variant = "poster",
   id,
 }: {
   title: string;
   items: StremioMeta[];
+  /** Only for a real fact about the row ("Based on your ratings"). */
   tagline?: string;
   cardState?: Record<string, DiscoverCardState>;
   variant?: "poster" | "landscape";
   id?: string;
 }) {
-  const rowRef = useRef<HTMLDivElement>(null);
-  const [edges, setEdges] = useState({ left: false, right: false });
-  const updateEdges = useCallback(() => {
-    const row = rowRef.current;
-    if (!row) return;
-    setEdges({
-      left: row.scrollLeft > 8,
-      right: row.scrollLeft + row.clientWidth < row.scrollWidth - 8,
-    });
-  }, []);
-  useEffect(() => {
-    const frame = requestAnimationFrame(updateEdges);
-    const observer = new ResizeObserver(updateEdges);
-    if (rowRef.current) observer.observe(rowRef.current);
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-    };
-  }, [items, updateEdges]);
+  const { rowRef, edges, updateEdges, scroll } = useRowScroller(items);
   if (!items.length) return null;
-  const scroll = (direction: number) =>
-    rowRef.current?.scrollBy({ left: direction * rowRef.current.clientWidth * 0.8, behavior: "smooth" });
 
   return (
-    <motion.section
-      id={id}
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-70px" }}
-      transition={{ duration: 0.48, ease: [0.22, 1, 0.36, 1] }}
-      className="group/row relative mb-8 pl-4 md:mb-11 md:pl-12 lg:pl-16"
-    >
-      <div className="mb-3 flex items-end gap-3 pr-4 md:mb-4">
-        <h2 className="text-[19px] font-black tracking-[-0.03em] md:text-xl md:font-bold">{title}</h2>
-        <span className="mb-0.5 hidden text-[10px] font-bold uppercase tracking-[0.17em] text-zinc-500 sm:inline">{tagline}</span>
+    <section id={id} aria-label={title} className="group/row relative mb-8 scroll-mt-24 md:mb-10">
+      <div className="ak-gutter mb-3 flex items-baseline gap-3">
+        <h2 className="ak-section-title">{title}</h2>
+        {tagline && <span className="hidden text-xs text-zinc-500 sm:inline">{tagline}</span>}
       </div>
-      <button
-        onClick={() => scroll(-1)}
-        disabled={!edges.left}
-        aria-label="Scroll left"
-        className={`absolute bottom-3 left-0 top-10 z-20 hidden w-14 items-center justify-center bg-gradient-to-r from-surface via-surface/70 to-transparent transition md:flex ${edges.left ? "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100" : "pointer-events-none opacity-0"}`}
-      >
-        <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/70 backdrop-blur"><ChevronLeft size={20} /></span>
-      </button>
-      <div ref={rowRef} onScroll={updateEdges} className="no-scrollbar flex snap-x snap-proximity gap-3 overflow-x-auto pb-4 pr-4 md:gap-4 md:pb-5 md:pr-12 lg:pr-16">
-        {items.map((item) => (
-          <DiscoverCard
-            key={`${item.type}:${item.id}`}
-            item={item}
-            state={cardState?.[`${item.type}:${item.id}`]}
-            variant={variant}
-          />
-        ))}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => scroll(-1)}
+          disabled={!edges.left}
+          aria-label={`Scroll ${title} left`}
+          className="ak-row-arrow ak-row-arrow--left"
+        >
+          <span><ChevronLeft size={18} aria-hidden="true" /></span>
+        </button>
+        <div ref={rowRef} onScroll={updateEdges} className="ak-row-scroller no-scrollbar">
+          {items.map((item) => (
+            <DiscoverCard
+              key={`${item.type}:${item.id}`}
+              item={item}
+              state={cardState?.[`${item.type}:${item.id}`]}
+              variant={variant}
+            />
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => scroll(1)}
+          disabled={!edges.right}
+          aria-label={`Scroll ${title} right`}
+          className="ak-row-arrow ak-row-arrow--right"
+        >
+          <span><ChevronRight size={18} aria-hidden="true" /></span>
+        </button>
       </div>
-      <button
-        onClick={() => scroll(1)}
-        disabled={!edges.right}
-        aria-label="Scroll right"
-        className={`absolute bottom-3 right-0 top-10 z-20 hidden w-16 items-center justify-center bg-gradient-to-l from-surface via-surface/70 to-transparent transition md:flex ${edges.right ? "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100" : "pointer-events-none opacity-0"}`}
-      >
-        <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/70 backdrop-blur"><ChevronRight size={20} /></span>
-      </button>
-    </motion.section>
+    </section>
   );
 }

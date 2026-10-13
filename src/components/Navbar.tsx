@@ -1,26 +1,23 @@
 /**
- * Fixed top navigation — transparent over the hero, fades to black on scroll,
- * exactly like Netflix. Includes profile menu with server switching.
+ * Fixed top navigation: transparent over artwork, a solid black bar once the
+ * page scrolls. Includes the profile menu with server switching.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Link, NavLink, useNavigate } from "react-router-dom";
-import { Search, Download, Settings, ChevronDown, Home, RadioTower, Film, Tv, Check } from "lucide-react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { Search, Settings, ChevronDown, Check } from "lucide-react";
 import { useAuth } from "@/stores/authStore";
+import { useTorrents } from "@/stores/torrentStore";
 import { isAppleMobile, isDesktopMac } from "@/lib/platform";
 import { useT } from "@/i18n";
 import Brand from "@/components/Brand";
 import MobileNavigation from "@/components/MobileNavigation";
 
-// Under Tauri on macOS the window uses an overlay titlebar: the traffic
-// lights float over our navbar, so shift the wordmark right to clear them.
-const macOverlayPad =
-  isDesktopMac() ? "!pl-[88px] md:!pl-[92px]" : "";
-
 export default function Navbar() {
   const t = useT();
   const navigate = useNavigate();
+  const onSearch = useLocation().pathname === "/search";
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -31,12 +28,29 @@ export default function Navbar() {
   const switchProfile = useAuth((s) => s.switchProfile);
   const logout = useAuth((s) => s.logout);
   const active = profiles.find((p) => p.id === activeId);
+  // Unfinished transfers reported by the engine (never an estimate).
+  const transfers = useTorrents((s) => s.torrents.filter((torrent) => torrent.progress < 1).length);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
+    onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  // ⌘K / Ctrl+K opens search from anywhere outside a text field.
+  useEffect(() => {
+    if (mobileApple) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "k" || !(event.metaKey || event.ctrlKey) || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      event.preventDefault();
+      navigate("/search");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mobileApple, navigate]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -56,95 +70,102 @@ export default function Navbar() {
 
   if (mobileApple) return <MobileNavigation />;
 
-  const linkCls = ({ isActive }: { isActive: boolean }) =>
-    `flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition-colors duration-200 ${
-      isActive
-        ? "bg-white text-black"
-        : "text-zinc-400 hover:bg-white/[0.08] hover:text-white"
-    }`;
-  return (
-    <>
-    <header
-      // data-tauri-drag-region: empty navbar space drags the window (desktop).
-      data-tauri-drag-region
-      className={`fixed inset-x-0 top-0 z-40 flex h-20 items-center px-5 transition-all duration-300 md:px-8 ${macOverlayPad}`}
-    >
-      <div
-        data-tauri-drag-region
-        className={`flex h-14 w-full items-center rounded-2xl border px-3 transition-all md:px-4 ${
-          scrolled
-            ? "border-white/[0.12] bg-black/85 shadow-[0_14px_45px_rgba(0,0,0,.5)] backdrop-blur-2xl"
-            : "border-white/[0.08] bg-black/25 backdrop-blur-md"
-        }`}
-      >
-      <Link to="/" aria-label="Akflix home" className="mr-6 rounded-md px-1 py-1 text-white"><Brand height={19} /></Link>
+  const shortcut = /Mac/i.test(navigator.userAgent) ? "⌘K" : "Ctrl K";
+  const links = [
+    { to: "/", label: t("nav.home"), end: true },
+    { to: "/movies", label: "Movies", end: false },
+    { to: "/shows", label: "Shows", end: false },
+    { to: "/downloads", label: t("nav.downloads"), end: false },
+  ];
 
-      <nav className="hidden items-center gap-1 md:flex">
-        <NavLink to="/" className={linkCls} end>
-          <Home size={14} /> {t("nav.home")}
-        </NavLink>
-        <NavLink to="/movies" className={linkCls}>
-          <Film size={14} /> Movies
-        </NavLink>
-        <NavLink to="/shows" className={linkCls}>
-          <Tv size={14} /> Shows
-        </NavLink>
-        <NavLink to="/downloads" className={linkCls}>
-          <RadioTower size={14} /> Activity
-        </NavLink>
+  return (
+    <header
+      // data-tauri-drag-region: empty header space drags the window (desktop).
+      data-tauri-drag-region
+      data-scrolled={scrolled}
+      className={`ak-nav fixed inset-x-0 top-0 z-40 flex items-center gap-5 lg:gap-8 ${isDesktopMac() ? "ak-nav--mac" : ""}`}
+    >
+      <Link to="/" aria-label="Akflix home" className="shrink-0 rounded-md py-1 text-white">
+        <Brand height={18} />
+      </Link>
+
+      <nav aria-label="Primary" className="flex items-center gap-0.5">
+        {links.map((link) => (
+          <NavLink key={link.to} to={link.to} end={link.end} className="ak-nav-link">
+            {({ isActive }) => (
+              <>
+                {link.label}
+                {link.to === "/downloads" && transfers > 0 && (
+                  <span
+                    className="ml-1.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold tabular-nums text-black"
+                    aria-label={`${transfers} active`}
+                  >
+                    {transfers}
+                  </span>
+                )}
+                {isActive && (
+                  <motion.span
+                    layoutId="ak-nav-indicator"
+                    className="ak-nav-indicator"
+                    transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                  />
+                )}
+              </>
+            )}
+          </NavLink>
+        ))}
       </nav>
 
-      <div className="ml-auto flex items-center gap-1.5">
-        <motion.button
-          whileTap={{ scale: 0.9 }}
-          aria-label={t("nav.search")}
+      <div className="ml-auto flex items-center gap-1">
+        <button
+          type="button"
           onClick={() => navigate("/search")}
-          className="rounded-xl p-2.5 text-zinc-400 transition hover:bg-white/[0.07] hover:text-white"
+          aria-label={t("nav.search")}
+          aria-keyshortcuts="Meta+K Control+K"
+          aria-current={onSearch ? "page" : undefined}
+          className={`group mr-1 flex h-9 items-center gap-2 rounded-full border pl-3 pr-2 transition-colors duration-150 hover:border-white/40 hover:text-white ${
+            onSearch ? "border-white/50 bg-white/[0.08] text-white" : "border-white/[0.14] bg-white/[0.04] text-zinc-400"
+          }`}
         >
-          <Search size={20} />
-        </motion.button>
-        <motion.button
-          whileTap={{ scale: 0.9 }}
-          aria-label={t("nav.downloads")}
-          onClick={() => navigate("/downloads")}
-          className="rounded-xl p-2.5 text-zinc-400 transition hover:bg-white/[0.07] hover:text-white md:hidden"
-        >
-          <Download size={20} />
-        </motion.button>
-        <motion.button
-          whileTap={{ scale: 0.9 }}
+          <Search size={16} aria-hidden="true" />
+          <span className="hidden pr-6 text-xs font-medium lg:inline">{t("nav.search")}</span>
+          <kbd className="hidden rounded-md border border-white/[0.14] px-1.5 py-0.5 font-sans text-[10px] font-semibold text-zinc-400 lg:inline">
+            {shortcut}
+          </kbd>
+        </button>
+        <NavLink
+          to="/settings"
           aria-label={t("nav.settings")}
-          onClick={() => navigate("/settings")}
-          className="rounded-xl p-2.5 text-zinc-400 transition hover:bg-white/[0.07] hover:text-white"
+          className={({ isActive }) => `ak-icon-button ${isActive ? "bg-white/10 !text-white" : ""}`}
         >
-          <Settings size={20} />
-        </motion.button>
+          <Settings size={18} />
+        </NavLink>
 
         {/* Profile menu */}
         <div ref={menuRef} className="relative">
-          <motion.button
-            whileTap={{ scale: 0.96 }}
+          <button
+            type="button"
             onClick={() => setMenuOpen((o) => !o)}
             aria-expanded={menuOpen}
             aria-haspopup="menu"
             aria-label={`Profile: ${active?.userName ?? "not signed in"}`}
-            className="ml-1 flex items-center gap-2 rounded-xl p-1 text-sm text-zinc-200 transition hover:bg-white/[0.06] hover:text-white"
+            className="ml-1 flex items-center gap-1.5 rounded-full p-1 pr-2 text-zinc-300 transition-colors duration-150 hover:bg-white/[0.08] hover:text-white"
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white font-bold uppercase text-black">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-bold uppercase text-black">
               {active?.userName?.[0] ?? "?"}
             </span>
-            <ChevronDown size={14} className={`transition-transform duration-200 ${menuOpen ? "rotate-180" : ""}`} />
-          </motion.button>
+            <ChevronDown size={14} className={`transition-transform duration-150 ${menuOpen ? "rotate-180" : ""}`} />
+          </button>
 
           <AnimatePresence>
           {menuOpen && (
             <motion.div
-              initial={{ opacity: 0, y: -8, scale: 0.97 }}
+              initial={{ opacity: 0, y: -6, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -5, scale: 0.98 }}
-              transition={{ type: "spring", stiffness: 420, damping: 32 }}
+              exit={{ opacity: 0, y: -4, scale: 0.98 }}
+              transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
               role="menu"
-              className="glass-panel absolute right-0 mt-3 w-60 overflow-hidden rounded-2xl p-1.5 shadow-2xl"
+              className="glass-panel absolute right-0 mt-2 w-60 origin-top-right overflow-hidden rounded-2xl p-1.5"
             >
               {profiles.map((p) => (
                 <button
@@ -186,8 +207,6 @@ export default function Navbar() {
           </AnimatePresence>
         </div>
       </div>
-      </div>
     </header>
-    </>
   );
 }

@@ -1,11 +1,41 @@
 /**
- * Horizontal scrolling row with edge chevrons — the core Netflix layout unit.
+ * Horizontal scrolling row with edge arrows — the core browse layout unit.
+ * Catalog rows (DiscoverRow) share the same scroller and arrows.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import MediaCard from "@/components/MediaCard";
 import type { BaseItem } from "@/types/jellyfin";
+
+/** Tracks whether a row can scroll either way and pages it by ~80%. */
+export function useRowScroller(items: unknown[]) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const updateEdges = useCallback(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const left = row.scrollLeft > 8;
+    const right = row.scrollLeft + row.clientWidth < row.scrollWidth - 8;
+    setEdges((current) => (current.left === left && current.right === right ? current : { left, right }));
+  }, []);
+  useEffect(() => {
+    const frame = requestAnimationFrame(updateEdges);
+    const observer = new ResizeObserver(updateEdges);
+    if (rowRef.current) observer.observe(rowRef.current);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [items, updateEdges]);
+  const scroll = (direction: 1 | -1) => {
+    const row = rowRef.current;
+    if (!row) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    row.scrollBy({ left: direction * row.clientWidth * 0.8, behavior: reduce ? "auto" : "smooth" });
+  };
+  return { rowRef, edges, updateEdges, scroll };
+}
 
 interface Props {
   title: string;
@@ -14,67 +44,41 @@ interface Props {
 }
 
 export default function MediaRow({ title, items, variant = "poster" }: Props) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const [edges, setEdges] = useState({ left: false, right: false });
-  const updateEdges = useCallback(() => {
-    const row = scroller.current;
-    if (!row) return;
-    setEdges({
-      left: row.scrollLeft > 8,
-      right: row.scrollLeft + row.clientWidth < row.scrollWidth - 8,
-    });
-  }, []);
-  useEffect(() => {
-    const frame = requestAnimationFrame(updateEdges);
-    const observer = new ResizeObserver(updateEdges);
-    if (scroller.current) observer.observe(scroller.current);
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-    };
-  }, [items, updateEdges]);
+  const { rowRef, edges, updateEdges, scroll } = useRowScroller(items);
   if (!items.length) return null;
 
-  const scrollBy = (dir: 1 | -1) =>
-    scroller.current?.scrollBy({
-      left: dir * scroller.current.clientWidth * 0.9,
-      behavior: "smooth",
-    });
-
   return (
-    <section className="group/row relative mb-11">
-      <div className="mb-2 flex items-end gap-3 px-6 md:px-12 lg:px-16">
-        <h2 className="text-xl font-bold tracking-[-0.025em] text-zinc-100">{title}</h2>
-        <span className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.17em] text-zinc-500">Your library</span>
+    <section aria-label={title} className="group/row relative mb-8 md:mb-10">
+      <div className="ak-gutter mb-3 flex items-baseline gap-3">
+        <h2 className="ak-section-title">{title}</h2>
+        <span className="hidden text-xs text-zinc-500 sm:inline">Jellyfin</span>
       </div>
 
       <div className="relative">
         <button
-          aria-label="Scroll left"
-          onClick={() => scrollBy(-1)}
+          type="button"
+          aria-label={`Scroll ${title} left`}
+          onClick={() => scroll(-1)}
           disabled={!edges.left}
-          className={`absolute left-0 top-0 z-20 hidden h-full w-12 items-center justify-center bg-gradient-to-r from-surface to-transparent transition md:flex ${edges.left ? "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100" : "pointer-events-none opacity-0"}`}
+          className="ak-row-arrow ak-row-arrow--left"
         >
-          <ChevronLeft />
+          <span><ChevronLeft size={18} aria-hidden="true" /></span>
         </button>
 
-        <div
-          ref={scroller}
-          onScroll={updateEdges}
-          className="no-scrollbar flex gap-4 overflow-x-auto scroll-smooth px-6 py-3 md:px-12 lg:px-16"
-        >
+        <div ref={rowRef} onScroll={updateEdges} className="ak-row-scroller no-scrollbar">
           {items.map((item) => (
             <MediaCard key={item.Id} item={item} variant={variant} />
           ))}
         </div>
 
         <button
-          aria-label="Scroll right"
-          onClick={() => scrollBy(1)}
+          type="button"
+          aria-label={`Scroll ${title} right`}
+          onClick={() => scroll(1)}
           disabled={!edges.right}
-          className={`absolute right-0 top-0 z-20 hidden h-full w-14 items-center justify-center bg-gradient-to-l from-surface to-transparent transition md:flex ${edges.right ? "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100" : "pointer-events-none opacity-0"}`}
+          className="ak-row-arrow ak-row-arrow--right"
         >
-          <ChevronRight />
+          <span><ChevronRight size={18} aria-hidden="true" /></span>
         </button>
       </div>
     </section>

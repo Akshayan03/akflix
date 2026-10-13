@@ -15,6 +15,7 @@ import {
   Play,
   PlugZap,
   Radio,
+  Scale,
   Trash2,
   Wifi,
   WifiOff,
@@ -183,7 +184,7 @@ export default function Downloads() {
               onClick={() => (paused ? resume(torrent.hash) : pause(torrent.hash))}
               title={paused ? t("downloads.resume") : t("downloads.pause")}
               aria-label={`${paused ? t("downloads.resume") : t("downloads.pause")} ${torrent.name}`}
-              className="rounded-lg p-2 text-zinc-300 transition hover:bg-white/10 hover:text-white"
+              className="ak-icon-button !h-9 !w-9"
             >
               {paused ? <Play size={15} /> : <Pause size={15} />}
             </button>
@@ -191,7 +192,7 @@ export default function Downloads() {
               onClick={() => remove(torrent.hash, false)}
               title="Remove from list, keep files"
               aria-label={`Remove ${torrent.name} from the list and keep its files`}
-              className="rounded-lg p-2 text-zinc-300 transition hover:bg-white/10 hover:text-white"
+              className="ak-icon-button !h-9 !w-9"
             >
               <ListX size={15} />
             </button>
@@ -202,7 +203,7 @@ export default function Downloads() {
               }}
               title="Delete files"
               aria-label={`Delete ${torrent.name} and its files`}
-              className="rounded-lg p-2 text-zinc-300 transition hover:bg-white hover:text-black"
+              className="ak-icon-button !h-9 !w-9 hover:!bg-white hover:!text-black"
             >
               <Trash2 size={15} />
             </button>
@@ -234,14 +235,15 @@ export default function Downloads() {
     <motion.main
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="min-h-screen bg-[radial-gradient(circle_at_48%_-10%,rgba(255,255,255,.06),transparent_34rem)] px-6 pb-20 pt-28 md:px-12 lg:px-16"
+      transition={{ duration: 0.2 }}
+      className="ak-gutter min-h-screen bg-[radial-gradient(circle_at_30%_-10%,rgba(255,255,255,.05),transparent_34rem)] pb-20 pt-[calc(var(--ak-nav-h)+44px)]"
     >
-      <div className="mx-auto max-w-6xl">
+      <div className="max-w-[1120px]">
         <header className="mb-8 flex flex-wrap items-end gap-4">
           <div>
-            <p className="ak-eyebrow mb-2">Transfer center</p>
-            <h1 className="text-4xl font-black tracking-[-0.045em]">Streams & downloads</h1>
-            <p className="mt-2 max-w-2xl text-sm text-zinc-400">
+            <p className="ak-eyebrow mb-3">Transfer center</p>
+            <h1 className="ak-page-title">Streams &amp; downloads</h1>
+            <p className="mt-3 max-w-2xl text-sm text-zinc-400">
               Stream with a temporary cache or keep a complete copy for offline viewing.
             </p>
           </div>
@@ -299,19 +301,19 @@ export default function Downloads() {
               onChange={(event) => setMagnet(event.target.value)}
               placeholder="magnet:?xt=urn:btih:…"
               aria-label="Magnet link"
-              className="min-w-0 flex-1 rounded-xl border border-white/15 bg-black/40 px-4 py-3 text-sm outline-none transition placeholder:text-zinc-500 focus:border-white/70"
+              className="min-w-0 flex-1 rounded-full border border-white/15 bg-black/40 px-4 py-2.5 text-sm outline-none transition-colors duration-150 placeholder:text-zinc-500 hover:border-white/30 focus:border-white/70"
             />
             <button
               onClick={() => addManual("stream")}
               disabled={!magnet.trim() || !!adding}
-              className="flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-xs font-bold text-black transition hover:bg-zinc-200 active:scale-[.98] disabled:opacity-40"
+              className="desktop-control desktop-primary"
             >
               <Zap size={15} /> {adding === "stream" ? "Starting…" : "Stream now"}
             </button>
             <button
               onClick={() => addManual("download")}
               disabled={!magnet.trim() || !!adding}
-              className="flex items-center justify-center gap-2 rounded-xl border border-white/25 px-4 py-3 text-xs font-bold transition hover:bg-white/10 active:scale-[.98] disabled:opacity-40"
+              className="desktop-control desktop-secondary"
             >
               <Download size={15} /> {adding === "download" ? "Adding…" : "Keep offline"}
             </button>
@@ -333,7 +335,7 @@ export default function Downloads() {
           <div className="rounded-2xl border border-dashed border-white/10 py-20 text-center">
             <Radio size={28} className="mx-auto mb-3 text-zinc-500" aria-hidden="true" />
             <p className="text-sm font-medium text-zinc-300">Nothing active</p>
-            <p className="mt-1 text-xs text-zinc-500">Choose Stream now or Keep offline on any title.</p>
+            <p className="mt-1 text-xs text-zinc-500">Choose Save in a title’s source list to keep a copy offline.</p>
           </div>
         ) : (
           <div className="space-y-8">
@@ -358,8 +360,8 @@ export default function Downloads() {
           </div>
         )}
 
-        <p className="mt-10 text-[11px] leading-relaxed text-zinc-500">
-          ⚖️ {t("torrent.disclaimer")}
+        <p className="mt-10 flex items-center gap-1.5 text-[11px] leading-relaxed text-zinc-500">
+          <Scale size={12} aria-hidden="true" /> {t("torrent.disclaimer")}
         </p>
       </div>
     </motion.main>
