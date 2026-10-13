@@ -1,3 +1,5 @@
+import { safeSetItem } from "@/lib/safeStorage";
+
 export interface ManualCaption {
   name: string;
   vtt: string;
@@ -228,8 +230,9 @@ export function loadManualCaption(key: string): ManualCaption | null {
   }
 }
 
+/** Best effort: the caption still applies for this session if storage is full. */
 export function saveManualCaption(key: string, caption: ManualCaption) {
-  localStorage.setItem(`${STORAGE_PREFIX}${key}`, JSON.stringify(caption));
+  safeSetItem(`${STORAGE_PREFIX}${key}`, JSON.stringify(caption));
 }
 
 export function removeManualCaption(key: string) {

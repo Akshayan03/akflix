@@ -1,5 +1,7 @@
 /** Assorted formatting helpers. */
 
+import { safeSetItem } from "@/lib/safeStorage";
+
 const TICKS_PER_SECOND = 10_000_000; // Jellyfin stores durations in 100ns "ticks"
 
 export const ticksToSeconds = (ticks?: number) =>
@@ -70,7 +72,7 @@ export function getDeviceId(): string {
   let id = localStorage.getItem(KEY);
   if (!id) {
     id = uuid();
-    localStorage.setItem(KEY, id);
+    safeSetItem(KEY, id);
   }
   return id;
 }

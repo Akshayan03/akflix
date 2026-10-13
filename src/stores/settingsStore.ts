@@ -4,7 +4,8 @@
  */
 
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { safeStateStorage } from "@/lib/safeStorage";
 import { isTauri } from "@/lib/http";
 
 export interface Settings {
@@ -57,6 +58,6 @@ export const useSettings = create<SettingsState>()(
       ...defaults,
       update: (patch) => set(patch),
     }),
-    { name: "akflix.settings" }
+    { name: "akflix.settings", storage: createJSONStorage(() => safeStateStorage) }
   )
 );

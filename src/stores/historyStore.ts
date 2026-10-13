@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { safeStateStorage } from "@/lib/safeStorage";
 import { useAuth } from "@/stores/authStore";
 
 export type HistoryMediaType = "movie" | "series";
@@ -139,6 +140,7 @@ export const useHistory = create<HistoryState>()(
     }),
     {
       name: "akflix.history",
+      storage: createJSONStorage(() => safeStateStorage),
       version: 1,
       partialize: (state) => ({ entries: state.entries, ratings: state.ratings }),
     }

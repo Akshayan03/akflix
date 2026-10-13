@@ -130,7 +130,7 @@ jobs:
           $tag = "v$version"
           gh release view $tag
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target $env:GITHUB_SHA --title "Akflix $tag" --notes "Akflix 1.0.20 is a design update: a black-and-white interface, a new logo and app icon, calmer motion that respects Reduce Motion, clearer keyboard focus, and errors that are easier to spot. It also removes a second menu-bar icon that had no menu, shows the installed version in Settings, stops the stream card from saying Wi-Fi ready when nothing was checked, and shows an error with Try again when the catalog cannot load instead of an empty home screen. Playback and download code is unchanged from 1.0.19, so the known issues listed on the download page still apply. Use source features only for content you may lawfully access."
+            gh release create $tag --target $env:GITHUB_SHA --title "Akflix $tag" --notes "Akflix 1.0.21 fixes a black window at launch. When storage left by older versions was full, saving the profile at startup failed and the app never appeared. Akflix now trims its re-downloadable catalog cache (your profile, watch history, settings and captions are kept), keeps running when storage is full, and shows what went wrong instead of a blank window if startup still fails. It includes the 1.0.20 black-and-white design. Playback and download code is unchanged from 1.0.19, so the known issues listed on the download page still apply. Use source features only for content you may lawfully access."
             if ($LASTEXITCODE -ne 0) {
               gh release view $tag
               if ($LASTEXITCODE -ne 0) { throw "Could not create matching desktop release" }

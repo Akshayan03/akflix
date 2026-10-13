@@ -8,6 +8,7 @@
  */
 
 import { httpRaw, isTauri } from "@/lib/http";
+import { safeSetItem } from "@/lib/safeStorage";
 import { addFastTrackers } from "@/lib/torrentTrackers";
 import type { QbtFile, QbtTorrent, TorrentAddMode } from "@/types/torrent";
 import { selectVideoFile, type EpisodeFileHint } from "@/lib/mediaSelection";
@@ -124,7 +125,7 @@ function writeMode(hash: string, mode: TorrentAddMode | null): void {
   const modes = readModes();
   if (mode) modes[hash.toLowerCase()] = mode;
   else delete modes[hash.toLowerCase()];
-  localStorage.setItem(MODE_KEY, JSON.stringify(modes));
+  safeSetItem(MODE_KEY, JSON.stringify(modes));
 }
 
 /** Keeping a copy upgrades a temporary stream; streaming never downgrades a download. */

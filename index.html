@@ -7,9 +7,78 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <title>Akflix</title>
+    <script>
+      // Startup watchdog. Runs before the app bundle so a failed load or a
+      // crash before React's first paint shows what went wrong instead of an
+      // empty black window. React replaces #akflix-boot when it commits.
+      (function () {
+        var errors = (window.__akflixBootErrors = []);
+        function note(text) {
+          if (errors.length < 12) errors.push(String(text).slice(0, 900));
+        }
+        window.addEventListener(
+          "error",
+          function (event) {
+            var target = event.target;
+            if (target && target !== window && (target.src || target.href)) {
+              note("Failed to load " + (target.src || target.href));
+              return;
+            }
+            var where = event.filename ? " (" + event.filename.split("/").pop() + ":" + event.lineno + ")" : "";
+            var stack = event.error && event.error.stack ? "\n" + event.error.stack : "";
+            note((event.message || "Script error") + where + stack);
+          },
+          true
+        );
+        window.addEventListener("unhandledrejection", function (event) {
+          var reason = event.reason;
+          note("Unhandled promise rejection: " + ((reason && (reason.stack || reason.message)) || reason));
+        });
+        setTimeout(function () {
+          var root = document.getElementById("root");
+          var stuck = !root || root.childElementCount === 0 || document.getElementById("akflix-boot");
+          if (!stuck || document.getElementById("akflix-boot-failure")) return;
+          var panel = document.createElement("div");
+          panel.id = "akflix-boot-failure";
+          panel.setAttribute("role", "alert");
+          panel.style.cssText =
+            "position:fixed;inset:0;z-index:2147483647;overflow:auto;background:#000;color:#f4f4f4;" +
+            "font:14px/1.5 -apple-system,BlinkMacSystemFont,sans-serif;padding:72px 48px;-webkit-user-select:text;user-select:text";
+          var title = document.createElement("h1");
+          title.textContent = "Akflix couldn't open its home screen";
+          title.style.cssText = "margin:0 0 8px;font-size:22px;font-weight:700";
+          var hint = document.createElement("p");
+          hint.textContent = errors.length
+            ? "The details below explain what stopped it. Reload to try again."
+            : "The app didn't finish starting and reported no error. Reload to try again.";
+          hint.style.cssText = "margin:0 0 20px;color:#cfcfcf";
+          var details = document.createElement("pre");
+          details.textContent = errors.join("\n\n") || "No error was reported.";
+          details.style.cssText =
+            "white-space:pre-wrap;word-break:break-word;margin:0 0 24px;padding:16px;border:1px solid rgba(255,255,255,.28);" +
+            "border-radius:12px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#f4f4f4;max-width:960px";
+          var reload = document.createElement("button");
+          reload.textContent = "Reload";
+          reload.style.cssText =
+            "height:40px;padding:0 20px;border:0;border-radius:999px;background:#fff;color:#000;font-weight:700;cursor:pointer";
+          reload.onclick = function () {
+            location.reload();
+          };
+          panel.append(title, hint, details, reload);
+          document.body.appendChild(panel);
+        }, 8000);
+      })();
+    </script>
   </head>
   <body class="bg-surface text-white antialiased">
-    <div id="root"></div>
+    <div id="root">
+      <div
+        id="akflix-boot"
+        style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000;color:#8e8e8e;font:13px -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:.02em"
+      >
+        Starting Akflix…
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

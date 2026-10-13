@@ -1,6 +1,7 @@
 /** Cinemeta — Stremio-compatible movie/series catalog and metadata. */
 
 import { httpJson } from "@/lib/http";
+import { CATALOG_CACHE_BUDGET, CATALOG_CACHE_PREFIX, safeSetItem, trimCatalogCache } from "@/lib/safeStorage";
 import { withTimeout } from "@/lib/withTimeout";
 import type {
   StremioCatalogResponse,
@@ -10,7 +11,7 @@ import type {
 } from "@/types/stremio";
 
 const BASE_URL = "https://v3-cinemeta.strem.io";
-const CACHE_PREFIX = "akflix.catalog.v1.";
+const CACHE_PREFIX = CATALOG_CACHE_PREFIX;
 const CACHE_MAX_AGE = 12 * 60 * 60 * 1000;
 
 interface CachedResponse<T> {
@@ -35,11 +36,11 @@ function readCache<T>(url: string, allowStale = false): T | null {
 }
 
 function writeCache<T>(url: string, value: T) {
-  try {
-    localStorage.setItem(cacheKey(url), JSON.stringify({ savedAt: Date.now(), value }));
-  } catch {
-    // Browsing still works if private storage is unavailable or full.
-  }
+  // Browsing still works if private storage is unavailable or full. The cache
+  // stays within its budget so profile, history and settings can always save.
+  const raw = JSON.stringify({ savedAt: Date.now(), value });
+  if (raw.length > CATALOG_CACHE_BUDGET / 2) return;
+  if (safeSetItem(cacheKey(url), raw)) trimCatalogCache();
 }
 
 async function cachedJson<T>(url: string, signal?: AbortSignal): Promise<T> {

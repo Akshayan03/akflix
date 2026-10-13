@@ -9,7 +9,8 @@
 
 import { useMemo } from "react";
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { safeStateStorage } from "@/lib/safeStorage";
 import { JellyfinClient } from "@/api/jellyfin";
 import { uuid } from "@/lib/utils";
 import type { ServerProfile } from "@/types/jellyfin";
@@ -103,6 +104,7 @@ export const useAuth = create<AuthState>()(
     }),
     {
       name: "akflix.auth",
+      storage: createJSONStorage(() => safeStateStorage),
       version: 2,
       migrate: (persisted, version) => {
         const state = persisted as Partial<AuthState>;
