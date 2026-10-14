@@ -73,6 +73,7 @@ import {
   startCompatibilityStream,
   startCompatibilityStreamUrl,
 } from "@/lib/compatStream";
+import { convertedSeekTime } from "@/lib/compatSeek";
 import { iosNativeSources } from "@/lib/iosSourceCompatibility";
 import { automaticSafeSources } from "@/lib/sourceLanguage";
 import { directSubtitleTracks } from "@/api/subtitles";
@@ -242,6 +243,8 @@ export default function PlayerHost() {
   const playbackStallOpen = useRef(false);
   const compatibilitySeekTimer = useRef<ReturnType<typeof setTimeout>>();
   const compatibilitySeekSequence = useRef(0);
+  // Set while a converter restart is pending: whether to resume once it lands.
+  const compatibilitySeekResume = useRef<boolean | null>(null);
   const directResumeAppliedRef = useRef<number | null>(null);
   const lastLocalHistoryWrite = useRef(0);
   const loadSeq = useRef(0);
@@ -301,6 +304,7 @@ export default function PlayerHost() {
     clearTimeout(bufferingIndicatorTimer.current);
     clearTimeout(playbackStallTimer.current);
     clearTimeout(compatibilitySeekTimer.current);
+    compatibilitySeekResume.current = null;
     clearTimeout(seekFeedbackTimer.current);
     playbackStallOpen.current = false;
     scrubPointerActiveRef.current = false;
@@ -672,7 +676,24 @@ export default function PlayerHost() {
         return;
       }
 
-      const shouldResume = !video.paused;
+      // Skips within what the converter has produced are instant and leave it
+      // running; only targets outside it restart the conversion.
+      const converted =
+        compatibilitySeekResume.current === null
+          ? convertedSeekTime(video.seekable, compatibility.startSeconds, target)
+          : null;
+      if (converted !== null) {
+        video.currentTime = converted;
+        _sync({ currentTime: target });
+        return;
+      }
+
+      // Skips that arrive while a restart is pending find the video already
+      // paused by that restart. Keep the intent of the first skip, otherwise
+      // a quick double tap leaves playback paused for good.
+      if (compatibilitySeekResume.current === null) {
+        compatibilitySeekResume.current = !video.paused;
+      }
       const sequence = ++compatibilitySeekSequence.current;
       clearTimeout(compatibilitySeekTimer.current);
       _sync({ currentTime: target, buffering: true });
@@ -714,6 +735,8 @@ export default function PlayerHost() {
             ) {
               return;
             }
+            const resume = compatibilitySeekResume.current ?? false;
+            compatibilitySeekResume.current = null;
 
             source.startSeconds = target;
             setCompatibilityStartSeconds(target);
@@ -724,8 +747,11 @@ export default function PlayerHost() {
             applyPlaybackRate(video, requestedPlaybackRateRef.current);
             video.volume = usePlayback.getState().volume;
             video.muted = usePlayback.getState().muted;
-            if (shouldResume) await video.play().catch(() => {});
+            if (resume) await video.play().catch(() => {});
           } catch (reason) {
+            // A newer skip replaced this conversion and reports its own result.
+            if (sequence !== compatibilitySeekSequence.current) return;
+            compatibilitySeekResume.current = null;
             _sync({ buffering: false });
             toast.error("Could not jump to that point", {
               description: reason instanceof Error ? reason.message : String(reason),
@@ -1426,7 +1452,9 @@ export default function PlayerHost() {
           }}
           onPause={() => {
             _sync({ isPlaying: false });
-            saveDirectProgress(directRequestRef.current, videoRef.current);
+            if (compatibilitySeekResume.current === null) {
+              saveDirectProgress(directRequestRef.current, videoRef.current);
+            }
             if (session?.direct && activeStreamHash) {
               setCompatibilityStreamPaused(activeStreamHash, true).catch(() => {});
             }
@@ -1460,6 +1488,10 @@ export default function PlayerHost() {
             }
           }}
           onTimeUpdate={(e) => {
+            // A converter restart pauses and reloads this element, and pause()
+            // reports the old position. The store already holds the skip
+            // target; keep it so repeated skips add up and history stays put.
+            if (compatibilitySeekResume.current !== null) return;
             const video = e.currentTarget;
             const request = directRequestRef.current;
             const timelineTime = request?.compatibility

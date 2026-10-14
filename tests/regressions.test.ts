@@ -10,6 +10,8 @@ import { balancedCatalog } from "../src/lib/catalogRanking";
 import type { QbtFile } from "../src/types/torrent";
 import { RqbitClient } from "../src/api/rqbit";
 import { useTorrents } from "../src/stores/torrentStore";
+import { convertedSeekTime } from "../src/lib/compatSeek";
+import { preferRememberedSource, rememberSource, rememberedSource } from "../src/lib/sourceMemory";
 
 const file = (name: string, index = 0, size = 100) => ({ name, index, size } as QbtFile);
 
@@ -382,4 +384,63 @@ test("a source without the requested episode fails over instead of downloading t
     );
     assert.ok(!calls.some((call) => call.path.endsWith("/update_only_files")));
   });
+});
+
+const seekable = (...ranges: [number, number][]) => ({
+  length: ranges.length,
+  start: (index: number) => ranges[index][0],
+  end: (index: number) => ranges[index][1],
+});
+
+test("a skip into what the converter already produced moves the playhead instead of restarting", () => {
+  // Conversion started at 40 s and has produced up to 30 s of its own clock.
+  assert.equal(convertedSeekTime(seekable([0, 30]), 40, 56), 16);
+  assert.equal(convertedSeekTime(seekable([0, 30]), 40, 45), 5);
+});
+
+test("a skip past the converted end or before the conversion start restarts the converter", () => {
+  assert.equal(convertedSeekTime(seekable([0, 30]), 40, 80), null);
+  assert.equal(convertedSeekTime(seekable([0, 30]), 40, 35), null);
+  assert.equal(convertedSeekTime(seekable(), 40, 41), null);
+});
+
+test("a freshly loaded stream's infinite seekable end never counts as converted", () => {
+  // WebKit reports [0, Infinity] at loadedmetadata, before any video exists.
+  assert.equal(convertedSeekTime(seekable([0, Infinity]), 166, 286), null);
+});
+
+test("resuming an episode tries the release that last played it first", () => {
+  const releases = [{ hash: "aaa" }, { hash: "bbb" }, { hash: "ccc" }];
+  const hashOf = (release: { hash: string }) => release.hash;
+  assert.deepEqual(preferRememberedSource(releases, hashOf, "ccc").map(hashOf), ["ccc", "aaa", "bbb"]);
+  assert.deepEqual(preferRememberedSource(releases, hashOf, "zzz").map(hashOf), ["aaa", "bbb", "ccc"]);
+  assert.deepEqual(preferRememberedSource(releases, hashOf, null).map(hashOf), ["aaa", "bbb", "ccc"]);
+});
+
+test("the remembered release is per episode and a full storage never throws", () => {
+  const globals = globalThis as Record<string, unknown>;
+  const previous = globals.localStorage;
+  const items = new Map<string, string>();
+  let full = false;
+  globals.localStorage = {
+    get length() { return items.size; },
+    key: (index: number) => [...items.keys()][index] ?? null,
+    getItem: (key: string) => items.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      if (full) { const error = new Error("full"); error.name = "QuotaExceededError"; throw error; }
+      items.set(key, value);
+    },
+    removeItem: (key: string) => void items.delete(key),
+  };
+  try {
+    const s7e4 = { catalogId: "tt0387199", season: 7, episode: 4 };
+    rememberSource(s7e4, "1521977F8AFBBDB42649B0B9E15E0C4CDD3C05A2");
+    assert.equal(rememberedSource(s7e4), "1521977f8afbbdb42649b0b9e15e0c4cdd3c05a2");
+    assert.equal(rememberedSource({ ...s7e4, episode: 5 }), null);
+    assert.equal(rememberedSource({ season: 7, episode: 4 }), null);
+    full = true;
+    assert.doesNotThrow(() => rememberSource({ ...s7e4, episode: 6 }, "abc"));
+  } finally {
+    globals.localStorage = previous;
+  }
 });

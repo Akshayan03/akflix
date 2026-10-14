@@ -1041,10 +1041,9 @@ fn preferred_audio_map(ffmpeg: &PathBuf, input: &str, language: Option<&str>) ->
     selected
 }
 
-/// Convert containers/codecs WebKit cannot play into a rolling HLS window.
-/// Input is paced at its native clock so the encoder cannot delete segments
-/// before the player reaches them. The platform media encoder keeps this
-/// hardware accelerated where the operating system exposes one.
+/// Convert containers/codecs WebKit cannot play into an HLS event playlist
+/// that keeps every segment. The platform media encoder keeps this hardware
+/// accelerated where the operating system exposes one.
 fn start_hls_input(
     input: String,
     stream_id: String,
@@ -1079,10 +1078,22 @@ fn start_hls_input(
             "-fflags",
             "+genpts",
         ]);
-    // Keep the converter at the viewer's real playback rate. Without `-re`,
-    // VideoToolbox can race minutes ahead, advance the live HLS window, and
-    // make WebKit jump forward or backward as segments disappear underneath it.
-    command.arg("-re");
+    // Stay ahead of the viewer without converting the whole title onto disk at
+    // once. `-re` pinned output to real time, which left WebKit under a second
+    // of buffer: any late torrent piece or busy CPU stalled playback, most of
+    // all right after a skip. The burst gives every start and skip ~20 s of
+    // cushion, 1.5x keeps it growing, and catch-up refills it after the
+    // source stalls. The player loads the playlist at its first segment, so
+    // running ahead never makes WebKit start at the live edge. Requires
+    // FFmpeg 7.1+; every Akflix build bundles 8.1.
+    command.args([
+        "-readrate",
+        "1.5",
+        "-readrate_initial_burst",
+        "20",
+        "-readrate_catchup",
+        "4",
+    ]);
     if start_seconds > 0.05 {
         // Input-side seeking makes FFmpeg issue a byte-range request near the
         // requested timestamp instead of converting every preceding minute.

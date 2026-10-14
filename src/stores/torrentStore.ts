@@ -21,6 +21,7 @@ import { automaticSafeSources } from "@/lib/sourceLanguage";
 import { availableMediaStorage } from "@/lib/mediaStorage";
 import { formatBytes } from "@/lib/utils";
 import { sourceNamesAnotherShow } from "@/lib/mediaSelection";
+import { preferRememberedSource, rememberSource, rememberedSource } from "@/lib/sourceMemory";
 
 interface TorrentState {
   torrents: QbtTorrent[];
@@ -297,8 +298,15 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       streamLaunchMedia: media ?? null,
     });
     try {
-    const eligibleResults = await sourcesThatFitStorage(
-      automaticSafeSources(sameShowSources(results, media), useSettings.getState().audioLanguage)
+    const eligibleResults = preferRememberedSource(
+      await sourcesThatFitStorage(
+        automaticSafeSources(sameShowSources(results, media), useSettings.getState().audioLanguage)
+      ),
+      (result) => {
+        const link = result.magnetUrl ?? result.downloadUrl;
+        return link ? magnetInfoHash(link) : null;
+      },
+      rememberedSource(media)
     );
     ensureCurrent();
     const unique = new Map<string, TorrentResult>();
@@ -714,6 +722,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
   markStreamReady: (hash, requestId) => {
     const state = get();
     if (state.streamRequestId !== requestId || state.pendingStreamHash !== hash) return false;
+    rememberSource(state.pendingStreamMedia, hash);
     set({
       pendingStreamHash: null,
       pendingStreamTemporary: false,
