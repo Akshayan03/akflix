@@ -73,7 +73,7 @@ import {
   startCompatibilityStream,
   startCompatibilityStreamUrl,
 } from "@/lib/compatStream";
-import { convertedSeekTime } from "@/lib/compatSeek";
+import { createPlayerSeek } from "@/lib/playerSeek";
 import { iosNativeSources } from "@/lib/iosSourceCompatibility";
 import { automaticSafeSources } from "@/lib/sourceLanguage";
 import { directSubtitleTracks } from "@/api/subtitles";
@@ -160,14 +160,17 @@ function directHistoryTitle(request: DirectPlaybackRequest): HistoryTitle | null
 function saveDirectProgress(
   request: DirectPlaybackRequest | null,
   video: HTMLVideoElement | null,
-  completed = false
+  completed = false,
+  position?: number
 ) {
   if (!request || !video) return;
   const media = directHistoryTitle(request);
   if (!media) return;
-  const currentTime = request.compatibility
-    ? request.compatibility.startSeconds + video.currentTime
-    : video.currentTime;
+  const currentTime =
+    position ??
+    (request.compatibility
+      ? request.compatibility.startSeconds + video.currentTime
+      : video.currentTime);
   const duration =
     request.durationSeconds && request.durationSeconds > 0
       ? request.durationSeconds
@@ -241,10 +244,6 @@ export default function PlayerHost() {
   const bufferingIndicatorTimer = useRef<ReturnType<typeof setTimeout>>();
   const playbackStallTimer = useRef<ReturnType<typeof setTimeout>>();
   const playbackStallOpen = useRef(false);
-  const compatibilitySeekTimer = useRef<ReturnType<typeof setTimeout>>();
-  const compatibilitySeekSequence = useRef(0);
-  // Set while a converter restart is pending: whether to resume once it lands.
-  const compatibilitySeekResume = useRef<boolean | null>(null);
   const directResumeAppliedRef = useRef<number | null>(null);
   const lastLocalHistoryWrite = useRef(0);
   const loadSeq = useRef(0);
@@ -272,6 +271,56 @@ export default function PlayerHost() {
   const [captionTask, setCaptionTask] = useState<"generating" | "syncing" | null>(null);
   const [compatibilityStartSeconds, setCompatibilityStartSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  // Skips, converter restarts and their retries. Created once: it reads the
+  // live video, request and store through refs.
+  const [seeker] = useState(() =>
+    createPlayerSeek({
+      video: () => videoRef.current,
+      request: () => directRequestRef.current,
+      shownPosition: () => usePlayback.getState().currentTime,
+      shownDuration: () => usePlayback.getState().duration,
+      startConverter: async (request, target) => {
+        const source = request.compatibility;
+        if (source?.inputUrl) {
+          return startCompatibilityStreamUrl(
+            source.inputUrl,
+            source.streamId,
+            source.audioLanguage,
+            target
+          );
+        }
+        if (source?.filename) {
+          return startCompatibilityStream(
+            source.filename,
+            source.streamId,
+            source.audioLanguage,
+            target
+          );
+        }
+        return null;
+      },
+      sync: (patch) => usePlayback.getState()._sync(patch),
+      attached: (_request, target) => {
+        setCompatibilityStartSeconds(target);
+        setError(null);
+        const video = videoRef.current;
+        if (!video) return;
+        applyPlaybackRate(video, requestedPlaybackRateRef.current);
+        video.volume = usePlayback.getState().volume;
+        video.muted = usePlayback.getState().muted;
+      },
+      failed: (request, target, reason) => {
+        // History keeps the point the viewer asked for, not the old one.
+        saveDirectProgress(request, videoRef.current, false, target);
+        toast.error("Could not jump to that point", {
+          description: `${reason.replace(/\.?$/, ".")} Press play to try ${formatClock(target)} again.`,
+        });
+      },
+      setTimeout: (callback, ms) => setTimeout(callback, ms),
+      clearTimeout: (timer) => clearTimeout(timer),
+    })
+  );
 
   // ── Controls auto-hide ───────────────────────────────────────────────
   const poke = useCallback(() => {
@@ -303,8 +352,7 @@ export default function PlayerHost() {
     const v = videoRef.current;
     clearTimeout(bufferingIndicatorTimer.current);
     clearTimeout(playbackStallTimer.current);
-    clearTimeout(compatibilitySeekTimer.current);
-    compatibilitySeekResume.current = null;
+    seeker.reset();
     clearTimeout(seekFeedbackTimer.current);
     playbackStallOpen.current = false;
     scrubPointerActiveRef.current = false;
@@ -315,14 +363,19 @@ export default function PlayerHost() {
         .catch(() => {});
     }
     jfSessionRef.current = null;
-  }, [client]);
+  }, [client, seeker]);
 
   const teardown = useCallback(() => {
     captionGenerationRef.current += 1;
     captionInputRef.current = null;
     setCaptionTask(null);
     setCompatibilityStartSeconds(0);
-    saveDirectProgress(directRequestRef.current, videoRef.current);
+    saveDirectProgress(
+      directRequestRef.current,
+      videoRef.current,
+      false,
+      seeker.pendingTarget() ?? undefined
+    );
     directRequestRef.current = null;
     reportStopped();
     hlsRef.current?.destroy();
@@ -335,7 +388,7 @@ export default function PlayerHost() {
       v.removeAttribute("src");
       v.load();
     }
-  }, [reportStopped]);
+  }, [reportStopped, seeker]);
 
   // ── Core: load an item into the video element ────────────────────────
 
@@ -657,113 +710,6 @@ export default function PlayerHost() {
     }
   }, [load, mobileApple, navigate, preferredAudioLanguage, _sync]);
 
-  const seekPlayback = useCallback(
-    (seconds: number) => {
-      const video = videoRef.current;
-      if (!video) return;
-      const request = directRequestRef.current;
-      const compatibility = request?.compatibility;
-      const knownDuration =
-        request?.durationSeconds ??
-        (Number.isFinite(video.duration) ? video.duration : usePlayback.getState().duration);
-      const target = Math.max(
-        0,
-        Math.min(seconds, knownDuration > 0 ? Math.max(0, knownDuration - 0.25) : seconds)
-      );
-      if (!request || !compatibility) {
-        video.currentTime = target;
-        _sync({ currentTime: target });
-        return;
-      }
-
-      // Skips within what the converter has produced are instant and leave it
-      // running; only targets outside it restart the conversion.
-      const converted =
-        compatibilitySeekResume.current === null
-          ? convertedSeekTime(video.seekable, compatibility.startSeconds, target)
-          : null;
-      if (converted !== null) {
-        video.currentTime = converted;
-        _sync({ currentTime: target });
-        return;
-      }
-
-      // Skips that arrive while a restart is pending find the video already
-      // paused by that restart. Keep the intent of the first skip, otherwise
-      // a quick double tap leaves playback paused for good.
-      if (compatibilitySeekResume.current === null) {
-        compatibilitySeekResume.current = !video.paused;
-      }
-      const sequence = ++compatibilitySeekSequence.current;
-      clearTimeout(compatibilitySeekTimer.current);
-      _sync({ currentTime: target, buffering: true });
-
-      compatibilitySeekTimer.current = setTimeout(() => {
-        const restart = async () => {
-          const activeRequest = directRequestRef.current;
-          if (
-            !activeRequest ||
-            sequence !== compatibilitySeekSequence.current ||
-            activeRequest.playbackRequestId !== request.playbackRequestId ||
-            !activeRequest.compatibility
-          ) {
-            return;
-          }
-
-          video.pause();
-          try {
-            const source = activeRequest.compatibility;
-            const url = source.inputUrl
-              ? await startCompatibilityStreamUrl(
-                  source.inputUrl,
-                  source.streamId,
-                  source.audioLanguage,
-                  target
-                )
-              : source.filename
-                ? await startCompatibilityStream(
-                    source.filename,
-                    source.streamId,
-                    source.audioLanguage,
-                    target
-                  )
-                : null;
-            if (!url) throw new Error("The conversion source is unavailable.");
-            if (
-              sequence !== compatibilitySeekSequence.current ||
-              directRequestRef.current?.playbackRequestId !== request.playbackRequestId
-            ) {
-              return;
-            }
-            const resume = compatibilitySeekResume.current ?? false;
-            compatibilitySeekResume.current = null;
-
-            source.startSeconds = target;
-            setCompatibilityStartSeconds(target);
-            activeRequest.url = url;
-            setError(null);
-            video.src = `${url}${url.includes("?") ? "&" : "?"}seek=${Date.now()}`;
-            video.load();
-            applyPlaybackRate(video, requestedPlaybackRateRef.current);
-            video.volume = usePlayback.getState().volume;
-            video.muted = usePlayback.getState().muted;
-            if (resume) await video.play().catch(() => {});
-          } catch (reason) {
-            // A newer skip replaced this conversion and reports its own result.
-            if (sequence !== compatibilitySeekSequence.current) return;
-            compatibilitySeekResume.current = null;
-            _sync({ buffering: false });
-            toast.error("Could not jump to that point", {
-              description: reason instanceof Error ? reason.message : String(reason),
-            });
-          }
-        };
-        void restart();
-      }, 280);
-    },
-    [_sync]
-  );
-
   /**
    * The extension check sends every MP4 to WebKit directly, but WebKit cannot
    * decode HEVC tagged "hev1" (MediaError) and drops DTS audio (no audio
@@ -815,7 +761,8 @@ export default function PlayerHost() {
   );
 
   const showSeekFeedback = useCallback((delta: number) => {
-    setSeekFeedback(delta);
+    // A quick run of skips shows its total, matching where playback goes.
+    setSeekFeedback((shown) => (shown === null ? delta : shown + delta) || null);
     clearTimeout(seekFeedbackTimer.current);
     seekFeedbackTimer.current = setTimeout(() => setSeekFeedback(null), 700);
   }, []);
@@ -938,7 +885,7 @@ export default function PlayerHost() {
     _setControls({
       toggle: () => {
         const v = videoRef.current;
-        if (!v) return;
+        if (!v || seeker.toggle()) return;
         if (v.paused) v.play();
         else {
           v.pause();
@@ -949,12 +896,8 @@ export default function PlayerHost() {
               .catch(() => {});
         }
       },
-      seek: (sec) => {
-        seekPlayback(sec);
-      },
-      seekBy: (delta) => {
-        seekPlayback(usePlayback.getState().currentTime + delta);
-      },
+      seek: (sec) => seeker.seek(sec),
+      seekBy: (delta) => seeker.seekBy(delta),
       setMuted: (m) => {
         const v = videoRef.current;
         if (v) {
@@ -985,7 +928,7 @@ export default function PlayerHost() {
       next: playNext,
     });
     return () => _setControls(null);
-  }, [client, playNext, seekPlayback, _setControls, _sync]);
+  }, [client, playNext, seeker, _setControls, _sync]);
 
   // ── Progress reporting heartbeat ─────────────────────────────────────
   useEffect(() => {
@@ -1391,6 +1334,7 @@ export default function PlayerHost() {
     "--range-buffered": `${volumePercent}%`,
   } as CSSProperties;
   const onEnded = async () => {
+    if (seeker.replacing()) return;
     const finishedRequest = directRequestRef.current;
     const nextDirectEpisode = finishedRequest?.episodeQueue?.[0];
     const advanced = await playNext();
@@ -1451,10 +1395,12 @@ export default function PlayerHost() {
             }
           }}
           onPause={() => {
+            // A converter restart pauses the conversion it replaces. That is
+            // not the viewer pausing: keep the play state and history, and
+            // never let this pause reach (and freeze) the new converter.
+            if (seeker.replacing()) return;
             _sync({ isPlaying: false });
-            if (compatibilitySeekResume.current === null) {
-              saveDirectProgress(directRequestRef.current, videoRef.current);
-            }
+            saveDirectProgress(directRequestRef.current, videoRef.current);
             if (session?.direct && activeStreamHash) {
               setCompatibilityStreamPaused(activeStreamHash, true).catch(() => {});
             }
@@ -1462,10 +1408,12 @@ export default function PlayerHost() {
           onWaiting={schedulePlaybackStall}
           onStalled={schedulePlaybackStall}
           onPlaying={() => {
+            if (seeker.replacing()) return;
             clearPlaybackStall();
             _sync({ buffering: false });
           }}
           onCanPlay={(e) => {
+            if (seeker.replacing()) return;
             clearPlaybackStall();
             _sync({ buffering: false });
             const request = directRequestRef.current;
@@ -1491,7 +1439,8 @@ export default function PlayerHost() {
             // A converter restart pauses and reloads this element, and pause()
             // reports the old position. The store already holds the skip
             // target; keep it so repeated skips add up and history stays put.
-            if (compatibilitySeekResume.current !== null) return;
+            if (seeker.replacing()) return;
+            seeker.settle();
             const video = e.currentTarget;
             const request = directRequestRef.current;
             const timelineTime = request?.compatibility
@@ -1513,6 +1462,7 @@ export default function PlayerHost() {
               saveDirectProgress(directRequestRef.current, video);
             }
           }}
+          onSeeked={() => seeker.settle()}
           onDurationChange={(e) => {
             const request = directRequestRef.current;
             const mediaDuration =
@@ -1556,7 +1506,7 @@ export default function PlayerHost() {
             const mediaDuration = request.durationSeconds ?? video.duration;
             const target = request.resumeSeconds ?? saved?.position ?? 0;
             if (target > 10 && target < mediaDuration - 5) {
-              seekPlayback(target);
+              seeker.seek(target);
               directResumeAppliedRef.current = request.playbackRequestId ?? null;
               toast.info("Resuming where you left off", {
                 description: `${formatClock(target)} into ${request.title}`,
@@ -1566,6 +1516,8 @@ export default function PlayerHost() {
             }
           }}
           onError={(e) => {
+            // The conversion a restart replaced can fail on its way out.
+            if (seeker.replacing()) return;
             const mediaError = e.currentTarget.error;
             const directRequest = directRequestRef.current;
             if (

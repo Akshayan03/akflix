@@ -126,8 +126,7 @@ export default function MiniPlayer() {
           if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
           event.preventDefault();
           event.stopPropagation();
-          const delta = event.key === "ArrowLeft" ? -10 : 10;
-          controls?.seek(Math.max(0, Math.min(duration, currentTime + delta)));
+          controls?.seekBy(event.key === "ArrowLeft" ? -10 : 10);
         }}
         onClick={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();

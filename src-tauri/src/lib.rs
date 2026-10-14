@@ -15,7 +15,7 @@ use std::{
     fs::{self, File},
     io::{Read, Seek, SeekFrom},
     net::{SocketAddr, TcpStream},
-    path::{Component, PathBuf},
+    path::{Component, Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{Mutex, OnceLock},
     thread,
@@ -1165,11 +1165,7 @@ fn start_hls_input(
     let pid = register_hls_process(&id, child)?;
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(20) {
-        if playlist
-            .metadata()
-            .map(|meta| meta.len() > 40)
-            .unwrap_or(false)
-        {
+        if hls_playlist_has_media(&playlist) {
             return Ok(format!("Streaming%20Cache/.akflix-hls/{id}/index.m3u8"));
         }
         match hls_child_state(&id, pid) {
@@ -1189,6 +1185,22 @@ fn start_hls_input(
         stop_hls_process(&id);
     }
     Err("Timed out preparing the compatibility stream".into())
+}
+
+/// FFmpeg rewrites the playlist after every finished segment, so it can play
+/// once it lists a segment with real duration. When the input fails or ends
+/// right away (a seek into torrent data that never arrives, or past the end),
+/// FFmpeg still leaves a playlist on exit: one zero-length segment and an end
+/// marker, which WebKit rejects as an unplayable source.
+fn hls_playlist_has_media(playlist: &Path) -> bool {
+    fs::read_to_string(playlist).is_ok_and(|text| {
+        text.lines().any(|line| {
+            line.strip_prefix("#EXTINF:")
+                .and_then(|rest| rest.split(',').next())
+                .and_then(|seconds| seconds.trim().parse::<f64>().ok())
+                .is_some_and(|seconds| seconds > 0.0)
+        })
+    })
 }
 
 /// Track the converter for a stream. Commands no longer queue on the main
@@ -1693,6 +1705,69 @@ mod tests {
         assert_eq!(converters(), 1, "an older conversion was left running");
         stop_hls_process(&id);
         assert_eq!(converters(), 0);
+        let _ = fs::remove_file(raw);
+        let _ = fs::remove_file(input);
+    }
+
+    #[test]
+    fn only_a_playlist_with_a_real_segment_is_ready() {
+        let folder = unique_test_folder("playlist-ready");
+        fs::create_dir_all(&folder).expect("create playlist folder");
+        let playlist = folder.join("index.m3u8");
+        let header = "#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:EVENT\n#EXT-X-INDEPENDENT-SEGMENTS\n";
+        assert!(!hls_playlist_has_media(&playlist), "missing playlist");
+        fs::write(&playlist, header).expect("write header");
+        assert!(!hls_playlist_has_media(&playlist), "header only");
+        // What FFmpeg leaves behind when its input fails before any frame.
+        fs::write(
+            &playlist,
+            format!("{header}#EXTINF:0.000000,\nsegment-000000.ts\n#EXT-X-ENDLIST\n"),
+        )
+        .expect("write empty playlist");
+        assert!(!hls_playlist_has_media(&playlist), "zero-length segment");
+        fs::write(
+            &playlist,
+            format!("{header}#EXTINF:1.001000,\nsegment-000000.ts\n"),
+        )
+        .expect("write playlist");
+        assert!(hls_playlist_has_media(&playlist));
+        fs::remove_dir_all(folder).expect("remove playlist folder");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_restart_that_converts_nothing_is_an_error_not_a_stream() {
+        let root = test_media_root();
+        let ffmpeg = find_ffmpeg().expect("bundled ffmpeg");
+        let raw = root.join(format!("short-{}.yuv", std::process::id()));
+        let input = root.join(format!("short-{}.mp4", std::process::id()));
+        let frame = 160 * 120 * 3 / 2;
+        let pattern: Vec<u8> = (0..frame * 72).map(|index| (index % 251) as u8).collect();
+        fs::write(&raw, &pattern).expect("write raw frames");
+        let encoded = Command::new(&ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo"])
+            .args(["-pix_fmt", "yuv420p", "-s", "160x120", "-r", "24", "-i"])
+            .arg(&raw)
+            .args(["-c:v", "h264_videotoolbox", "-allow_sw", "1"])
+            .arg(&input)
+            .status()
+            .expect("run ffmpeg");
+        assert!(encoded.success());
+
+        // A skip past everything the source can deliver: FFmpeg opens it,
+        // converts nothing and exits with a zero-length playlist.
+        let id = format!("b2f{:08x}", std::process::id());
+        let result = start_hls_input(
+            input.to_string_lossy().into_owned(),
+            id.clone(),
+            None,
+            Some(60.0),
+        );
+        assert_eq!(
+            result,
+            Err("FFmpeg could not read this source yet".to_string())
+        );
+        stop_hls_process(&id);
         let _ = fs::remove_file(raw);
         let _ = fs::remove_file(input);
     }
