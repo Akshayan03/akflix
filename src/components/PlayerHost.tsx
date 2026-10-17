@@ -244,6 +244,10 @@ export default function PlayerHost() {
   const bufferingIndicatorTimer = useRef<ReturnType<typeof setTimeout>>();
   const playbackStallTimer = useRef<ReturnType<typeof setTimeout>>();
   const playbackStallOpen = useRef(false);
+  // Position a stuck direct stream is being reloaded at, until its metadata
+  // loads (see rereadDirectSource); and whether that reload's canplay is due.
+  const rereadingRef = useRef<number | null>(null);
+  const rereadCanPlayRef = useRef(false);
   const directResumeAppliedRef = useRef<number | null>(null);
   const lastLocalHistoryWrite = useRef(0);
   const loadSeq = useRef(0);
@@ -355,6 +359,8 @@ export default function PlayerHost() {
     seeker.reset();
     clearTimeout(seekFeedbackTimer.current);
     playbackStallOpen.current = false;
+    rereadingRef.current = null;
+    rereadCanPlayRef.current = false;
     scrubPointerActiveRef.current = false;
     const s = jfSessionRef.current;
     if (client && v && s) {
@@ -818,6 +824,26 @@ export default function PlayerHost() {
     playbackStallOpen.current = false;
   }, []);
 
+  /**
+   * WebKit can stop reading a direct stream whose response went quiet midway
+   * (torrent peers gone for about a minute) and then wait forever without an
+   * error, even once the engine has the bytes. Loading the same URL again at
+   * the same position makes it request them anew. The release is unchanged.
+   */
+  const rereadDirectSource = useCallback(() => {
+    const video = videoRef.current;
+    const request = directRequestRef.current;
+    if (!video || !request || request.compatibility || video.paused) return;
+    const position = video.currentTime;
+    rereadingRef.current = position;
+    rereadCanPlayRef.current = true;
+    video.src = request.url;
+    video.load();
+    video.currentTime = position;
+    applyPlaybackRate(video, requestedPlaybackRateRef.current);
+    void video.play().catch(() => {});
+  }, []);
+
   const schedulePlaybackStall = useCallback(() => {
     const request = directRequestRef.current;
     const video = videoRef.current;
@@ -861,25 +887,37 @@ export default function PlayerHost() {
       _sync({ buffering: true });
     }, 700);
 
-    playbackStallTimer.current = setTimeout(() => {
-      const activeVideo = videoRef.current;
-      const activeRequest = directRequestRef.current;
-      if (
-        !activeVideo ||
-        activeRequest?.playbackRequestId !== requestId ||
-        activeVideo.paused ||
-        activeVideo.currentTime > startedAt + 1
-      ) {
-        clearPlaybackStall();
-        _sync({ buffering: false });
-        return;
-      }
-      // A temporary peer slowdown is buffering, not permission to replace or
-      // reload the release. Keep the same timeline and wait for more data.
-      playbackStallOpen.current = false;
-      _sync({ buffering: true });
-    }, 15_000);
-  }, [_sync, clearPlaybackStall]);
+    const watchStall = (since: number) => {
+      playbackStallTimer.current = setTimeout(() => {
+        const activeVideo = videoRef.current;
+        const activeRequest = directRequestRef.current;
+        if (
+          !activeVideo ||
+          !activeRequest ||
+          activeRequest.playbackRequestId !== requestId ||
+          activeVideo.paused ||
+          activeVideo.currentTime > since + 1
+        ) {
+          clearPlaybackStall();
+          _sync({ buffering: false });
+          return;
+        }
+        // A temporary peer slowdown is buffering, not permission to replace
+        // the release. Keep the same timeline and wait for more data.
+        _sync({ buffering: true });
+        if (activeRequest.compatibility) {
+          playbackStallOpen.current = false;
+          return;
+        }
+        // A direct stream may be waiting on a response WebKit stopped
+        // reading. Ask for the data again while it stays stuck.
+        const position = activeVideo.currentTime;
+        rereadDirectSource();
+        watchStall(position);
+      }, 15_000);
+    };
+    watchStall(startedAt);
+  }, [_sync, clearPlaybackStall, rereadDirectSource]);
 
   useEffect(() => {
     _setControls({
@@ -1398,7 +1436,8 @@ export default function PlayerHost() {
             // A converter restart pauses the conversion it replaces. That is
             // not the viewer pausing: keep the play state and history, and
             // never let this pause reach (and freeze) the new converter.
-            if (seeker.replacing()) return;
+            // Reloading a stuck direct stream pauses it the same way.
+            if (seeker.replacing() || rereadingRef.current !== null) return;
             _sync({ isPlaying: false });
             saveDirectProgress(directRequestRef.current, videoRef.current);
             if (session?.direct && activeStreamHash) {
@@ -1414,6 +1453,9 @@ export default function PlayerHost() {
           }}
           onCanPlay={(e) => {
             if (seeker.replacing()) return;
+            // A stuck stream reloaded at its position is not a new start.
+            const reread = rereadCanPlayRef.current;
+            rereadCanPlayRef.current = false;
             clearPlaybackStall();
             _sync({ buffering: false });
             const request = directRequestRef.current;
@@ -1427,6 +1469,7 @@ export default function PlayerHost() {
             }
             const target = request?.resumeSeconds ?? 0;
             if (
+              !reread &&
               request &&
               !request.compatibility &&
               target > 10 &&
@@ -1439,7 +1482,8 @@ export default function PlayerHost() {
             // A converter restart pauses and reloads this element, and pause()
             // reports the old position. The store already holds the skip
             // target; keep it so repeated skips add up and history stays put.
-            if (seeker.replacing()) return;
+            // The same holds while a stuck direct stream reloads.
+            if (seeker.replacing() || rereadingRef.current !== null) return;
             seeker.settle();
             const video = e.currentTarget;
             const request = directRequestRef.current;
@@ -1486,6 +1530,15 @@ export default function PlayerHost() {
             const request = directRequestRef.current;
             const video = e.currentTarget;
             applyPlaybackRate(video, requestedPlaybackRateRef.current);
+            const rereadPosition = rereadingRef.current;
+            if (rereadPosition !== null) {
+              // The position set with the reload may not survive loading.
+              rereadingRef.current = null;
+              if (Math.abs(video.currentTime - rereadPosition) > 0.5) {
+                video.currentTime = rereadPosition;
+              }
+              return;
+            }
             const media = request ? directHistoryTitle(request) : null;
             if (
               !request ||
@@ -1516,6 +1569,7 @@ export default function PlayerHost() {
             }
           }}
           onError={(e) => {
+            rereadingRef.current = null;
             // The conversion a restart replaced can fail on its way out.
             if (seeker.replacing()) return;
             const mediaError = e.currentTarget.error;

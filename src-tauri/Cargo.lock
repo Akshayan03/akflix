@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "akflix"
-version = "1.0.24"
+version = "1.0.25"
 dependencies = [
  "libc",
  "percent-encoding",
