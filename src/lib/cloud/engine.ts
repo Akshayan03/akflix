@@ -378,8 +378,12 @@ async function syncProfile(fs: FirestoreClient, uid: string, state: SyncState, p
       }
       return;
     } catch (reason) {
-      // Someone else wrote one of these titles since we pulled: pull again and re-merge.
-      if (reason instanceof CloudError && reason.kind === "conflict" && attempt < 3) continue;
+      // Someone else wrote one of these titles since we pulled: pull again and re-merge. If that keeps
+      // happening, this device's copy is off somehow, so the last try re-reads the whole profile.
+      if (reason instanceof CloudError && reason.kind === "conflict" && attempt < 3) {
+        if (attempt === 2) state.cursors[cloudId] = null;
+        continue;
+      }
       throw reason;
     }
   }
