@@ -919,7 +919,7 @@ video::cue {
 .account-fineprint { display: flex; gap: 10px; align-items: flex-start; font-size: .72em; line-height: 1.5; color: var(--ak-text-4); }
 .account-fineprint svg { flex-shrink: 0; margin-top: .15em; color: var(--ak-text-3); }
 .account-glyph { display: grid; place-items: center; flex-shrink: 0; width: 42px; height: 42px; border-radius: 14px; background: rgba(255,255,255,.08); color: #fff; }
-.account-avatar { display: grid; place-items: center; flex-shrink: 0; width: 52px; height: 52px; border-radius: 999px; background: #fff; color: #000; font-family: var(--ak-font-display); font-size: 1.45em; }
+.account-avatar { display: grid; place-items: center; flex-shrink: 0; width: 52px; height: 52px; border-radius: 999px; background: #fff; color: #000; font-family: var(--ak-font-display); font-size: min(1.45em, 26px); }
 .account-status { display: flex; align-items: center; gap: 7px; margin-top: 3px; font-size: .74em; color: var(--ak-text-3); }
 .account-status-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 999px; background: #fff; }
 .account-status[data-phase="syncing"] .account-status-dot { animation: account-blink 1s ease-in-out infinite; }
@@ -935,5 +935,5 @@ video::cue {
 .account-row-note { display: block; margin-top: 2px; font-size: .8em; font-weight: 500; color: var(--ak-text-3); }
 /* Beat the shell-wide 16px input rule so fields grow with Dynamic Type too. */
 .account-page .account-input { font-size: max(16px, .94em); }
-.account-page .account-code { font-size: max(18px, 1.1em); }
+.account-page .account-code { font-size: clamp(18px, 1.1em, 26px); }
 .account-entry-status { font-size: 11px; color: #ababab; }

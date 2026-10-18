@@ -602,7 +602,13 @@ export default function Account() {
           {status.mode === "emulator" && <span className="ak-badge ak-badge--quiet !tracking-[0.06em]">Test server</span>}
         </p>
         <h1 className="account-display mt-3">
-          {signedIn ? "You're in sync." : "Every screen, right where you left off."}
+          {!signedIn
+            ? "Every screen, right where you left off."
+            : status.phase === "offline"
+              ? "Saved here for now."
+              : status.phase === "error"
+                ? "Sync needs a look."
+                : "You're in sync."}
         </h1>
         <p className="account-lede mt-3">
           {signedIn
