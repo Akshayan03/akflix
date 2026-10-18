@@ -7,6 +7,7 @@
   "scripts": {
     "test": "node scripts/test-regressions.mjs",
     "test:engine": "node scripts/test-embedded-engine.mjs",
+    "test:cloud-e2e": "node scripts/test-cloud-e2e.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",

@@ -35,6 +35,7 @@ import {
 } from "@/lib/mediaStorage";
 import { formatBytes } from "@/lib/utils";
 import { version as packageVersion } from "../../package.json";
+import AccountEntry from "@/components/AccountEntry";
 
 // The shipped version comes from package.json (the release workflow and Tauri read the same file).
 const APP_VERSION = packageVersion;
@@ -259,6 +260,8 @@ export default function Settings() {
     >
       <p className="ak-eyebrow mb-2">Tune your space</p>
       <h1 className={mobileApple ? "mb-9 font-display text-5xl tracking-[-0.03em]" : "ak-page-title mb-9"}>{t("settings.title")}</h1>
+
+      <AccountEntry />
 
       {mobileApple && (
         <motion.section

@@ -24,6 +24,7 @@ import { usePlayback } from "@/stores/playbackStore";
 import { isAppleMobile } from "@/lib/platform";
 import { automaticSafeSources } from "@/lib/sourceLanguage";
 import RatingControl from "@/components/RatingControl";
+import MyListButton from "@/components/MyListButton";
 import { useAuth } from "@/stores/authStore";
 import { useSettings } from "@/stores/settingsStore";
 import {
@@ -713,6 +714,7 @@ export default function DiscoverDetails() {
               >
                 <ListFilter size={17} aria-hidden="true" /> Choose stream
               </button>
+              <MyListButton media={historyTitle} variant="pill" />
               <div className="ml-1">
                 <RatingControl compact value={personalRating} onChange={(value) => setRating(historyTitle, value)} />
               </div>

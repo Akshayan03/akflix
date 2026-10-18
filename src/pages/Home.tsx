@@ -11,6 +11,7 @@ import { useT } from "@/i18n";
 import HeroBanner from "@/components/HeroBanner";
 import DiscoverHero from "@/components/DiscoverHero";
 import DiscoverRow from "@/components/DiscoverRow";
+import { savedTitlesFor, useMyList } from "@/stores/listStore";
 import MediaRow from "@/components/MediaRow";
 import { HomeSkeleton } from "@/components/Skeletons";
 import { cinemeta } from "@/api/cinemeta";
@@ -45,6 +46,7 @@ export default function Home() {
   const profileId = useAuth((s) => s.activeProfileId);
   const historyEntries = useHistory((state) => state.entries);
   const personalRatings = useHistory((state) => state.ratings);
+  const listItems = useMyList((state) => state.items);
   const [data, setData] = useState<HomeData | null>(null);
   const [discover, setDiscover] = useState<DiscoverData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -235,12 +237,17 @@ export default function Home() {
       cardState[key] = { ...cardState[key], rating: rating.value };
     }
 
+    const myList = savedTitlesFor(listItems, profileId ?? "akflix-local")
+      .filter((item) => item.media.source === "discover")
+      .map((item) => toMeta(item.media));
+
     return {
       continuing: continuing.map((entry) => toMeta(entry.media)),
       watched: watched.map((entry) => toMeta(entry.media)),
+      myList,
       cardState,
     };
-  }, [profileHistory, profileRatings]);
+  }, [profileHistory, profileRatings, listItems, profileId]);
 
   const rows = useMemo(() => {
     if (!data || !discover) return null;
@@ -279,6 +286,13 @@ export default function Home() {
           cardState={personalRows.cardState}
           variant="landscape"
         />
+        <DiscoverRow
+          id="my-list"
+          title="My List"
+          tagline="Saved on every screen you sign in to"
+          items={personalRows.myList}
+          cardState={personalRows.cardState}
+        />
         <MediaRow title={t("row.continueWatching")} items={data.resume} variant="landscape" />
         <DiscoverRow
           title="Recommended for You"
@@ -294,7 +308,7 @@ export default function Home() {
         />
         <MediaRow title="Watched in Jellyfin" items={data.watched} />
         <MediaRow title={t("row.nextUp")} items={data.nextUp} variant="landscape" />
-        <MediaRow title={t("row.myList")} items={data.favorites} />
+        <MediaRow title={personalRows.myList.length ? `${t("row.myList")} · Jellyfin` : t("row.myList")} items={data.favorites} />
         {discover.rows.map((row) => (
           <DiscoverRow
             key={row.title}

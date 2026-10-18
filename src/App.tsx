@@ -18,6 +18,8 @@ import StreamController from "@/components/StreamController";
 import StartupExperience from "@/components/StartupExperience";
 import DirectPlayer from "@/pages/DirectPlayer";
 import Browse from "@/pages/Browse";
+import Account from "@/pages/Account";
+import { initCloudSync } from "@/lib/cloud/engine";
 import { isAppleMobile } from "@/lib/platform";
 
 /** Routes that need an active Jellyfin session redirect to /login. */
@@ -36,6 +38,8 @@ export default function App() {
   // Desktop-only integrations (no-ops in the browser).
   useEffect(() => {
     useAuth.getState().ensureLocalProfile();
+    // Account sync runs in the background and never blocks the app.
+    initCloudSync();
     initDeepLinks(navigate);
     if (!mobileApple) checkForUpdatesQuietly();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -61,6 +65,7 @@ export default function App() {
       <Route path="/stream" element={<RequireAuth><DirectPlayer /></RequireAuth>} />
       <Route path="/downloads" element={<RequireAuth><Downloads /></RequireAuth>} />
       <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
+      <Route path="/account" element={<RequireAuth><Account /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
