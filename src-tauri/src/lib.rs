@@ -920,7 +920,11 @@ fn skip_media_pcm_sync(
         .lock()
         .map_err(|_| "Skip reader lock failed")?;
     let (ffmpeg, input) = skip_ffmpeg(&input)?;
-    let start_seconds = if start_seconds.is_finite() { start_seconds.max(0.0) } else { 0.0 };
+    let start_seconds = if start_seconds.is_finite() {
+        start_seconds.max(0.0)
+    } else {
+        0.0
+    };
     let duration_seconds = if duration_seconds.is_finite() {
         duration_seconds.clamp(1.0, 120.0)
     } else {
@@ -939,7 +943,9 @@ fn skip_media_pcm_sync(
         .arg("-i")
         .arg(&input)
         .args(["-map", &audio_map, "-t", &format!("{duration_seconds:.3}")])
-        .args(["-vn", "-sn", "-dn", "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1"])
+        .args([
+            "-vn", "-sn", "-dn", "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1",
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -987,7 +993,12 @@ fn ffmpeg_reported_duration(report: &str) -> f64 {
         .find_map(|line| line.trim().strip_prefix("Duration: "))
         .and_then(|rest| rest.split(',').next())
         .and_then(|clock| {
-            let parts = clock.trim().split(':').map(str::parse::<f64>).collect::<Result<Vec<_>, _>>().ok()?;
+            let parts = clock
+                .trim()
+                .split(':')
+                .map(str::parse::<f64>)
+                .collect::<Result<Vec<_>, _>>()
+                .ok()?;
             (parts.len() == 3).then(|| parts[0] * 3600.0 + parts[1] * 60.0 + parts[2])
         })
         .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
@@ -1752,7 +1763,15 @@ mod tests {
         )
         .expect("write chapters");
         let status = Command::new(&ffmpeg)
-            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i"])
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+            ])
             .arg("sine=frequency=440:duration=10:sample_rate=44100")
             .arg("-i")
             .arg(&chapters)
@@ -1764,13 +1783,25 @@ mod tests {
         let input = format!("media://{name}/tone.mkv");
 
         let pcm = skip_media_pcm_sync(input.clone(), 2.0, 3.0, None).expect("pcm");
-        assert!((pcm.len() as i64 - 48_000).abs() <= 400, "3 s of 8 kHz 16-bit mono, got {} bytes", pcm.len());
+        assert!(
+            (pcm.len() as i64 - 48_000).abs() <= 400,
+            "3 s of 8 kHz 16-bit mono, got {} bytes",
+            pcm.len()
+        );
         let tail = skip_media_pcm_sync(input.clone(), 8.0, 60.0, None).expect("pcm at the end");
-        assert!((tail.len() as i64 - 32_000).abs() <= 2_000, "only what is left: {} bytes", tail.len());
+        assert!(
+            (tail.len() as i64 - 32_000).abs() <= 2_000,
+            "only what is left: {} bytes",
+            tail.len()
+        );
 
         let probe = skip_media_probe_sync(input).expect("probe");
         assert!(probe.metadata.contains("title=Intro"), "{}", probe.metadata);
-        assert!((probe.duration - 10.0).abs() < 0.2, "duration {}", probe.duration);
+        assert!(
+            (probe.duration - 10.0).abs() < 0.2,
+            "duration {}",
+            probe.duration
+        );
         assert!(skip_media_probe_sync("media://../escape.mkv".into()).is_err());
         let _ = fs::remove_dir_all(&folder);
     }
