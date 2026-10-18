@@ -303,9 +303,11 @@ export async function analyzeSkipMarkers(job: SkipAnalysis): Promise<SkipMarkers
       // The whole closing: the final say (an early sighting that does not hold
       // up is withdrawn), and learn from the full stretch.
       const final = sighting(print, duration, true);
-      if (final && (!found.credits || Math.abs(found.credits.start - final.from) > 3)) {
+      // (Set by the read callbacks above, which TypeScript does not follow.)
+      const early = found.credits as SkipSegment | undefined;
+      if (final && (!early || Math.abs(early.start - final.from) > 3)) {
         acceptCredits(final.from, final.how);
-      } else if (!final && found.credits && closing.complete) {
+      } else if (!final && early && closing.complete) {
         const { credits: _withdrawn, ...rest } = found;
         found = rest;
         log("credits withdrawn: the shared stretch stops before the end");

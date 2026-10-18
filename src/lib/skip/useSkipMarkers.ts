@@ -67,6 +67,8 @@ const SKIP_DEBUG = (() => {
   }
 })();
 
+const NO_MARKERS: SkipMarkers = Object.freeze({});
+
 export function useSkipMarkers(subject: SkipSubject | null): SkipMarkers {
   const [state, setState] = useState<{ key: string | null; markers: SkipMarkers }>({ key: null, markers: {} });
 
@@ -102,5 +104,5 @@ export function useSkipMarkers(subject: SkipSubject | null): SkipMarkers {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subject?.key]);
 
-  return subject && state.key === subject.key ? state.markers : {};
+  return subject && state.key === subject.key ? state.markers : NO_MARKERS;
 }
