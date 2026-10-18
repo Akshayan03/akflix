@@ -883,6 +883,203 @@ async fn transcribe_caption_chunk(
     }
 }
 
+/// One skip-detection read at a time: it runs beside playback and must never
+/// compete with it through more than one FFmpeg process.
+static SKIP_READER_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+/// The read in progress: the playing file it is for, and its FFmpeg process.
+static SKIP_READ: OnceLock<Mutex<Option<(String, u32)>>> = OnceLock::new();
+
+fn skip_read() -> &'static Mutex<Option<(String, u32)>> {
+    SKIP_READ.get_or_init(|| Mutex::new(None))
+}
+
+/// Stops the read in progress when `stale(owner)` says nobody wants it any
+/// more (the episode changed or the player closed), so the next one never
+/// waits behind it.
+fn stop_skip_read(stale: impl Fn(&str) -> bool) {
+    let Ok(current) = skip_read().lock() else {
+        return;
+    };
+    if let Some((owner, pid)) = current.as_ref() {
+        if stale(owner) {
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(*pid as i32, libc::SIGTERM);
+            }
+            #[cfg(not(unix))]
+            let _ = pid;
+        }
+    }
+}
+
+fn skip_ffmpeg(input: &str) -> Result<(PathBuf, String), String> {
+    let input = caption_input(input)?;
+    let ffmpeg =
+        find_ffmpeg().ok_or("The bundled FFmpeg executable is missing from this Akflix build")?;
+    Ok((ffmpeg, input))
+}
+
+fn skip_audio_map(ffmpeg: &PathBuf, input: &str, audio_language: Option<&str>) -> String {
+    #[cfg(target_os = "macos")]
+    {
+        preferred_audio_map(ffmpeg, input, audio_language)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (ffmpeg, input, audio_language);
+        "0:a:0?".into()
+    }
+}
+
+/// Mono 8 kHz signed 16-bit PCM of [start, start + duration) for the skip
+/// intro fingerprints (src/lib/skip/fingerprint.ts). Less at the end of the
+/// file or of what a stream can deliver.
+fn skip_media_pcm_sync(
+    owner: String,
+    input: String,
+    start_seconds: f64,
+    duration_seconds: f64,
+    audio_language: Option<String>,
+) -> Result<Vec<u8>, String> {
+    // A read for something else (the previous episode) is stopped first.
+    stop_skip_read(|current| current != owner);
+    let _reader = SKIP_READER_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| "Skip reader lock failed")?;
+    let (ffmpeg, input) = skip_ffmpeg(&input)?;
+    let start_seconds = if start_seconds.is_finite() {
+        start_seconds.max(0.0)
+    } else {
+        0.0
+    };
+    let duration_seconds = if duration_seconds.is_finite() {
+        duration_seconds.clamp(1.0, 120.0)
+    } else {
+        60.0
+    };
+    let audio_map = skip_audio_map(&ffmpeg, &input, audio_language.as_deref());
+    let mut command = Command::new(ffmpeg);
+    command.args(["-hide_banner", "-loglevel", "error", "-nostdin"]);
+    if input.starts_with("http://") || input.starts_with("https://") {
+        command.args(["-rw_timeout", "10000000"]);
+    }
+    if start_seconds > 0.0 {
+        command.args(["-ss", &format!("{start_seconds:.3}")]);
+    }
+    let child = command
+        .arg("-i")
+        .arg(&input)
+        .args(["-map", &audio_map, "-t", &format!("{duration_seconds:.3}")])
+        .args([
+            "-vn", "-sn", "-dn", "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("Could not read the video audio: {error}"))?;
+    let pid = child.id();
+    if let Ok(mut current) = skip_read().lock() {
+        *current = Some((owner, pid));
+    }
+    let output = child.wait_with_output();
+    if let Ok(mut current) = skip_read().lock() {
+        if current.as_ref().is_some_and(|(_, running)| *running == pid) {
+            *current = None;
+        }
+    }
+    let output = output.map_err(|error| format!("Could not read the video audio: {error}"))?;
+    if !output.status.success() && output.stdout.is_empty() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "The audio could not be read: {}",
+            detail.lines().last().unwrap_or("unknown FFmpeg error")
+        ));
+    }
+    let mut bytes = output.stdout;
+    bytes.truncate(bytes.len() & !1);
+    Ok(bytes)
+}
+
+#[tauri::command]
+async fn skip_media_pcm(
+    owner: String,
+    input: String,
+    start_seconds: f64,
+    duration_seconds: f64,
+    audio_language: Option<String>,
+) -> Result<tauri::ipc::Response, String> {
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        skip_media_pcm_sync(owner, input, start_seconds, duration_seconds, audio_language)
+    })
+    .await
+    .map_err(|error| format!("Skip reader stopped: {error}"))??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// The player moved on: stop that file's read now instead of letting it finish.
+#[tauri::command]
+fn skip_media_cancel(owner: String) {
+    stop_skip_read(|current| current == owner);
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SkipMediaProbe {
+    /// FFmpeg metadata text with the chapters (parsed in src/lib/skip/markers.ts).
+    metadata: String,
+    /// The file's own duration in seconds (0 when FFmpeg reports none).
+    duration: f64,
+}
+
+/// "  Duration: 00:43:12.34, start: ..." from FFmpeg's input report.
+fn ffmpeg_reported_duration(report: &str) -> f64 {
+    report
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Duration: "))
+        .and_then(|rest| rest.split(',').next())
+        .and_then(|clock| {
+            let parts = clock
+                .trim()
+                .split(':')
+                .map(str::parse::<f64>)
+                .collect::<Result<Vec<_>, _>>()
+                .ok()?;
+            (parts.len() == 3).then(|| parts[0] * 3600.0 + parts[1] * 60.0 + parts[2])
+        })
+        .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+        .unwrap_or(0.0)
+}
+
+/// Chapters and true duration of a file (the catalog runtime is only approximate).
+fn skip_media_probe_sync(input: String) -> Result<SkipMediaProbe, String> {
+    let (ffmpeg, input) = skip_ffmpeg(&input)?;
+    let mut command = Command::new(ffmpeg);
+    command.args(["-hide_banner", "-loglevel", "info", "-nostdin"]);
+    if input.starts_with("http://") || input.starts_with("https://") {
+        command.args(["-rw_timeout", "8000000"]);
+    }
+    let output = command
+        .arg("-i")
+        .arg(&input)
+        .args(["-f", "ffmetadata", "pipe:1"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| format!("Could not read the chapters: {error}"))?;
+    Ok(SkipMediaProbe {
+        metadata: String::from_utf8_lossy(&output.stdout).into_owned(),
+        duration: ffmpeg_reported_duration(&String::from_utf8_lossy(&output.stderr)),
+    })
+}
+
+#[tauri::command]
+async fn skip_media_probe(input: String) -> Result<SkipMediaProbe, String> {
+    tauri::async_runtime::spawn_blocking(move || skip_media_probe_sync(input))
+        .await
+        .map_err(|error| format!("Chapter reader stopped: {error}"))?
+}
+
 fn stop_hls_process(id: &str) {
     if let Ok(mut processes) = hls_processes().lock() {
         if let Some(mut child) = processes.remove(id) {
@@ -1490,6 +1687,9 @@ pub fn run() {
             stop_hls_stream,
             set_hls_stream_paused,
             transcribe_caption_chunk,
+            skip_media_pcm,
+            skip_media_probe,
+            skip_media_cancel,
             embedded_engine_status,
             ensure_embedded_torrent_engine,
             available_media_storage,
@@ -1583,6 +1783,105 @@ mod tests {
             .expect("system time")
             .as_nanos();
         std::env::temp_dir().join(format!("akflix-{name}-{}-{nonce}", std::process::id()))
+    }
+
+    #[test]
+    fn reads_the_duration_ffmpeg_reports_for_skip_detection() {
+        let report = "Input #0, matroska,webm, from 'e1.mkv':\n  Metadata:\n    ENCODER         : Lavf62\n  Duration: 00:43:12.34, start: 0.000000, bitrate: 98 kb/s\n";
+        assert!((ffmpeg_reported_duration(report) - 2592.34).abs() < 1e-6);
+        assert_eq!(ffmpeg_reported_duration("  Duration: N/A, start: 0.0"), 0.0);
+        assert_eq!(ffmpeg_reported_duration(""), 0.0);
+    }
+
+    #[test]
+    fn a_skip_read_nobody_wants_any_more_is_stopped() {
+        if find_ffmpeg().is_none() {
+            eprintln!("no ffmpeg: skipped");
+            return;
+        }
+        // A source that accepts the connection and then never sends a byte.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}/stalled.mkv", listener.local_addr().expect("address"));
+        thread::spawn(move || {
+            let mut open = Vec::new();
+            for stream in listener.incoming().flatten() {
+                open.push(stream);
+            }
+        });
+        let started = std::time::Instant::now();
+        let reader = thread::spawn(move || skip_media_pcm_sync("old".into(), url, 0.0, 60.0, None));
+        while !reader.is_finished() && started.elapsed() < Duration::from_secs(20) {
+            thread::sleep(Duration::from_millis(200));
+            skip_media_cancel("old".into());
+        }
+        let result = reader.join().expect("reader");
+        assert!(
+            started.elapsed() < Duration::from_secs(9),
+            "a stopped read took {:?} (FFmpeg's own timeout is 10 s after a 4 s probe)",
+            started.elapsed()
+        );
+        assert!(result.map(|pcm| pcm.is_empty()).unwrap_or(true));
+    }
+
+    #[test]
+    fn skip_reader_returns_8khz_mono_pcm_chapters_and_duration() {
+        let Some(ffmpeg) = find_ffmpeg() else {
+            eprintln!("no ffmpeg: skipped");
+            return;
+        };
+        // media:// paths resolve under the development downloads folder in tests.
+        let name = format!(".akflix-skip-test-{}", std::process::id());
+        let folder = downloads_root().expect("downloads root").join(&name);
+        fs::create_dir_all(&folder).expect("create folder");
+        let chapters = folder.join("chapters.txt");
+        fs::write(
+            &chapters,
+            ";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=4000\ntitle=Intro\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=4000\nEND=10000\ntitle=Episode\n",
+        )
+        .expect("write chapters");
+        let status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+            ])
+            .arg("sine=frequency=440:duration=10:sample_rate=44100")
+            .arg("-i")
+            .arg(&chapters)
+            .args(["-map_chapters", "1", "-c:a", "aac"])
+            .arg(folder.join("tone.mkv"))
+            .status()
+            .expect("run ffmpeg");
+        assert!(status.success());
+        let input = format!("media://{name}/tone.mkv");
+
+        let pcm = skip_media_pcm_sync("test".into(), input.clone(), 2.0, 3.0, None).expect("pcm");
+        assert!(
+            (pcm.len() as i64 - 48_000).abs() <= 400,
+            "3 s of 8 kHz 16-bit mono, got {} bytes",
+            pcm.len()
+        );
+        let tail = skip_media_pcm_sync("test".into(), input.clone(), 8.0, 60.0, None)
+            .expect("pcm at the end");
+        assert!(
+            (tail.len() as i64 - 32_000).abs() <= 2_000,
+            "only what is left: {} bytes",
+            tail.len()
+        );
+
+        let probe = skip_media_probe_sync(input).expect("probe");
+        assert!(probe.metadata.contains("title=Intro"), "{}", probe.metadata);
+        assert!(
+            (probe.duration - 10.0).abs() < 0.2,
+            "duration {}",
+            probe.duration
+        );
+        assert!(skip_media_probe_sync("media://../escape.mkv".into()).is_err());
+        let _ = fs::remove_dir_all(&folder);
     }
 
     #[test]

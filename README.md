@@ -36,6 +36,12 @@ The desktop build also includes temporary peer streaming and offline downloads.
 - ▶️ In-app player: direct-play or HLS transcode (hls.js), subtitles,
   global keyboard shortcuts (Space/K, ←/→, F, M, Esc), auto-hiding
   controls, resume, progress sync back to Jellyfin
+- ⏭️ **Skip Intro / Skip Recap** (press S) while an intro or recap plays, and a
+  **Next Episode** card (press N) when the end credits start; optional
+  automatic skipping (Settings → Playback) with a Watch it button. Found from
+  chapters, Jellyfin media segments, or the season's episodes compared by
+  audio fingerprint in the background (`src/lib/skip`; accuracy run:
+  `node scripts/test-skip-fixtures.mjs`)
 - 🖥️ Desktop-native: macOS overlay titlebar with draggable navbar, system
   tray (hide-to-tray on close), single instance, magnet-link handler,
   .torrent file association, **auto-updates** from GitHub releases

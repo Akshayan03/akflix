@@ -78,6 +78,17 @@ import { iosNativeSources } from "@/lib/iosSourceCompatibility";
 import { automaticSafeSources } from "@/lib/sourceLanguage";
 import { directSubtitleTracks } from "@/api/subtitles";
 import MiniPlayer from "@/components/MiniPlayer";
+import SkipControls, { type SkipNotice } from "@/components/SkipControls";
+import { openingWindow } from "@/lib/skip/detector";
+import { desktopSkipReader } from "@/lib/skip/desktopSource";
+import {
+  markersFromJellyfinSegments,
+  skipView,
+  sourceKey,
+  type SkipMarkers,
+  type SkippableKind,
+} from "@/lib/skip/markers";
+import { useSkipMarkers, type SkipSubject } from "@/lib/skip/useSkipMarkers";
 import type { MediaSource, MediaStream } from "@/types/jellyfin";
 import { useHistory, type HistoryTitle } from "@/stores/historyStore";
 
@@ -183,6 +194,49 @@ function saveDirectProgress(
   });
 }
 
+/** Background skip detection for one playing file (see lib/skip). */
+function desktopSkipSubject(options: {
+  key: string;
+  show: string;
+  season: number;
+  episode: number;
+  /** Stable identity of the exact file (hashed before it is stored). */
+  file: string;
+  input: string;
+  isEpisode: boolean;
+  audioLanguage: string;
+  known?: (signal: AbortSignal, duration: number) => Promise<SkipMarkers>;
+}): SkipSubject {
+  const playhead = () => usePlayback.getState().currentTime;
+  const reader = desktopSkipReader({
+    owner: options.key,
+    input: options.input,
+    audioLanguage: options.audioLanguage,
+    fingerprint: options.isEpisode,
+    // Streams and media servers alike are read beside playback, never far ahead.
+    available: () => false,
+    playhead,
+    duration: () => usePlayback.getState().duration,
+    known: options.known ? (signal) => options.known!(signal, reader.duration()) : undefined,
+  });
+  return {
+    key: options.key,
+    identity: {
+      show: options.show,
+      season: options.season,
+      episode: options.episode,
+      source: sourceKey(options.file),
+    },
+    adapter: reader.adapter,
+    duration: reader.duration,
+    playhead,
+    // Resumed past the opening: no Skip Intro to offer, and no reason to read it.
+    wantIntro: () => playhead() < openingWindow(reader.duration()) - 30,
+  };
+}
+
+const AUTO_SKIP_NOTICE_MS = 6_000;
+
 function queueDirectEpisodeProgress(
   request: DirectPlaybackRequest | null,
   next: DirectEpisodeTarget | undefined
@@ -206,6 +260,7 @@ export default function PlayerHost() {
   // here caused an infinite re-register loop with the controls effect).
   const client = useJellyfinClient();
   const subtitleLanguage = useSettings((s) => s.subtitleLanguage);
+  const autoSkipIntro = useSettings((s) => s.autoSkipIntro);
   const preferredAudioLanguage = useSettings((s) => s.audioLanguage);
   const activeStreamHash = useTorrents((s) => s.activeStreamHash);
   const finishActiveStream = useTorrents((s) => s.finishActiveStream);
@@ -275,6 +330,17 @@ export default function PlayerHost() {
   const [captionTask, setCaptionTask] = useState<"generating" | "syncing" | null>(null);
   const [compatibilityStartSeconds, setCompatibilityStartSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // Skip Intro / Recap and the credits card.
+  const [skipSubject, setSkipSubject] = useState<SkipSubject | null>(null);
+  const skipMarkers = useSkipMarkers(skipSubject);
+  const [skipNotice, setSkipNotice] = useState<SkipNotice | null>(null);
+  const [creditsDismissed, setCreditsDismissed] = useState(false);
+  const [nextTitle, setNextTitle] = useState<string | undefined>(undefined);
+  const skipTimeRef = useRef<number | null>(null);
+  const autoSkippedRef = useRef(new Set<SkippableKind>());
+  const skipDismissedRef = useRef(new Set<SkippableKind>());
+  const skipNoticeTimer = useRef<ReturnType<typeof setTimeout>>();
+  const skipActionsRef = useRef<{ skip: (() => void) | null; next: (() => void) | null }>({ skip: null, next: null });
 
   // Skips, converter restarts and their retries. Created once: it reads the
   // live video, request and store through refs.
@@ -372,6 +438,14 @@ export default function PlayerHost() {
   }, [client, seeker]);
 
   const teardown = useCallback(() => {
+    setSkipSubject(null);
+    setSkipNotice(null);
+    clearTimeout(skipNoticeTimer.current);
+    setCreditsDismissed(false);
+    setNextTitle(undefined);
+    skipTimeRef.current = null;
+    autoSkippedRef.current = new Set();
+    skipDismissedRef.current = new Set();
     captionGenerationRef.current += 1;
     captionInputRef.current = null;
     setCaptionTask(null);
@@ -476,6 +550,9 @@ export default function PlayerHost() {
               const i = ordered.findIndex((episode) => episode.Id === itemId);
               const next = i >= 0 ? ordered[i + 1] : undefined;
               nextEpisodeRef.current = next?.Id ?? null;
+              setNextTitle(
+                next ? `S${next.ParentIndexNumber ?? 1} E${next.IndexNumber ?? 1} · ${next.Name}` : undefined
+              );
               _sync({ hasNext: !!next });
             })
             .catch(() => {});
@@ -484,6 +561,26 @@ export default function PlayerHost() {
         // Attach the stream.
         const { url, isHls } = client.streamUrl(itemId, source as MediaSource, info.PlaySessionId);
         captionInputRef.current = url;
+        setSkipSubject(
+          desktopSkipSubject({
+            key: `jellyfin:${itemId}:${source.Id}:${seq}`,
+            show: item.SeriesId ?? item.Id,
+            season: item.ParentIndexNumber ?? 0,
+            episode: item.IndexNumber ?? 0,
+            file: `jellyfin:${itemId}:${source.Id}`,
+            // Skip detection reads the stored file. Only beside direct play: a
+            // transcode means the bandwidth is short, and reading the original
+            // too could starve playback (chapters and segments still apply).
+            input: client.staticStreamUrl(itemId, source.Id),
+            isEpisode: isEpisode && !isHls,
+            audioLanguage: preferredAudioLanguage,
+            known: async (signal, mediaDuration) =>
+              markersFromJellyfinSegments(
+                await client.mediaSegments(itemId, signal),
+                mediaDuration || ticksToSeconds(item.RunTimeTicks)
+              ),
+          })
+        );
         // hls.js is the largest frontend dependency. Load it only when the
         // negotiated source actually needs Media Source Extensions; direct
         // play sessions should not pay that startup/download cost.
@@ -518,7 +615,7 @@ export default function PlayerHost() {
         toast.error(t("common.error"), { description: msg.slice(0, 140) });
       }
     },
-    [client, subtitleLanguage, teardown, _setSession, _sync, t]
+    [client, preferredAudioLanguage, subtitleLanguage, teardown, _setSession, _sync, t]
   );
 
   /** Local progressive playback bypasses Jellyfin's slow incomplete-file probe. */
@@ -566,6 +663,23 @@ export default function PlayerHost() {
           ? `media://Streaming Cache/${request.compatibility.filename}`
           : request.url);
       setCompatibilityStartSeconds(request.compatibility?.startSeconds ?? 0);
+      const upcoming = request.episodeQueue?.[0];
+      setNextTitle(upcoming ? `S${upcoming.season} E${upcoming.episode} · ${upcoming.title}` : undefined);
+      const skipInput = captionInputRef.current;
+      setSkipSubject(
+        skipInput
+          ? desktopSkipSubject({
+              key: `direct:${request.playbackRequestId ?? request.id}`,
+              show: request.catalogId ?? `release:${sourceKey(display.title)}`,
+              season: request.season ?? 0,
+              episode: request.episode ?? 0,
+              file: skipInput,
+              input: skipInput,
+              isEpisode: !!request.isEpisode && request.season !== undefined && request.episode !== undefined,
+              audioLanguage: request.compatibility?.audioLanguage ?? preferredAudioLanguage,
+            })
+          : null
+      );
       video.src = request.url;
       video.preload = "auto";
       applyPlaybackRate(video, requestedPlaybackRateRef.current);
@@ -604,7 +718,7 @@ export default function PlayerHost() {
           .catch(() => {});
       }
     },
-    [_setSession, _sync, subtitleLanguage, teardown]
+    [_setSession, _sync, preferredAudioLanguage, subtitleLanguage, teardown]
   );
 
   // React to open() requests from pages.
@@ -1043,6 +1157,83 @@ export default function PlayerHost() {
     };
   }, [session?.itemId]);
 
+  // ── Skip Intro / Recap, and Next episode at the credits ─────────────
+  // The file's own end (probed), where the existing autoplay moves on; credits
+  // may end before it (a post-credits scene).
+  const mediaEnd = skipSubject?.duration() || duration;
+  const skipState = {
+    markers: skipMarkers,
+    duration: mediaEnd,
+    autoSkipped: autoSkippedRef.current,
+    dismissed: skipDismissedRef.current,
+    hasNext,
+    creditsDismissed,
+  };
+  const skip = skipView({ ...skipState, time: currentTime, previousTime: null, autoSkip: false });
+
+  const showSkipNotice = useCallback((notice: SkipNotice | null) => {
+    clearTimeout(skipNoticeTimer.current);
+    setSkipNotice(notice);
+    if (notice) skipNoticeTimer.current = setTimeout(() => setSkipNotice(null), AUTO_SKIP_NOTICE_MS);
+  }, []);
+  useEffect(() => () => clearTimeout(skipNoticeTimer.current), []);
+  const undoSkip = useCallback(
+    (notice: SkipNotice) => {
+      // The viewer wants to watch it: no button over it, no second auto-skip.
+      skipDismissedRef.current.add(notice.kind);
+      usePlayback.getState().controls?.seek(notice.from);
+      showSkipNotice(null);
+    },
+    [showSkipNotice]
+  );
+
+  // Auto-skip: only when playback runs into an intro or recap (never after a
+  // seek or resume into it), once per part, and never again after Watch it.
+  useEffect(() => {
+    const previousTime = skipTimeRef.current;
+    skipTimeRef.current = currentTime;
+    if (!autoSkipIntro || seeker.replacing() || scrubTimeRef.current !== null) return;
+    const decision = skipView({ ...skipState, time: currentTime, previousTime, autoSkip: true }).autoSkip;
+    const segment = decision ? skipMarkers[decision.kind] : undefined;
+    if (!decision || !segment) return;
+    autoSkippedRef.current.add(decision.kind);
+    usePlayback.getState().controls?.seek(decision.target);
+    const notice = { kind: decision.kind, from: segment.start };
+    if (usePlayback.getState().mode === "expanded") {
+      showSkipNotice(notice);
+    } else {
+      // The mini player has no room for the notice: the same choice as a toast.
+      toast(decision.kind === "intro" ? "Intro skipped" : "Recap skipped", {
+        duration: AUTO_SKIP_NOTICE_MS,
+        action: { label: "Watch it", onClick: () => undoSkip(notice) },
+      });
+    }
+    // Decided per time update; the markers and settings are read as they are now.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTime]);
+
+  const skipButton = skip.button;
+  const skipNow = useCallback(() => {
+    if (!skipButton) return;
+    showSkipNotice(null);
+    usePlayback.getState().controls?.seek(skipButton.target);
+  }, [showSkipNotice, skipButton]);
+  const undoAutoSkip = useCallback(() => {
+    if (skipNotice) undoSkip(skipNotice);
+  }, [skipNotice, undoSkip]);
+  const upNext =
+    skip.nextEpisode && skipMarkers.credits
+      ? {
+          title: nextTitle,
+          endsIn: mediaEnd - currentTime,
+          progress: (currentTime - skipMarkers.credits.start) / Math.max(1, mediaEnd - skipMarkers.credits.start),
+        }
+      : null;
+  skipActionsRef.current = {
+    skip: skipButton ? skipNow : null,
+    next: upNext ? () => void usePlayback.getState().controls?.next() : null,
+  };
+
   // ── Global keyboard shortcuts (active whenever something is loaded) ──
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1111,6 +1302,18 @@ export default function PlayerHost() {
           break;
         case "m":
           ctrl.setMuted(!v.muted);
+          break;
+        case "s":
+          if (expanded && skipActionsRef.current.skip) {
+            e.preventDefault();
+            skipActionsRef.current.skip();
+          }
+          break;
+        case "n":
+          if (expanded && skipActionsRef.current.next) {
+            e.preventDefault();
+            skipActionsRef.current.next();
+          }
           break;
         case "<":
         case ",": {
@@ -2141,6 +2344,19 @@ export default function PlayerHost() {
                 </div>
               </div>
           </div>
+        )}
+        {expanded && !error && (
+          <SkipControls
+            button={skipButton}
+            notice={skipNotice}
+            upNext={upNext}
+            raised={controlsVisible}
+            touch={mobileApple}
+            onSkip={skipNow}
+            onUndo={undoAutoSkip}
+            onNext={() => void usePlayback.getState().controls?.next()}
+            onWatchCredits={() => setCreditsDismissed(true)}
+          />
         )}
       </motion.div>
 
