@@ -128,6 +128,28 @@ export function parseFfmetadataChapters(text: string): MediaChapter[] {
   return chapters.filter((chapter) => Number.isFinite(chapter.start));
 }
 
+/** A Jellyfin 10.10+ media segment (GET /MediaSegments/{itemId}). */
+export interface JellyfinSegment {
+  Type?: string;
+  StartTicks?: number;
+  EndTicks?: number;
+}
+
+const JELLYFIN_KINDS: Record<string, SkipKind> = { intro: "intro", recap: "recap", outro: "credits" };
+
+export function markersFromJellyfinSegments(segments: JellyfinSegment[], duration: number): SkipMarkers {
+  const markers: SkipMarkers = {};
+  for (const segment of segments) {
+    const kind = JELLYFIN_KINDS[(segment.Type ?? "").toLowerCase()];
+    if (!kind || markers[kind]) continue;
+    const range = { start: (segment.StartTicks ?? NaN) / 1e7, end: (segment.EndTicks ?? NaN) / 1e7 };
+    // An outro that runs to the end is often reported a little past it.
+    if (kind === "credits" && duration > 0) range.end = Math.min(range.end, duration);
+    if (plausibleSegment(kind, range, duration)) markers[kind] = { ...range, source: "jellyfin" };
+  }
+  return markers;
+}
+
 /** Earlier sources win per kind (pass them in order of trust). */
 export function mergeMarkers(...sets: Array<SkipMarkers | null | undefined>): SkipMarkers {
   const merged: SkipMarkers = {};

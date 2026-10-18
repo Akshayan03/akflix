@@ -17,7 +17,6 @@ import {
   findSignature,
   signatureFrom,
   signatureFromRange,
-  type SegmentMatch,
   type Signature,
 } from "./match";
 import { rememberPrint, type SeasonMemory, type SkipMemory } from "./cache";
@@ -38,6 +37,8 @@ export const CHUNK_SECONDS = 60;
 export const INTRO_MIN_SECONDS = 15;
 export const INTRO_MAX_SECONDS = 180;
 export const CREDITS_MIN_SECONDS = 15;
+/** End credits run to the end, give or take a post-credits scene or preview. */
+export const CREDITS_TAIL_SECONDS = 60;
 /** Intro (and credits) signatures kept per season: intros can change mid-season. */
 export const MAX_SIGNATURES = 3;
 
@@ -61,6 +62,8 @@ export interface SkipAnalysis {
   onMarkers: (markers: SkipMarkers) => void;
   signal: AbortSignal;
   log?: (message: string) => void;
+  /** Checked before reading the opening (false: e.g. resumed past it on a slow stream). */
+  wantIntro?: () => boolean;
 }
 
 /** Seconds at the end that are searched for the end credits. */
@@ -166,7 +169,7 @@ export async function analyzeSkipMarkers(job: SkipAnalysis): Promise<SkipMarkers
   if (!adapter.pcm) return shown;
 
   // 3a. The intro, from the opening minutes.
-  if (!named.intro && !found.intro) {
+  if (!named.intro && !found.intro && (job.wantIntro?.() ?? true)) {
     const window = openingWindow(job.duration());
     type Candidate = { start: number; end: number; how: string; paired: boolean };
     let learned: { print: AudioPrint; start: number; end: number } | null = null;
@@ -247,15 +250,14 @@ export async function analyzeSkipMarkers(job: SkipAnalysis): Promise<SkipMarkers
   }
 
   // 3b. The end credits, from the last minutes (once the duration is known).
+  // Read chunk by chunk like the opening, so "Next episode" can appear as soon
+  // as the shared closing audio is seen running up to what has been read.
   if (!named.credits && !found.credits) {
     if (adapter.closingReady) await adapter.closingReady(signal);
     aborted(signal);
     const duration = job.duration();
     if (duration >= 300) {
       const start = duration - closingWindow(duration);
-      let pairFound: { match: SegmentMatch; print: AudioPrint } | null = null;
-      const closing = await fingerprintRange(adapter, start, duration, signal, () => false);
-      const print = closing.print;
       const acceptCredits = (from: number, how: string) => {
         const segment = { start: from, end: duration };
         if (!plausibleSegment("credits", segment, duration)) return false;
@@ -264,31 +266,53 @@ export async function analyzeSkipMarkers(job: SkipAnalysis): Promise<SkipMarkers
         publish();
         return true;
       };
-      let done = false;
-      for (const signature of [...season.credits].reverse()) {
-        const hit = findSignature(signature, print, { range: [start, duration] });
-        if (hit && acceptCredits(hit.start, `season credits, ${Math.round(hit.coverage * 100)}% matched`)) {
-          done = true;
-          break;
+      /** Credits seen in what was read so far. Credits run to the end (give or
+       * take a post-credits scene): until the end is read only a stretch still
+       * running at the read position counts, and at the end only one that
+       * reaches it. A shared cue that stops earlier is not them. */
+      const sighting = (print: AudioPrint, readUntil: number, final: boolean) => {
+        const reaches = (end: number) => (final ? end >= duration - CREDITS_TAIL_SECONDS : end >= readUntil - 5);
+        for (const signature of [...season.credits].reverse()) {
+          const hit = findSignature(signature, print, { range: [start, readUntil] });
+          if (hit && reaches(hit.end)) {
+            return { from: hit.start, how: `season credits, ${Math.round(hit.coverage * 100)}% matched`, match: null };
+          }
         }
-      }
-      if (!done) {
         for (const other of [...season.closings].reverse()) {
           if (other.episode === identity.episode) continue;
           const match = bestCommonSegment(print, other.print, {
             minSeconds: CREDITS_MIN_SECONDS,
             maxSeconds: CLOSING_SECONDS,
-            aRange: [start, duration],
+            aRange: [start, readUntil],
             bRange: [other.duration - closingWindow(other.duration), other.duration],
           });
-          if (match && acceptCredits(match.a.start, `shared with episode ${other.episode}`)) {
-            pairFound = { match, print };
-            break;
+          if (match && reaches(match.a.end)) {
+            return { from: match.a.start, how: `shared with episode ${other.episode}`, match };
           }
         }
+        return null;
+      };
+      const closing = await fingerprintRange(adapter, start, duration, signal, (print, readUntil) => {
+        if (!found.credits && readUntil < duration - 1) {
+          const seen = sighting(print, readUntil, false);
+          if (seen) acceptCredits(seen.from, seen.how);
+        }
+        return false;
+      });
+      const print = closing.print;
+      // The whole closing: the final say (an early sighting that does not hold
+      // up is withdrawn), and learn from the full stretch.
+      const final = sighting(print, duration, true);
+      if (final && (!found.credits || Math.abs(found.credits.start - final.from) > 3)) {
+        acceptCredits(final.from, final.how);
+      } else if (!final && found.credits && closing.complete) {
+        const { credits: _withdrawn, ...rest } = found;
+        found = rest;
+        log("credits withdrawn: the shared stretch stops before the end");
+        publish();
       }
-      if (pairFound) {
-        const signature = signatureFrom(pairFound.print, pairFound.match.a);
+      if (final?.match && found.credits) {
+        const signature = signatureFrom(print, final.match.a);
         if (!knownSignature(season.credits, signature)) {
           season.credits = [...season.credits, signature].slice(-MAX_SIGNATURES);
           seasonChanged = true;

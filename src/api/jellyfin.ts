@@ -10,6 +10,7 @@
 
 import { httpJson, httpRaw, normalizeUrl } from "@/lib/http";
 import { getDeviceId, secondsToTicks } from "@/lib/utils";
+import type { JellyfinSegment } from "@/lib/skip/markers";
 import type {
   AuthResponse,
   BaseItem,
@@ -326,6 +327,20 @@ export class JellyfinClient {
     }
     // Server-provided transcode URL (already contains the session params).
     return { url: `${this.serverUrl}${source.TranscodingUrl}`, isHls: true };
+  }
+
+  /** The original file as stored (what skip detection reads, even when playback transcodes). */
+  staticStreamUrl(itemId: string, mediaSourceId: string): string {
+    const q = new URLSearchParams({ static: "true", mediaSourceId, api_key: this.token ?? "" });
+    return `${this.serverUrl}/Videos/${itemId}/stream?${q}`;
+  }
+
+  /** Intro, recap and outro segments (Jellyfin 10.10+, e.g. from Intro Skipper). Empty when unsupported. */
+  async mediaSegments(itemId: string, signal?: AbortSignal): Promise<JellyfinSegment[]> {
+    const q = new URLSearchParams();
+    for (const type of ["Intro", "Recap", "Outro"]) q.append("includeSegmentTypes", type);
+    const result = await this.get<{ Items?: JellyfinSegment[] }>(`/MediaSegments/${itemId}?${q}`, signal);
+    return result.Items ?? [];
   }
 
   /** External subtitle delivery URL (WebVTT so the browser can render it). */

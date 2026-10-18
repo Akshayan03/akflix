@@ -608,6 +608,29 @@ export default function Settings() {
         </button>
       </section>}
 
+      {/* ── Playback ── */}
+      <section className={sectionCls} aria-labelledby="settings-playback">
+        <h2 id="settings-playback" className="mb-4 font-semibold">Playback</h2>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={settings.autoSkipIntro}
+          onClick={() => settings.update({ autoSkipIntro: !settings.autoSkipIntro })}
+          className="ak-switch-row"
+        >
+          <span className="min-w-0 text-left">
+            <span className="block text-sm font-semibold text-zinc-100">Skip intros automatically</span>
+            <span className="mt-1 block text-xs leading-5 text-zinc-400">
+              Jumps past an intro or recap as soon as it starts, with a Watch it button to go back.
+              Skip Intro shows on screen either way. Next Episode appears when the end credits start.
+            </span>
+          </span>
+          <span aria-hidden="true" className="ak-switch" data-on={settings.autoSkipIntro ? "true" : "false"}>
+            <span className="ak-switch__thumb" />
+          </span>
+        </button>
+      </section>
+
       {/* ── Language ── */}
       <section className={sectionCls}>
         <h2 className="font-semibold">{t("settings.language")}</h2>

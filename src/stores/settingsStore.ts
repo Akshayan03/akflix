@@ -29,6 +29,8 @@ export interface Settings {
   subtitleLanguage: string;
   /** Prefer this audio track in multi-language video files. */
   audioLanguage: string;
+  /** Jump past intros and recaps on its own (the Skip button shows either way). */
+  autoSkipIntro: boolean;
 }
 
 interface SettingsState extends Settings {
@@ -50,6 +52,7 @@ const defaults: Settings = {
   language: "en",
   subtitleLanguage: "eng",
   audioLanguage: "eng",
+  autoSkipIntro: false,
 };
 
 export const useSettings = create<SettingsState>()(

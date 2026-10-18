@@ -16,6 +16,7 @@ import {
   SKIP_LANDING_LEAD,
   chapterKind,
   markersFromChapters,
+  markersFromJellyfinSegments,
   parseFfmetadataChapters,
   plausibleSegment,
   skipView,
@@ -23,7 +24,8 @@ import {
   type SkipInput,
   type SkipMarkers,
 } from "../src/lib/skip/markers";
-import { SkipMemory, decodePrint, encodePrint, type SkipStorage } from "../src/lib/skip/cache";
+import { MAX_STORED_CHARS, SkipMemory, decodePrint, encodePrint, type SkipStorage } from "../src/lib/skip/cache";
+import { gentleReader } from "../src/lib/skip/streamReader";
 import { analyzeSkipMarkers, openingWindow, closingWindow } from "../src/lib/skip/detector";
 
 // ── Deterministic synthetic audio (the same generator is in the Roku bridge tests) ──
@@ -254,6 +256,26 @@ test("ffmpeg chapter metadata is parsed with escapes and time bases", () => {
     { title: "Previously On", start: 0, end: 40 },
     { title: "Opening ; Theme", start: 40, end: 70.5 },
   ]);
+});
+
+test("Jellyfin media segments become markers", () => {
+  const markers = markersFromJellyfinSegments(
+    [
+      { Type: "Recap", StartTicks: 0, EndTicks: 35 * 1e7 },
+      { Type: "Intro", StartTicks: 62.5 * 1e7, EndTicks: 112 * 1e7 },
+      { Type: "Outro", StartTicks: 1300 * 1e7, EndTicks: 1385 * 1e7 },
+      { Type: "Commercial", StartTicks: 600 * 1e7, EndTicks: 700 * 1e7 },
+      { Type: "Intro", StartTicks: 0, EndTicks: 2 * 1e7 },
+    ],
+    1380
+  );
+  assert.deepEqual(markers, {
+    recap: { start: 0, end: 35, source: "jellyfin" },
+    intro: { start: 62.5, end: 112, source: "jellyfin" },
+    credits: { start: 1300, end: 1380, source: "jellyfin" },
+  });
+  // A whole-episode "intro" (a broken analysis) is refused.
+  assert.deepEqual(markersFromJellyfinSegments([{ Type: "Intro", StartTicks: 0, EndTicks: 1300 * 1e7 }], 1380), {});
 });
 
 test("implausible markers are refused", () => {
@@ -502,4 +524,154 @@ test("analysis windows follow the episode length", () => {
   assert.equal(openingWindow(240), 180);
   assert.equal(closingWindow(2700), 360);
   assert.equal(closingWindow(480), 150);
+});
+
+// ── Reading beside playback ───────────────────────────────────────────────
+
+function fakeClock() {
+  const state = { now: 0, playhead: 0 };
+  const sleep = async (ms: number, signal: AbortSignal) => {
+    if (signal.aborted) throw new DOMException("stopped", "AbortError");
+    state.now += ms;
+    state.playhead += ms / 1000;
+  };
+  return { state, sleep };
+}
+
+test("a still-arriving stream is read only a little ahead of the playhead", async () => {
+  const clock = fakeClock();
+  const reads: Array<{ start: number; at: number }> = [];
+  const read = gentleReader({
+    read: async (start, seconds) => {
+      reads.push({ start, at: clock.state.playhead });
+      return new Int16Array(Math.round(seconds * FP_SAMPLE_RATE));
+    },
+    playhead: () => clock.state.playhead,
+    duration: () => 1400,
+    available: () => false,
+    lead: 150,
+    sleep: clock.sleep,
+  });
+  const signal = new AbortController().signal;
+  await read(0, 60, signal);
+  await read(120, 60, signal);
+  assert.deepEqual(reads.map((r) => r.at), [0, 0], "the opening minutes are read at once");
+  await read(1100, 60, signal);
+  assert.ok(reads[2].at >= 1100 - 150, `read at playhead ${reads[2].at}`);
+  assert.ok(reads[2].at < 1100 - 140, "and not much later");
+});
+
+test("a short read before the end waits for the source; at the end it is the end", async () => {
+  const clock = fakeClock();
+  let calls = 0;
+  const read = gentleReader({
+    read: async (start, seconds) => {
+      calls += 1;
+      // The first attempt gets 20 s, the retry the rest.
+      const got = calls === 1 ? 20 : seconds;
+      return new Int16Array(Math.round(Math.min(got, 1400 - start) * FP_SAMPLE_RATE));
+    },
+    playhead: () => 1e9,
+    duration: () => 1400,
+    available: () => false,
+    sleep: clock.sleep,
+  });
+  const signal = new AbortController().signal;
+  const pcm = await read(100, 60, signal);
+  assert.equal(pcm.length, 60 * FP_SAMPLE_RATE);
+  assert.equal(calls, 2);
+  calls = 10;
+  assert.equal((await read(1380, 60, signal)).length, 20 * FP_SAMPLE_RATE, "only 20 s are left");
+  assert.equal(calls, 11, "no retry at the end of the file");
+});
+
+test("a source that stops delivering gives up instead of passing for the end", async () => {
+  const clock = fakeClock();
+  const read = gentleReader({
+    read: async () => new Int16Array(0),
+    playhead: () => 1e9,
+    duration: () => 1400,
+    available: () => false,
+    retries: 3,
+    sleep: clock.sleep,
+  });
+  await assert.rejects(read(300, 60, new AbortController().signal), /stopped delivering/);
+});
+
+test("the credits are offered before the closing has been read to the end", async () => {
+  const memory = new SkipMemory(new MapStorage());
+  const CREDITS = melody(120, 1234);
+  const show = (seed: number) => degrade(join(chatter(700, seed), CREDITS), 1, seed + 5);
+  const run = async (audio: Float64Array, episodeNumber: number) => {
+    const source = pcmSource(audio);
+    let creditsAtCalls = -1;
+    let readUpTo = 0;
+    const result = await analyzeSkipMarkers({
+      identity: { show: "tt6", season: 1, episode: episodeNumber, source: `s${episodeNumber}` },
+      duration: () => audio.length / FP_SAMPLE_RATE,
+      memory,
+      adapter: {
+        pcm: async (start, seconds, signal) => {
+          readUpTo = Math.max(readUpTo, start + seconds);
+          return source.pcm(start, seconds, signal);
+        },
+      },
+      onMarkers: (found) => {
+        if (found.credits && creditsAtCalls < 0) creditsAtCalls = readUpTo;
+      },
+      signal: new AbortController().signal,
+      wantIntro: () => false,
+    });
+    return { result, creditsAtCalls };
+  };
+  await run(show(10), 1);
+  const second = await run(show(20), 2);
+  assert.ok(second.result.credits, "credits not found");
+  assert.ok(Math.abs(second.result.credits!.start - 700) < 2, `credits at ${second.result.credits!.start}`);
+  // Read in one-minute chunks from 820 - 246 = 574 s: found with the chunk
+  // ending at 754 s (54 s of credits in), not at the end of the file.
+  assert.ok(second.creditsAtCalls > 0 && second.creditsAtCalls <= 755, `found after reading to ${second.creditsAtCalls}`);
+});
+
+test("a cue shared in the last act that stops well before the end is not the credits", async () => {
+  const memory = new SkipMemory(new MapStorage());
+  const CUE = melody(25, 4321);
+  const episode = (seed: number) => degrade(join(chatter(420, seed), CUE, chatter(150, seed + 1)), 1, seed + 2);
+  const offered: number[] = [];
+  const run = async (audio: Float64Array, episodeNumber: number) =>
+    analyzeSkipMarkers({
+      identity: { show: "tt7", season: 1, episode: episodeNumber, source: `s${episodeNumber}` },
+      duration: () => audio.length / FP_SAMPLE_RATE,
+      memory,
+      adapter: pcmSource(audio),
+      onMarkers: (found) => {
+        if (found.credits) offered.push(found.credits.start);
+      },
+      signal: new AbortController().signal,
+      wantIntro: () => false,
+    });
+  await run(episode(30), 1);
+  const second = await run(episode(40), 2);
+  assert.equal(second.credits, undefined);
+  assert.deepEqual(offered, [], "never offered, not even for a moment");
+});
+
+test("skip memory stays inside its byte budget", () => {
+  const storage = new MapStorage();
+  let clock = 0;
+  const memory = new SkipMemory(storage, () => (clock += 1));
+  const print = fingerprintPcm(join(chatter(300, 1), INTRO, chatter(300, 2)));
+  for (let season = 1; season <= 12; season += 1) {
+    memory.saveSeason({ show: "tt8", season }, {
+      intro: [],
+      credits: [],
+      openings: [1, 2, 3].map((episodeNumber) => ({ episode: episodeNumber, print, duration: 640 })),
+      closings: [1, 2, 3].map((episodeNumber) => ({ episode: episodeNumber, print, duration: 640 })),
+    });
+  }
+  const total = [...storage.map.entries()].filter(([key]) => key.startsWith("akflix.skip.v1.")).reduce((sum, [, value]) => sum + value.length, 0);
+  assert.ok(total <= MAX_STORED_CHARS + 2000, `stored ${total}`);
+  // The newest season is always kept.
+  assert.equal(memory.season({ show: "tt8", season: 12 }).openings.length, 3);
+  assert.equal(memory.season({ show: "tt8", season: 1 }).openings.length, 0);
 });

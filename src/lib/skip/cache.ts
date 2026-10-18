@@ -2,8 +2,9 @@
  * What Akflix remembers between plays, per show and season: the intro and
  * credits signatures found so far and the recent episodes' opening/closing
  * fingerprints (to compare the next episode with). Markers are also kept per
- * exact file, so a rewatch has its buttons at once. Bounded (LRU) so the
- * webview's storage never fills up.
+ * exact file, so a rewatch has its buttons at once. Bounded (LRU, and a
+ * byte budget well inside the webview's ~5 MB) so it never crowds out the
+ * app's other saved data.
  */
 
 import type { AudioPrint } from "./fingerprint";
@@ -18,10 +19,15 @@ export interface SkipStorage {
 
 const PREFIX = "akflix.skip.v1.";
 const INDEX_KEY = `${PREFIX}index`;
-const MAX_SEASONS = 24;
+const MAX_SEASONS = 12;
 const MAX_FILES = 300;
+/** Characters all skip entries may take together (about 1.2 MB). */
+export const MAX_STORED_CHARS = 1_200_000;
 /** Episodes whose opening (and closing) prints are kept per season. */
-export const PRINTS_PER_SEASON = 4;
+export const PRINTS_PER_SEASON = 3;
+/** Once the season's intro (or credits) is known, fewer prints are needed:
+ * they only catch a changed intro. */
+export const PRINTS_WITH_SIGNATURE = 2;
 
 interface StoredPrint {
   h: string;
@@ -120,6 +126,19 @@ export class SkipMemory {
     };
     prune("season", MAX_SEASONS);
     prune("file", MAX_FILES);
+    // The byte budget: drop the least recently used seasons (the bulk) first.
+    const sizes = Object.keys(index).map((name) => [name, this.storage.getItem(name)?.length ?? 0] as const);
+    let total = sizes.reduce((sum, [, size]) => sum + size, 0);
+    const isSeason = (name: string) => name.startsWith(`${PREFIX}season:`);
+    const oldest = sizes
+      .filter(([name]) => name !== key)
+      .sort((a, b) => Number(isSeason(b[0])) - Number(isSeason(a[0])) || index[a[0]] - index[b[0]]);
+    for (const [name, size] of oldest) {
+      if (total <= MAX_STORED_CHARS) break;
+      this.storage.removeItem(name);
+      delete index[name];
+      total -= size;
+    }
     this.write(INDEX_KEY, JSON.stringify(index));
   }
 
@@ -173,13 +192,13 @@ export class SkipMemory {
 
   saveSeason(identity: Pick<SkipIdentity, "show" | "season">, memory: SeasonMemory) {
     const key = seasonKey(identity);
-    const keep = (list: EpisodePrint[]) =>
-      list.slice(-PRINTS_PER_SEASON).map((item) => ({ e: item.episode, d: item.duration, p: encodePrint(item.print) }));
+    const keep = (list: EpisodePrint[], count = PRINTS_PER_SEASON) =>
+      list.slice(-count).map((item) => ({ e: item.episode, d: item.duration, p: encodePrint(item.print) }));
     const value = JSON.stringify({
       intro: memory.intro.slice(-3).map(encodePrint),
       credits: memory.credits.slice(-3).map(encodePrint),
-      openings: keep(memory.openings),
-      closings: keep(memory.closings),
+      openings: keep(memory.openings, memory.intro.length ? PRINTS_WITH_SIGNATURE : PRINTS_PER_SEASON),
+      closings: keep(memory.closings, memory.credits.length ? PRINTS_WITH_SIGNATURE : PRINTS_PER_SEASON),
     });
     if (this.write(key, value)) {
       this.touch(key);
