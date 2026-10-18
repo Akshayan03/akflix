@@ -7,7 +7,7 @@ export default function AccountEntry() {
   const navigate = useNavigate();
   const status = useCloud();
   const detail = status.user
-    ? `${status.user.email} · ${cloudStatusLine(status)}`
+    ? `${cloudStatusLine(status)} · ${status.user.email}`
     : status.mode === "unconfigured"
       ? "Accounts not set up yet"
       : "Sign in to keep your Mac, iPhone and Roku where you left off";
