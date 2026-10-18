@@ -886,6 +886,31 @@ async fn transcribe_caption_chunk(
 /// One skip-detection read at a time: it runs beside playback and must never
 /// compete with it through more than one FFmpeg process.
 static SKIP_READER_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+/// The read in progress: the playing file it is for, and its FFmpeg process.
+static SKIP_READ: OnceLock<Mutex<Option<(String, u32)>>> = OnceLock::new();
+
+fn skip_read() -> &'static Mutex<Option<(String, u32)>> {
+    SKIP_READ.get_or_init(|| Mutex::new(None))
+}
+
+/// Stops the read in progress when `stale(owner)` says nobody wants it any
+/// more (the episode changed or the player closed), so the next one never
+/// waits behind it.
+fn stop_skip_read(stale: impl Fn(&str) -> bool) {
+    let Ok(current) = skip_read().lock() else {
+        return;
+    };
+    if let Some((owner, pid)) = current.as_ref() {
+        if stale(owner) {
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(*pid as i32, libc::SIGTERM);
+            }
+            #[cfg(not(unix))]
+            let _ = pid;
+        }
+    }
+}
 
 fn skip_ffmpeg(input: &str) -> Result<(PathBuf, String), String> {
     let input = caption_input(input)?;
@@ -910,11 +935,14 @@ fn skip_audio_map(ffmpeg: &PathBuf, input: &str, audio_language: Option<&str>) -
 /// intro fingerprints (src/lib/skip/fingerprint.ts). Less at the end of the
 /// file or of what a stream can deliver.
 fn skip_media_pcm_sync(
+    owner: String,
     input: String,
     start_seconds: f64,
     duration_seconds: f64,
     audio_language: Option<String>,
 ) -> Result<Vec<u8>, String> {
+    // A read for something else (the previous episode) is stopped first.
+    stop_skip_read(|current| current != owner);
     let _reader = SKIP_READER_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
@@ -939,7 +967,7 @@ fn skip_media_pcm_sync(
     if start_seconds > 0.0 {
         command.args(["-ss", &format!("{start_seconds:.3}")]);
     }
-    let output = command
+    let child = command
         .arg("-i")
         .arg(&input)
         .args(["-map", &audio_map, "-t", &format!("{duration_seconds:.3}")])
@@ -948,8 +976,19 @@ fn skip_media_pcm_sync(
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .output()
+        .spawn()
         .map_err(|error| format!("Could not read the video audio: {error}"))?;
+    let pid = child.id();
+    if let Ok(mut current) = skip_read().lock() {
+        *current = Some((owner, pid));
+    }
+    let output = child.wait_with_output();
+    if let Ok(mut current) = skip_read().lock() {
+        if current.as_ref().is_some_and(|(_, running)| *running == pid) {
+            *current = None;
+        }
+    }
+    let output = output.map_err(|error| format!("Could not read the video audio: {error}"))?;
     if !output.status.success() && output.stdout.is_empty() {
         let detail = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
@@ -964,17 +1003,24 @@ fn skip_media_pcm_sync(
 
 #[tauri::command]
 async fn skip_media_pcm(
+    owner: String,
     input: String,
     start_seconds: f64,
     duration_seconds: f64,
     audio_language: Option<String>,
 ) -> Result<tauri::ipc::Response, String> {
     let bytes = tauri::async_runtime::spawn_blocking(move || {
-        skip_media_pcm_sync(input, start_seconds, duration_seconds, audio_language)
+        skip_media_pcm_sync(owner, input, start_seconds, duration_seconds, audio_language)
     })
     .await
     .map_err(|error| format!("Skip reader stopped: {error}"))??;
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// The player moved on: stop that file's read now instead of letting it finish.
+#[tauri::command]
+fn skip_media_cancel(owner: String) {
+    stop_skip_read(|current| current == owner);
 }
 
 #[derive(serde::Serialize)]
@@ -1643,6 +1689,7 @@ pub fn run() {
             transcribe_caption_chunk,
             skip_media_pcm,
             skip_media_probe,
+            skip_media_cancel,
             embedded_engine_status,
             ensure_embedded_torrent_engine,
             available_media_storage,
@@ -1747,6 +1794,36 @@ mod tests {
     }
 
     #[test]
+    fn a_skip_read_nobody_wants_any_more_is_stopped() {
+        if find_ffmpeg().is_none() {
+            eprintln!("no ffmpeg: skipped");
+            return;
+        }
+        // A source that accepts the connection and then never sends a byte.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}/stalled.mkv", listener.local_addr().expect("address"));
+        thread::spawn(move || {
+            let mut open = Vec::new();
+            for stream in listener.incoming().flatten() {
+                open.push(stream);
+            }
+        });
+        let started = std::time::Instant::now();
+        let reader = thread::spawn(move || skip_media_pcm_sync("old".into(), url, 0.0, 60.0, None));
+        while !reader.is_finished() && started.elapsed() < Duration::from_secs(20) {
+            thread::sleep(Duration::from_millis(200));
+            skip_media_cancel("old".into());
+        }
+        let result = reader.join().expect("reader");
+        assert!(
+            started.elapsed() < Duration::from_secs(9),
+            "a stopped read took {:?} (FFmpeg's own timeout is 10 s after a 4 s probe)",
+            started.elapsed()
+        );
+        assert!(result.map(|pcm| pcm.is_empty()).unwrap_or(true));
+    }
+
+    #[test]
     fn skip_reader_returns_8khz_mono_pcm_chapters_and_duration() {
         let Some(ffmpeg) = find_ffmpeg() else {
             eprintln!("no ffmpeg: skipped");
@@ -1782,13 +1859,14 @@ mod tests {
         assert!(status.success());
         let input = format!("media://{name}/tone.mkv");
 
-        let pcm = skip_media_pcm_sync(input.clone(), 2.0, 3.0, None).expect("pcm");
+        let pcm = skip_media_pcm_sync("test".into(), input.clone(), 2.0, 3.0, None).expect("pcm");
         assert!(
             (pcm.len() as i64 - 48_000).abs() <= 400,
             "3 s of 8 kHz 16-bit mono, got {} bytes",
             pcm.len()
         );
-        let tail = skip_media_pcm_sync(input.clone(), 8.0, 60.0, None).expect("pcm at the end");
+        let tail = skip_media_pcm_sync("test".into(), input.clone(), 8.0, 60.0, None)
+            .expect("pcm at the end");
         assert!(
             (tail.len() as i64 - 32_000).abs() <= 2_000,
             "only what is left: {} bytes",

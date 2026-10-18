@@ -30,6 +30,11 @@ export interface ReaderOptions {
 
 export const READ_AHEAD_SECONDS = 150;
 
+/** How far before the container's end the audio may run out (2 to 30 s). */
+export function endSlack(duration: number): number {
+  return Math.max(2, Math.min(30, duration * 0.02));
+}
+
 export function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) {
@@ -82,8 +87,9 @@ export function gentleReader(options: ReaderOptions): PcmRead {
       left -= got;
       if (left <= 0.05) break;
       const duration = options.duration();
-      // Short at the end of the file (or of a complete one): that is all there is.
-      if (options.available() || (duration > 0 && position >= duration - 2)) break;
+      // Short at the end of the file (or of a complete one): that is all there
+      // is. An audio track may end up to a few seconds before the container.
+      if (options.available() || (duration > 0 && position >= duration - endSlack(duration))) break;
       if (got > 0.5) shortReads = 0;
       shortReads += 1;
       if (shortReads > retries) {

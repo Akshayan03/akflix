@@ -240,8 +240,13 @@ export function skipView(input: SkipInput): SkipView {
       input.previousTime !== null &&
       time >= input.previousTime &&
       time - input.previousTime <= CONTINUOUS_PLAYBACK_STEP;
-    // Reached by playing into it (not a seek or a resume inside it).
-    const playedInto = continuous && input.previousTime! <= segment.start + CONTINUOUS_PLAYBACK_STEP;
+    // Reached by playing into it: the last update was before its start (not a
+    // seek or a resume that landed inside it). A part at the very start of
+    // the file is played into from the first frames.
+    const previous = input.previousTime!;
+    const playedInto =
+      continuous &&
+      (previous < segment.start || (segment.start < 1 && previous <= segment.start + CONTINUOUS_PLAYBACK_STEP));
     if (
       input.autoSkip &&
       playedInto &&

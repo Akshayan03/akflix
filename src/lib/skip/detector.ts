@@ -51,6 +51,8 @@ export interface SkipSourceAdapter {
   pcm?: (start: number, seconds: number, signal: AbortSignal) => Promise<Int16Array>;
   /** Resolves when reading the file's last minutes is acceptable. Absent: read them right away. */
   closingReady?: (signal: AbortSignal) => Promise<void>;
+  /** Stops a read in progress at once (the episode changed or the player closed). */
+  cancel?: () => void;
 }
 
 export interface SkipAnalysis {
@@ -171,21 +173,36 @@ export async function analyzeSkipMarkers(job: SkipAnalysis): Promise<SkipMarkers
   // 3a. The intro, from the opening minutes.
   if (!named.intro && !found.intro && (job.wantIntro?.() ?? true)) {
     const window = openingWindow(job.duration());
-    type Candidate = { start: number; end: number; how: string; paired: boolean };
+    type Candidate = { start: number; end: number; how: string; paired: boolean; sources: Set<string> };
     let learned: { print: AudioPrint; start: number; end: number } | null = null;
+    let shownSupport = 0;
+    // Agreement needed: a stretch shared with one other episode only can be a
+    // scene the two have in common (a "previously on" replaying that one's
+    // cold open). Once the season holds two or more references (episodes or
+    // known intros), the intro must be seen in at least two of them.
+    const references =
+      season.intro.length + season.openings.filter((other) => other.episode !== identity.episode).length;
+    const needed = references >= 2 ? 2 : 1;
     const opening = await fingerprintRange(adapter, 0, window, signal, (print, readUntil) => {
       // Every complete sighting so far: the season's known intros, and the
       // longest stretch shared with each other episode's opening. One sighting
       // may hold only part of the intro (an episode with dialogue over its
       // start, or a shortened one), so overlapping sightings are joined (each
-      // part is audio this episode verifiably shares) and the longest wins.
+      // part is audio this episode verifiably shares, from each reference it
+      // was seen in). The best supported, then longest, wins.
       const candidates: Candidate[] = [];
-      for (const signature of season.intro) {
+      season.intro.forEach((signature, index) => {
         const hit = findSignature(signature, print, { range: [0, readUntil] });
         if (hit && hit.end < readUntil - 3) {
-          candidates.push({ start: hit.start, end: hit.end, how: `season intro, ${Math.round(hit.coverage * 100)}% matched`, paired: false });
+          candidates.push({
+            start: hit.start,
+            end: hit.end,
+            how: `season intro, ${Math.round(hit.coverage * 100)}% matched`,
+            paired: false,
+            sources: new Set([`intro:${index}`]),
+          });
         }
-      }
+      });
       for (const other of season.openings) {
         if (other.episode === identity.episode) continue;
         const match = bestCommonSegment(print, other.print, {
@@ -200,6 +217,7 @@ export async function analyzeSkipMarkers(job: SkipAnalysis): Promise<SkipMarkers
             end: match.a.end,
             how: `shared with episode ${other.episode}, ${Math.round(match.ratio * 100)}% dense`,
             paired: true,
+            sources: new Set([`episode:${other.episode}`]),
           });
         }
       }
@@ -211,18 +229,23 @@ export async function analyzeSkipMarkers(job: SkipAnalysis): Promise<SkipMarkers
           previous.end = Math.max(previous.end, candidate.end);
           previous.how = `${previous.how} + ${candidate.how}`;
           previous.paired = previous.paired || candidate.paired;
+          candidate.sources.forEach((source) => previous.sources.add(source));
         } else {
-          joined.push({ ...candidate });
+          joined.push({ ...candidate, sources: new Set(candidate.sources) });
         }
       }
       const best = joined
-        .filter((candidate) => plausibleSegment("intro", candidate, job.duration()))
-        .sort((x, y) => y.end - y.start - (x.end - x.start))[0];
+        .filter((candidate) => candidate.sources.size >= needed && plausibleSegment("intro", candidate, job.duration()))
+        .sort((x, y) => y.sources.size - x.sources.size || y.end - y.start - (x.end - x.start))[0];
       const current = found.intro;
-      const longer = best && (!current || best.end - best.start > current.end - current.start + 1);
-      // A longer sighting must overlap the one shown: never jump to another part.
-      if (best && longer && (!current || (best.start < current.end && best.end > current.start))) {
+      const better =
+        best &&
+        (!current ||
+          best.sources.size > shownSupport ||
+          (best.sources.size === shownSupport && best.end - best.start > current.end - current.start + 1));
+      if (best && better) {
         found = { ...found, intro: { start: best.start, end: best.end, source: "fingerprint" } };
+        shownSupport = best.sources.size;
         const longestKnown = Math.max(0, ...season.intro.map((signature) => signature.seconds));
         if (best.paired || best.end - best.start > longestKnown + 2) learned = { print, start: best.start, end: best.end };
         log(`intro ${best.start.toFixed(1)}-${best.end.toFixed(1)} s (${best.how})`);

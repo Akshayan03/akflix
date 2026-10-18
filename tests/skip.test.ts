@@ -346,6 +346,16 @@ test("auto-skip only when playback runs into the segment, and only once", () => 
   assert.equal(view(109.5, 109.2, { autoSkip: true }).autoSkip, null);
 });
 
+test("auto-skip needs playback to cross the start, not a seek that lands just inside", () => {
+  // A seek back to 0.4 s into the intro, then playing on: the button, no auto-skip.
+  const landed = view(60.65, 60.4, { autoSkip: true });
+  assert.equal(landed.autoSkip, null);
+  assert.equal(landed.button?.kind, "intro");
+  // An intro at the very start of the file is played into from the first frames.
+  const atStart: SkipMarkers = { intro: { start: 0, end: 48, source: "chapter" } };
+  assert.equal(view(0.5, 0.25, { autoSkip: true, markers: atStart }).autoSkip?.kind, "intro");
+});
+
 test("a dismissed button stays hidden for that segment", () => {
   assert.equal(view(70, 69.7, { dismissed: new Set(["intro"]) }).button, null);
   assert.equal(view(5, 4.7, { dismissed: new Set(["intro"]) }).button?.kind, "recap");
@@ -538,6 +548,24 @@ function fakeClock() {
   return { state, sleep };
 }
 
+test("an audio track that ends a few seconds before the file is the end, not a stall", async () => {
+  const clock = fakeClock();
+  let calls = 0;
+  const read = gentleReader({
+    // The container says 1400 s; the audio stops at 1392 s.
+    read: async (start, seconds) => {
+      calls += 1;
+      return new Int16Array(Math.round(Math.max(0, Math.min(seconds, 1392 - start)) * FP_SAMPLE_RATE));
+    },
+    playhead: () => 1e9,
+    duration: () => 1400,
+    available: () => false,
+    sleep: clock.sleep,
+  });
+  assert.equal((await read(1340, 60, new AbortController().signal)).length, 52 * FP_SAMPLE_RATE);
+  assert.equal(calls, 1);
+});
+
 test("a still-arriving stream is read only a little ahead of the playhead", async () => {
   const clock = fakeClock();
   const reads: Array<{ start: number; at: number }> = [];
@@ -654,6 +682,36 @@ test("a cue shared in the last act that stops well before the end is not the cre
   const second = await run(episode(40), 2);
   assert.equal(second.credits, undefined);
   assert.deepEqual(offered, [], "never offered, not even for a moment");
+});
+
+test("a scene shared with one episode only is not taken for the intro", async () => {
+  // Episode 1's cold open (COLD) comes back in episode 2's "previously on".
+  // Watched 2, 3, then 1: the real intro (in all three) wins, never the cold open.
+  const memory = new SkipMemory(new MapStorage());
+  const COLD = melody(25, 9001);
+  const episodes: Record<number, Float64Array> = {
+    1: degrade(join(chatter(10, 1), COLD, chatter(30, 2), INTRO, chatter(240, 3)), 1, 4),
+    2: degrade(join(COLD, chatter(20, 5), INTRO, chatter(260, 6)), 1, 7),
+    3: degrade(join(chatter(50, 8), INTRO, chatter(230, 9)), 1, 10),
+  };
+  const shown: Array<[number, number]> = [];
+  const run = (number: number) =>
+    analyzeSkipMarkers({
+      identity: { show: "tt9", season: 1, episode: number, source: `s${number}` },
+      duration: () => episodes[number].length / FP_SAMPLE_RATE,
+      memory,
+      adapter: pcmSource(episodes[number]),
+      onMarkers: (found) => {
+        if (number === 1 && found.intro) shown.push([found.intro.start, found.intro.end]);
+      },
+      signal: new AbortController().signal,
+    });
+  await run(2);
+  await run(3);
+  const first = await run(1);
+  assert.ok(first.intro, "intro not found in episode 1");
+  assert.ok(Math.abs(first.intro!.start - 65) < 2, `intro at ${first.intro!.start}`);
+  for (const [start] of shown) assert.ok(start > 40, `cold open offered as the intro at ${start}`);
 });
 
 test("skip memory stays inside its byte budget", () => {

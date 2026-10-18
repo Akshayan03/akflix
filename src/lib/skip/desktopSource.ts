@@ -10,6 +10,8 @@ import { parseFfmetadataChapters, type SkipMarkers } from "./markers";
 import { gentleReader } from "./streamReader";
 
 export interface DesktopSkipSource {
+  /** Identifies this playback: a read for anything else is stopped when this one starts. */
+  owner: string;
   /** What FFmpeg reads: an http(s) URL or media://<relative path>. */
   input: string;
   audioLanguage?: string;
@@ -56,6 +58,7 @@ export function desktopSkipReader(source: DesktopSkipSource): DesktopSkipReader 
           read: async (start, seconds) =>
             toPcm(
               await invoke("skip_media_pcm", {
+                owner: source.owner,
                 input: source.input,
                 startSeconds: start,
                 durationSeconds: seconds,
@@ -67,6 +70,7 @@ export function desktopSkipReader(source: DesktopSkipSource): DesktopSkipReader 
           available: source.available,
         })
       : undefined,
+    cancel: () => void invoke("skip_media_cancel", { owner: source.owner }).catch(() => {}),
   };
   return { adapter, duration };
 }

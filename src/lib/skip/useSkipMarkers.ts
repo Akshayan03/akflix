@@ -99,7 +99,10 @@ export function useSkipMarkers(subject: SkipSubject | null): SkipMarkers {
         if ((reason as Error)?.name !== "AbortError") log(`stopped: ${reason instanceof Error ? reason.message : String(reason)}`);
       }
     })();
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      subject.adapter.cancel?.();
+    };
     // The key identifies the subject; its functions read live state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subject?.key]);

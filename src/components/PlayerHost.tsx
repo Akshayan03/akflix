@@ -209,6 +209,7 @@ function desktopSkipSubject(options: {
 }): SkipSubject {
   const playhead = () => usePlayback.getState().currentTime;
   const reader = desktopSkipReader({
+    owner: options.key,
     input: options.input,
     audioLanguage: options.audioLanguage,
     fingerprint: options.isEpisode,
@@ -567,9 +568,11 @@ export default function PlayerHost() {
             season: item.ParentIndexNumber ?? 0,
             episode: item.IndexNumber ?? 0,
             file: `jellyfin:${itemId}:${source.Id}`,
-            // Skip detection reads the stored file, whether or not playback transcodes.
+            // Skip detection reads the stored file. Only beside direct play: a
+            // transcode means the bandwidth is short, and reading the original
+            // too could starve playback (chapters and segments still apply).
             input: client.staticStreamUrl(itemId, source.Id),
-            isEpisode,
+            isEpisode: isEpisode && !isHls,
             audioLanguage: preferredAudioLanguage,
             known: async (signal, mediaDuration) =>
               markersFromJellyfinSegments(
@@ -1155,10 +1158,12 @@ export default function PlayerHost() {
   }, [session?.itemId]);
 
   // ── Skip Intro / Recap, and Next episode at the credits ─────────────
-  const creditsEnd = skipMarkers.credits?.end ?? duration;
+  // The file's own end (probed), where the existing autoplay moves on; credits
+  // may end before it (a post-credits scene).
+  const mediaEnd = skipSubject?.duration() || duration;
   const skipState = {
     markers: skipMarkers,
-    duration: creditsEnd,
+    duration: mediaEnd,
     autoSkipped: autoSkippedRef.current,
     dismissed: skipDismissedRef.current,
     hasNext,
@@ -1172,6 +1177,15 @@ export default function PlayerHost() {
     if (notice) skipNoticeTimer.current = setTimeout(() => setSkipNotice(null), AUTO_SKIP_NOTICE_MS);
   }, []);
   useEffect(() => () => clearTimeout(skipNoticeTimer.current), []);
+  const undoSkip = useCallback(
+    (notice: SkipNotice) => {
+      // The viewer wants to watch it: no button over it, no second auto-skip.
+      skipDismissedRef.current.add(notice.kind);
+      usePlayback.getState().controls?.seek(notice.from);
+      showSkipNotice(null);
+    },
+    [showSkipNotice]
+  );
 
   // Auto-skip: only when playback runs into an intro or recap (never after a
   // seek or resume into it), once per part, and never again after Watch it.
@@ -1184,7 +1198,16 @@ export default function PlayerHost() {
     if (!decision || !segment) return;
     autoSkippedRef.current.add(decision.kind);
     usePlayback.getState().controls?.seek(decision.target);
-    showSkipNotice({ kind: decision.kind, from: segment.start });
+    const notice = { kind: decision.kind, from: segment.start };
+    if (usePlayback.getState().mode === "expanded") {
+      showSkipNotice(notice);
+    } else {
+      // The mini player has no room for the notice: the same choice as a toast.
+      toast(decision.kind === "intro" ? "Intro skipped" : "Recap skipped", {
+        duration: AUTO_SKIP_NOTICE_MS,
+        action: { label: "Watch it", onClick: () => undoSkip(notice) },
+      });
+    }
     // Decided per time update; the markers and settings are read as they are now.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTime]);
@@ -1196,18 +1219,14 @@ export default function PlayerHost() {
     usePlayback.getState().controls?.seek(skipButton.target);
   }, [showSkipNotice, skipButton]);
   const undoAutoSkip = useCallback(() => {
-    if (!skipNotice) return;
-    // The viewer wants to watch it: no button over it, no second auto-skip.
-    skipDismissedRef.current.add(skipNotice.kind);
-    usePlayback.getState().controls?.seek(skipNotice.from);
-    showSkipNotice(null);
-  }, [showSkipNotice, skipNotice]);
+    if (skipNotice) undoSkip(skipNotice);
+  }, [skipNotice, undoSkip]);
   const upNext =
     skip.nextEpisode && skipMarkers.credits
       ? {
           title: nextTitle,
-          endsIn: creditsEnd - currentTime,
-          progress: (currentTime - skipMarkers.credits.start) / Math.max(1, creditsEnd - skipMarkers.credits.start),
+          endsIn: mediaEnd - currentTime,
+          progress: (currentTime - skipMarkers.credits.start) / Math.max(1, mediaEnd - skipMarkers.credits.start),
         }
       : null;
   skipActionsRef.current = {
