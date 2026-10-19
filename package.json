@@ -1,7 +1,7 @@
 {
   "name": "akflix",
   "private": true,
-  "version": "1.0.27",
+  "version": "1.0.28",
   "description": "Standalone movie and series streaming app with optional Jellyfin integration",
   "type": "module",
   "scripts": {
@@ -34,6 +34,7 @@
     "@tauri-apps/plugin-opener": "^2.0.0",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
+    "firebase": "^12.19.0",
     "framer-motion": "^11.11.17",
     "hls.js": "^1.5.17",
     "lucide-react": "^0.462.0",

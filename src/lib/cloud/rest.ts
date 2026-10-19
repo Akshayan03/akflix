@@ -19,52 +19,72 @@ export class CloudError extends Error {
   }
 }
 
+// People read these, so they never mention the backend, projects or configs.
+const BEING_SET_UP = "Sign-in is being set up. Try again after the next Akflix update.";
+const DID_NOT_GO_THROUGH = "That sign-in didn't go through. Try again.";
 const AUTH_MESSAGES: Record<string, [CloudErrorKind, string]> = {
-  EMAIL_EXISTS: ["invalid", "An account already uses this email. Sign in instead."],
+  EMAIL_EXISTS: ["invalid", "An account already uses this email. Sign in instead, with your password or with Apple or Google if that's how you joined."],
   EMAIL_NOT_FOUND: ["invalid", "Email or password is incorrect."],
   INVALID_PASSWORD: ["invalid", "Email or password is incorrect."],
-  INVALID_LOGIN_CREDENTIALS: ["invalid", "Email or password is incorrect."],
+  INVALID_LOGIN_CREDENTIALS: ["invalid", "Email or password is incorrect. If you joined with Apple or Google, use that button instead."],
   INVALID_EMAIL: ["invalid", "Enter a valid email address."],
   MISSING_EMAIL: ["invalid", "Enter your email address."],
   MISSING_PASSWORD: ["invalid", "Enter your password."],
   WEAK_PASSWORD: ["invalid", "Use a password with at least 6 characters."],
-  USER_DISABLED: ["auth", "This account has been disabled."],
+  USER_DISABLED: ["auth", "This account has been turned off."],
   TOO_MANY_ATTEMPTS_TRY_LATER: ["invalid", "Too many attempts. Wait a minute and try again."],
-  OPERATION_NOT_ALLOWED: ["setup", "Email sign-in isn't switched on in the Firebase project yet."],
-  PASSWORD_LOGIN_DISABLED: ["setup", "Email sign-in isn't switched on in the Firebase project yet."],
-  CONFIGURATION_NOT_FOUND: ["setup", "Authentication isn't set up in the Firebase project yet."],
+  RESET_PASSWORD_EXCEED_LIMIT: ["invalid", "Too many reset emails. Wait a while and try again."],
+  // Sign-ups switched off for the project (Authentication → Settings → User actions).
+  ADMIN_ONLY_OPERATION: ["invalid", "New sign-ups are closed. Sign in with an account that already exists."],
+  OPERATION_NOT_ALLOWED: ["setup", "This way of signing in isn't available yet. Try another one."],
+  PASSWORD_LOGIN_DISABLED: ["setup", "Signing in with email isn't available yet. Try Apple or Google."],
+  CONFIGURATION_NOT_FOUND: ["setup", BEING_SET_UP],
+  API_KEY_INVALID: ["setup", BEING_SET_UP],
+  INVALID_IDP_RESPONSE: ["invalid", DID_NOT_GO_THROUGH],
+  MISSING_OR_INVALID_NONCE: ["invalid", DID_NOT_GO_THROUGH],
+  INVALID_PENDING_TOKEN: ["invalid", DID_NOT_GO_THROUGH],
+  INVALID_CREDENTIAL_OR_PROVIDER_ID: ["invalid", DID_NOT_GO_THROUGH],
+  FEDERATED_USER_ID_ALREADY_LINKED: ["invalid", "That account already belongs to a different Akflix account."],
   TOKEN_EXPIRED: ["auth", "Your session ended. Sign in again."],
   INVALID_REFRESH_TOKEN: ["auth", "Your session ended. Sign in again."],
   INVALID_ID_TOKEN: ["auth", "Your session ended. Sign in again."],
   USER_NOT_FOUND: ["auth", "This account no longer exists."],
-  CREDENTIAL_TOO_OLD_LOGIN_AGAIN: ["auth", "Confirm your password again to continue."],
-  API_KEY_INVALID: ["setup", "The Firebase API key isn't valid. Check the pasted config."],
+  CREDENTIAL_TOO_OLD_LOGIN_AGAIN: ["auth", "Confirm it's you again to continue."],
 };
+
+/** Turns an auth error code such as "EMAIL_EXISTS : details" into a CloudError. */
+export function authError(raw: string, status = 0): CloudError | null {
+  const code = raw.split(/[ :]/)[0];
+  // An Apple or Google token for an app the project doesn't know yet.
+  if (code === "INVALID_IDP_RESPONSE" && /audience|client id|not enabled/i.test(raw)) return new CloudError("setup", BEING_SET_UP, code, status);
+  const known = AUTH_MESSAGES[code];
+  return known ? new CloudError(known[0], known[1], code, status) : null;
+}
 
 function describe(status: number, body: unknown): CloudError {
   const error = (body as { error?: { message?: string; status?: string; code?: number } } | null)?.error;
   const raw = String(error?.message ?? "");
   // Auth errors look like "WEAK_PASSWORD : Password should be at least 6 characters".
-  const code = raw.split(/[ :]/)[0] || String(error?.status ?? "");
-  const known = AUTH_MESSAGES[code];
-  if (known) return new CloudError(known[0], known[1], code, status);
-  if (/API key not valid|API_KEY/.test(raw)) return new CloudError("setup", AUTH_MESSAGES.API_KEY_INVALID[1], "API_KEY_INVALID", status);
+  const known = authError(raw || String(error?.status ?? ""), status);
+  if (known) return known;
+  if (/API key not valid|API_KEY/.test(raw)) return new CloudError("setup", BEING_SET_UP, "API_KEY_INVALID", status);
   const grpc = String(error?.status ?? "");
   const missingDatabase = /does not exist for project|database .*does not exist|datastore mode|not been used in project|Cloud Firestore API/i;
+  const syncNotReady = "Syncing isn't ready yet. Akflix keeps everything on this device and retries.";
   if (grpc === "FAILED_PRECONDITION" || grpc === "ABORTED" || grpc === "ALREADY_EXISTS" || status === 409) {
-    if (missingDatabase.test(raw)) return new CloudError("setup", "Firestore isn't created in the Firebase project yet.", grpc, status);
-    if (/requires an index/i.test(raw)) return new CloudError("setup", "Firestore needs an index for this. Check the setup steps.", grpc, status);
+    if (missingDatabase.test(raw)) return new CloudError("setup", syncNotReady, grpc, status);
+    if (/requires an index/i.test(raw)) return new CloudError("setup", syncNotReady, grpc, status);
     return new CloudError("conflict", "Another device changed this at the same time.", grpc, status);
   }
   if (grpc === "NOT_FOUND" || status === 404) {
-    if (missingDatabase.test(raw)) return new CloudError("setup", "Firestore isn't created in the Firebase project yet.", grpc, status);
+    if (missingDatabase.test(raw)) return new CloudError("setup", syncNotReady, grpc, status);
     return new CloudError("conflict", "That item no longer exists.", grpc || "NOT_FOUND", status);
   }
   if (grpc === "PERMISSION_DENIED" || status === 403) {
     if (/has not been used|is disabled|SERVICE_DISABLED/i.test(raw)) {
-      return new CloudError("setup", "Firestore isn't switched on in the Firebase project yet.", grpc, status);
+      return new CloudError("setup", syncNotReady, grpc, status);
     }
-    return new CloudError("denied", "Akflix wasn't allowed to do that. Check the Firestore rules.", grpc || "PERMISSION_DENIED", status);
+    return new CloudError("denied", "Akflix wasn't allowed to do that.", grpc || "PERMISSION_DENIED", status);
   }
   if (grpc === "UNAUTHENTICATED" || status === 401) return new CloudError("auth", "Your session ended. Sign in again.", grpc || "UNAUTHENTICATED", status);
   if (status === 400) return new CloudError("invalid", raw || "The request wasn't accepted.", grpc || "INVALID_ARGUMENT", status);

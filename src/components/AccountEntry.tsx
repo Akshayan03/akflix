@@ -7,10 +7,8 @@ export default function AccountEntry() {
   const navigate = useNavigate();
   const status = useCloud();
   const detail = status.user
-    ? `${cloudStatusLine(status)} · ${status.user.email}`
-    : status.mode === "unconfigured"
-      ? "Accounts not set up yet"
-      : "Sign in to keep your Mac, iPhone and Roku where you left off";
+    ? `${cloudStatusLine(status)}${status.user.email ? ` · ${status.user.email}` : ""}`
+    : "Sign in with Apple, Google or email to keep your Mac, iPhone and Roku where you left off";
   const Icon = status.user && status.phase !== "error" && status.phase !== "offline" ? Cloud : CloudOff;
 
   return (
@@ -32,7 +30,7 @@ export default function AccountEntry() {
         onClick={() => navigate("/account")}
         className={`desktop-control ${status.user ? "desktop-secondary" : "desktop-primary"}`}
       >
-        {status.user ? "Manage" : status.mode === "unconfigured" ? "Set up" : "Sign in"}
+        {status.user ? "Manage" : "Sign in"}
       </button>
     </section>
   );

@@ -2,6 +2,8 @@ import "./design-system.test";
 import "./storage.test";
 import "./playerSeek.test";
 import "./cloud-sync.test";
+import "./cloud-signin.test";
+import "./cloud-browser.test";
 import "./skip.test";
 import "./captions.test";
 import { test } from "node:test";

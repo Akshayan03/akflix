@@ -1130,6 +1130,12 @@ video[data-caption-frame]::-webkit-media-text-track-container {
 .account-danger { display: inline-flex; width: 100%; min-height: 50px; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; border: 1px dashed rgba(255,255,255,.6); color: #fff; font-size: .86em; font-weight: 700; }
 .account-danger:disabled { opacity: .4; }
 .account-danger:not(:disabled):active { background: #fff; color: #000; }
+.account-provider { position: relative; display: flex; width: 100%; min-height: 52px; align-items: center; justify-content: center; gap: 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,.16); background: #0b0b0b; color: #f4f4f4; font-size: .9em; font-weight: 700; line-height: 1.25; padding: 10px 20px; text-align: center; transition: opacity var(--ak-dur) var(--ak-ease-out), border-color var(--ak-dur) var(--ak-ease-out); }
+.account-provider svg { flex-shrink: 0; }
+.account-provider[data-provider="apple.com"] { background: #fff; border-color: #fff; color: #000; }
+.account-provider:disabled { opacity: .45; }
+.account-provider:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.account-notice { border-radius: 18px; border: 1px solid rgba(255,255,255,.3); padding: 14px 16px 4px; }
 .account-link { min-height: 44px; font-size: .8em; font-weight: 650; color: #fff; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255,255,255,.35); }
 .account-error { margin-top: 14px; overflow: hidden; border-radius: 14px; background: #fff; color: #000; padding: 11px 14px; font-size: .8em; font-weight: 600; line-height: 1.45; }
 .account-success { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; border-radius: 16px; border: 1px solid rgba(255,255,255,.3); padding: 12px 14px; font-size: .82em; line-height: 1.45; color: #fff; }

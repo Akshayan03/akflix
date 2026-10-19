@@ -72,12 +72,18 @@ test("neutral text tokens keep WCAG contrast on every surface", () => {
   assert.equal(Math.round(contrast("#000000", "#ffffff")), 21);
 });
 
+const GOOGLE_G = new Set(["#EA4335", "#4285F4", "#FBBC05", "#34A853"]);
+
 test("interface source uses only neutral colours", () => {
   const offenders: string[] = [];
   for (const path of [...sourceFiles("src"), "index.html"]) {
     const text = read(path);
     if (CHROMATIC_CLASS.test(text)) offenders.push(`${path}: ${text.match(CHROMATIC_CLASS)![0]}`);
-    for (const l of colourLiterals(text)) if (!l.neutral) offenders.push(`${path}: ${l.literal}`);
+    for (const l of colourLiterals(text)) {
+      // Google's sign-in rules require its "G" in Google's own four colours; nowhere else.
+      if (path.endsWith("components/signInMarkPaths.ts") && GOOGLE_G.has(l.literal.toUpperCase())) continue;
+      if (!l.neutral) offenders.push(`${path}: ${l.literal}`);
+    }
   }
   assert.deepEqual(offenders, []);
 });

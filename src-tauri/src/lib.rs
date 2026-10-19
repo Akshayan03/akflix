@@ -32,6 +32,8 @@ use tiny_http::{Header, Method, Response, Server, StatusCode};
 #[cfg(unix)]
 use std::{ffi::CString, os::unix::ffi::OsStrExt};
 
+mod signin;
+
 const RQBIT_API: &str = "127.0.0.1:3031";
 /// Engine state kept beside media stored outside Akflix's default folder.
 const MEDIA_ENGINE_STATE: &str = ".akflix-engine";
@@ -1696,7 +1698,9 @@ pub fn run() {
             media_storage_status,
             configure_media_storage,
             reset_media_storage,
-            remove_embedded_media_files
+            remove_embedded_media_files,
+            signin::signin_browser_start,
+            signin::signin_browser_cancel
         ])
         .setup(|_app| {
             #[cfg(desktop)]

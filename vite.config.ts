@@ -52,5 +52,12 @@ export default defineConfig({
   build: {
     target: "es2021",
     sourcemap: !!process.env.TAURI_DEBUG,
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        // Browser sign-in page for Apple / Google (served by src-tauri/src/signin.rs).
+        signin: path.resolve(__dirname, "signin.html"),
+      },
+    },
   },
 });

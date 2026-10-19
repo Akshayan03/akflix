@@ -13,9 +13,10 @@
  * local history; nothing local is wiped. Signing out keeps the local copy.
  */
 import { create } from "zustand";
-import { cloudEnv, parseFirebaseConfig, savePastedFirebaseConfig, type CloudEnv, type CloudMode } from "@/lib/cloud/env";
+import { cloudEnv, type CloudEnv, type CloudMode } from "@/lib/cloud/env";
 import * as auth from "@/lib/cloud/auth";
-import type { CloudSession } from "@/lib/cloud/auth";
+import type { CloudSession, IdpCredential, IdpProvider, SignInMethod } from "@/lib/cloud/auth";
+import { obtainProviderSignIn, type ProviderSignIn } from "@/lib/cloud/providers";
 import { CloudError } from "@/lib/cloud/rest";
 import { FirestoreClient, fromFields, toFields, type FirestoreDocument, type Write } from "@/lib/cloud/firestore";
 import {
@@ -52,7 +53,7 @@ export type CloudPhase = "idle" | "syncing" | "offline" | "error";
 export interface CloudStatus {
   mode: CloudMode;
   projectId: string;
-  user: { uid: string; email: string } | null;
+  user: { uid: string; email: string; method?: SignInMethod } | null;
   phase: CloudPhase;
   lastSyncedAt: number | null;
   /** Human sentence for the last problem, or null. */
@@ -69,13 +70,17 @@ function initialStatus(): CloudStatus {
   return {
     mode: env.mode,
     projectId: env.projectId,
-    user: session ? { uid: session.uid, email: session.email } : null,
+    user: session ? userOf(session) : null,
     phase: "idle",
     lastSyncedAt: session ? loadState(session.uid).lastSyncedAt : null,
     message: null,
     titles: 0,
     pending: 0,
   };
+}
+
+function userOf(session: CloudSession): NonNullable<CloudStatus["user"]> {
+  return session.method ? { uid: session.uid, email: session.email, method: session.method } : { uid: session.uid, email: session.email };
 }
 
 // --------------------------------------------------------------- persistence
@@ -105,8 +110,10 @@ function loadSession(env = cloudEnv()): CloudSession | null {
 function saveSession(session: CloudSession | null) {
   const store = storage();
   if (!store) return;
-  if (session) store.setItem(SESSION_KEY, JSON.stringify(session));
-  else store.removeItem(SESSION_KEY);
+  if (session) {
+    const { isNewUser: _isNewUser, ...kept } = session;
+    store.setItem(SESSION_KEY, JSON.stringify(kept));
+  } else store.removeItem(SESSION_KEY);
 }
 
 interface MirrorRow {
@@ -446,7 +453,7 @@ async function runCycle() {
   const fs = client(env);
   const profiles = localProfiles();
   const activeId = useAuth.getState().activeProfileId ?? LOCAL_PROFILE_ID;
-  useCloud.setState({ phase: "syncing", user: { uid: session.uid, email: session.email } });
+  useCloud.setState({ phase: "syncing", user: userOf(session) });
   try {
     await writeAccountDocs(fs, session.uid, session.email, state, profiles);
     for (const profile of profiles) {
@@ -595,14 +602,58 @@ export function stopCloudSync() {
 
 // ------------------------------------------------------------- account flows
 
-export async function cloudSignIn(email: string, password: string, create = false) {
-  const env = cloudEnv();
-  const problem = auth.validateCredentials(email, password, create);
-  if (problem) throw new CloudError("invalid", problem, "INVALID_INPUT");
-  const session = create ? await auth.signUp(env, email, password) : await auth.signIn(env, email, password);
+export interface SignInResult {
+  session: CloudSession;
+  /** Apple or Google, when this sign-in also added that way of signing in. */
+  linked: IdpProvider | null;
+  /** Why adding it didn't work (still signed in). */
+  linkProblem: string | null;
+}
+
+/**
+ * An Apple or Google sign-in waiting to be added to the existing account with
+ * the same email, once the person signs in the way they did before. Memory
+ * only: it holds the provider's token, which expires within minutes anyway.
+ */
+let pendingLink: { credential: IdpCredential; email: string; at: number } | null = null;
+const LINK_WINDOW_MS = 10 * 60_000;
+
+export function pendingAccountLink(): { providerId: IdpProvider; email: string } | null {
+  if (!pendingLink || Date.now() - pendingLink.at > LINK_WINDOW_MS) return null;
+  return { providerId: pendingLink.credential.providerId, email: pendingLink.email };
+}
+
+export function forgetPendingAccountLink() {
+  pendingLink = null;
+}
+
+function rememberIfAccountExists(reason: unknown) {
+  if (reason instanceof auth.AccountExistsError) pendingLink = { credential: reason.pending, email: reason.email, at: Date.now() };
+}
+
+async function adoptSession(env: CloudEnv, signedIn: CloudSession): Promise<SignInResult> {
+  let session = signedIn;
+  let linked: IdpProvider | null = null;
+  let linkProblem: string | null = null;
+  const pending = pendingAccountLink() ? pendingLink : null;
+  const sameEmail = (a: string, b: string) => !a || !b || auth.normalizeEmail(a) === auth.normalizeEmail(b);
+  if (pending && pending.credential.providerId !== session.method && sameEmail(pending.email, session.email)) {
+    pendingLink = null;
+    const name = auth.METHOD_NAMES[pending.credential.providerId];
+    try {
+      const fresh = await auth.signInWithIdp(env, pending.credential, session.idToken);
+      if (fresh.uid === session.uid) {
+        session = { ...fresh, email: session.email || fresh.email, method: session.method };
+        linked = pending.credential.providerId;
+      }
+    } catch (reason) {
+      linkProblem = `You're signed in, but adding ${name} didn't finish. Choose Continue with ${name} again to add it.`;
+      if (reason instanceof CloudError && reason.code === "FEDERATED_USER_ID_ALREADY_LINKED") linkProblem = `You're signed in. That ${name} account already belongs to a different Akflix account.`;
+    }
+  }
   saveSession(session);
   failures = 0;
-  useCloud.setState({ user: { uid: session.uid, email: session.email }, message: null, phase: "idle" });
+  useCloud.setState({ user: userOf(session), message: null, phase: "idle" });
   // The first cycle uploads this device's history and pulls the account.
   try {
     await syncNow();
@@ -610,7 +661,57 @@ export async function cloudSignIn(email: string, password: string, create = fals
     // Signed in; the status line explains the sync problem and it retries.
     requestCloudSync(15_000);
   }
-  return session;
+  return { session, linked, linkProblem };
+}
+
+export async function cloudSignIn(email: string, password: string, create = false): Promise<SignInResult> {
+  const env = cloudEnv();
+  if (env.mode === "unconfigured") throw new CloudError("setup", auth.NOT_SET_UP, "UNCONFIGURED");
+  const problem = auth.validateCredentials(email, password, create);
+  if (problem) throw new CloudError("invalid", problem, "INVALID_INPUT");
+  const session = create ? await auth.signUp(env, email, password) : await auth.signIn(env, email, password);
+  return adoptSession(env, session);
+}
+
+export type ProviderSource = (env: CloudEnv, provider: IdpProvider) => Promise<ProviderSignIn>;
+
+async function providerSession(env: CloudEnv, provider: IdpProvider, source: ProviderSource): Promise<CloudSession | null> {
+  const result = await source(env, provider);
+  if (result.kind === "cancelled") return null;
+  return result.kind === "credential"
+    ? auth.signInWithIdp(env, result.credential)
+    : auth.sessionFromIdp(env, result.response, { providerId: provider });
+}
+
+/**
+ * Continue with Apple / Google. Resolves null when the person cancels. Throws
+ * AccountExistsError when the email already has an account that signs in
+ * another way; signing in that way next adds this one to it.
+ */
+export async function cloudSignInWithProvider(provider: IdpProvider, source: ProviderSource = obtainProviderSignIn): Promise<SignInResult | null> {
+  const env = cloudEnv();
+  if (env.mode === "unconfigured") throw new CloudError("setup", auth.NOT_SET_UP, "UNCONFIGURED");
+  let session: CloudSession | null;
+  try {
+    session = await providerSession(env, provider, source);
+  } catch (reason) {
+    rememberIfAccountExists(reason);
+    throw reason;
+  }
+  return session ? adoptSession(env, session) : null;
+}
+
+/** The ways the signed-in account can sign in, for confirming it's them. */
+export async function cloudSignInMethods(): Promise<SignInMethod[]> {
+  const env = cloudEnv();
+  const session = await currentSession(env);
+  try {
+    const methods = await auth.signInMethods(env, session.idToken);
+    if (methods.length) return methods;
+  } catch {
+    // Offline: fall back to how this device signed in.
+  }
+  return [session.method ?? "password"];
 }
 
 export async function cloudSignOut() {
@@ -650,19 +751,46 @@ async function deleteTree(fs: FirestoreClient, uid: string) {
   }
 }
 
-/** Deletes everything in the account, then the account. Local history stays on this device. */
-export async function cloudDeleteAccount(password: string) {
+export type DeleteConfirmation = string | { method: "password"; password: string } | { method: IdpProvider };
+
+/**
+ * Deletes everything in the account, then the account. Local history stays
+ * on this device. Needs a fresh sign-in: the password, or Apple / Google
+ * again (which must be the same account).
+ */
+export async function cloudDeleteAccount(confirm: DeleteConfirmation, source: ProviderSource = obtainProviderSignIn): Promise<boolean> {
   const env = cloudEnv();
   const session = loadSession(env);
   if (!session) throw new CloudError("auth", "Sign in first.", "SIGNED_OUT");
-  // Deleting needs a recent sign-in; this also confirms it's really them.
-  const fresh = await auth.signIn(env, session.email, password);
-  saveSession(fresh);
+  const how = typeof confirm === "string" ? { method: "password" as const, password: confirm } : confirm;
+  let fresh: CloudSession | null;
+  if (how.method === "password") {
+    // Deleting needs a recent sign-in; this also confirms it's really them.
+    try {
+      fresh = await auth.signIn(env, session.email, how.password);
+    } catch (reason) {
+      if (reason instanceof CloudError && reason.code === "INVALID_LOGIN_CREDENTIALS") throw new CloudError("invalid", "That password isn't right.", reason.code);
+      throw reason;
+    }
+  } else {
+    fresh = await providerSession(env, how.method, source).catch((reason) => {
+      if (reason instanceof auth.AccountExistsError) throw new CloudError("invalid", "That's a different account. Use the one you're signed in with.", "USER_MISMATCH");
+      throw reason;
+    });
+    if (!fresh) return false;
+    if (fresh.uid !== session.uid) {
+      // Another Apple / Google account: never touch it (and don't leave a stray empty account behind).
+      await auth.deleteUserIfNew(env, fresh).catch(() => undefined);
+      throw new CloudError("invalid", "That's a different account. Use the one you're signed in with.", "USER_MISMATCH");
+    }
+  }
+  saveSession({ ...fresh, method: session.method });
   if (running) await running.catch(() => undefined);
   stopTimers();
-  await deleteTree(new FirestoreClient(env, async () => fresh.idToken), fresh.uid);
+  await deleteTree(new FirestoreClient(env, async () => fresh!.idToken), fresh.uid);
   await auth.deleteUser(env, fresh.idToken);
   endSession(null);
+  return true;
 }
 
 function stopTimers() {
@@ -732,24 +860,6 @@ export async function approveTvLink(request: TvLinkRequest) {
     }
     throw reason;
   }
-}
-
-// --------------------------------------------------------- project config
-
-/** Points this app at the owner's Firebase project without a rebuild. */
-export function applyFirebaseConfig(text: string): boolean {
-  const config = parseFirebaseConfig(text);
-  if (!config) return false;
-  endSession(null);
-  savePastedFirebaseConfig(config);
-  useCloud.setState(initialStatus());
-  return true;
-}
-
-export function forgetFirebaseConfig() {
-  endSession(null);
-  savePastedFirebaseConfig(null);
-  useCloud.setState(initialStatus());
 }
 
 export function cloudStatusLine(status: CloudStatus, now = Date.now()): string {

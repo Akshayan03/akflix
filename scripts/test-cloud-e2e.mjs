@@ -249,3 +249,100 @@ test("signing out keeps the local copy; deleting the account removes the cloud d
   await assert.rejects(phone.signIn(email, password), /incorrect|no longer exists/i, "the login is gone");
   assert.ok((await phone.state()).continuing.length > 0, "the phone keeps its local history");
 });
+
+// ---------------------------------------------------------- Apple, Google and email sign-in
+
+const appleEmail = `apple+${stamp}@example.com`;
+const appleClaims = { sub: `apple-${stamp}`, email: appleEmail, email_verified: true };
+
+test("Continue with Apple creates the account; Apple on the other device lands in the same one", async () => {
+  const first = await phone.signInWith("apple.com", appleClaims);
+  assert.equal(first.method, "apple.com");
+  assert.equal(first.linked, null);
+  await phone.record(dune, 900, 9960);
+  await phone.sync();
+  const second = await mac.signInWith("apple.com", appleClaims);
+  assert.equal(second.uid, first.uid, "same Apple ID, same Akflix account");
+  const row = (await mac.state()).continuing.find((entry) => entry.key === "movie:tt15239678");
+  assert.equal(row?.position, 900, "the iPhone's minute shows on the Mac");
+  assert.deepEqual(await mac.methods(), ["apple.com"]);
+  assert.equal((await mac.state()).status.user.method, "apple.com");
+  await mac.signOut();
+  await phone.signOut();
+});
+
+test("an Apple or Google sign-in the person backs out of changes nothing", async () => {
+  assert.equal(await phone.cancelSignIn("google.com"), null);
+  assert.equal((await phone.state()).status.user, null);
+});
+
+test("Google for an email that already signs in with a password: clear prompt, then sign in the old way and Google is added", async () => {
+  const shared = `shared+${stamp}@example.com`;
+  const original = await signUpRaw(shared);
+  // Unverified Google email: Firebase won't merge on its own (auth/account-exists-with-different-credential).
+  const googleClaims = { sub: `google-${stamp}`, email: shared, email_verified: false };
+  const refused = await phone.signInWith("google.com", googleClaims).then(() => null, (error) => error);
+  assert.equal(refused?.code, "ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL");
+  assert.match(refused.message, new RegExp(`already have an Akflix account with ${shared.replace(/[+.]/g, "\\$&")}.*Sign in the way you did before, and Google will be added`));
+  assert.deepEqual(await phone.pendingLink(), { providerId: "google.com", email: shared });
+  assert.equal((await phone.state()).status.user, null, "not signed in yet");
+
+  const signedIn = await phone.signIn(shared, "secret-pass");
+  assert.equal(signedIn.uid, original.localId, "the original account");
+  assert.deepEqual((await phone.methods()).sort(), ["google.com", "password"], "Google is now part of it");
+  assert.equal(await phone.pendingLink(), null);
+  await phone.signOut();
+
+  const again = await mac.signInWith("google.com", googleClaims);
+  assert.equal(again.uid, original.localId, "Google alone now opens the same account");
+  await mac.signOut();
+});
+
+test("the waiting Google sign-in is only added to the account with its email", async () => {
+  const shared = `other+${stamp}@example.com`;
+  await signUpRaw(shared);
+  await phone.signInWith("google.com", { sub: `google-other-${stamp}`, email: shared, email_verified: false }).catch(() => undefined);
+  assert.equal((await phone.pendingLink())?.email, shared);
+  const someoneElse = `else+${stamp}@example.com`;
+  await signUpRaw(someoneElse);
+  await phone.signIn(someoneElse, "secret-pass");
+  assert.deepEqual(await phone.methods(), ["password"], "a different account never gets that Google sign-in");
+  await phone.signOut();
+});
+
+test("the Mac's browser answer signs in like the native sheets do", async () => {
+  // What signin.html hands back after Firebase's own page signed in with Google.
+  const { body } = await rest(`${AUTH}/identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=demo`, {
+    method: "POST",
+    json: { postBody: `id_token=${encodeURIComponent(JSON.stringify({ sub: `g-mac-${stamp}`, email: `mac+${stamp}@example.com`, email_verified: true }))}&providerId=google.com`, requestUri: "http://localhost", returnSecureToken: true },
+  });
+  const result = await mac.signInWithAnswer("google.com", { providerId: "google.com", localId: body.localId, email: body.email, idToken: body.idToken, refreshToken: body.refreshToken, expiresIn: "3600" });
+  assert.equal(result.uid, body.localId);
+  assert.equal((await mac.state()).status.phase, "idle");
+  await mac.signOut();
+});
+
+test("deleting an Apple account confirms with Apple, refuses another Apple ID and leaves no stray account behind", async () => {
+  const { uid: appleUid } = await phone.signInWith("apple.com", appleClaims);
+  const strangerEmail = `stranger-apple+${stamp}@example.com`;
+  const wrong = await phone.deleteAccountWith("apple.com", { sub: `apple-stranger-${stamp}`, email: strangerEmail, email_verified: true }).then(() => null, (error) => error);
+  assert.equal(wrong?.code, "USER_MISMATCH");
+  const stray = await rest(`${AUTH}/identitytoolkit.googleapis.com/v1/projects/demo-akflix/accounts:lookup`, { method: "POST", headers: asOwner, json: { email: [strangerEmail] } });
+  assert.equal((stray.body.users ?? []).length, 0, "the confirmation didn't create an account for the other Apple ID");
+  assert.ok((await phone.state()).status.user, "still signed in");
+
+  assert.equal(await phone.deleteAccountWith("apple.com", appleClaims), true);
+  assert.equal((await rest(`${FIRESTORE}/${DOCS}/users/${appleUid}`, { headers: asOwner })).status, 404, "cloud data removed");
+  const gone = await rest(`${AUTH}/identitytoolkit.googleapis.com/v1/projects/demo-akflix/accounts:lookup`, { method: "POST", headers: asOwner, json: { localId: [appleUid] } });
+  assert.equal((gone.body.users ?? []).length, 0, "the Apple account itself is deleted");
+  assert.ok((await phone.state()).continuing.length > 0, "the phone keeps its local history");
+});
+
+test("offline: Apple and Google say so plainly and nothing changes", async () => {
+  await phone.offline(true);
+  const offline = await phone.signInWith("google.com", { sub: `g-off-${stamp}`, email: `off+${stamp}@example.com`, email_verified: true }).then(() => null, (error) => error);
+  assert.equal(offline?.kind, "offline");
+  assert.match(offline.message, /offline/i);
+  assert.equal((await phone.state()).status.user, null);
+  await phone.offline(false);
+});

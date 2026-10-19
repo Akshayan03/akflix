@@ -7,13 +7,28 @@ import {
   approveTvLink,
   cloudDeleteAccount,
   cloudSignIn,
+  cloudSignInMethods,
+  cloudSignInWithProvider,
   cloudSignOut,
   initCloudSync,
   lookupTvLink,
+  pendingAccountLink,
   syncNow,
   useCloud,
+  type SignInResult,
 } from "@/lib/cloud/engine";
+import type { IdpProvider, IdpResponse } from "@/lib/cloud/auth";
 import { CloudError } from "@/lib/cloud/rest";
+
+/**
+ * Stands in for the native Apple / Google sheets: the Auth emulator accepts a
+ * provider token that is just the JSON claims, the way a real one carries them.
+ */
+const fakeProvider = (claims: Record<string, unknown>) => async (_env: unknown, provider: IdpProvider) => ({
+  kind: "credential" as const,
+  credential: { providerId: provider, idToken: JSON.stringify(claims), ...(provider === "apple.com" ? { rawNonce: "raw-nonce" } : {}) },
+});
+const summary = (result: SignInResult | null) => (result ? { uid: result.session.uid, method: result.session.method, linked: result.linked, linkProblem: result.linkProblem } : null);
 
 /** Continue Watching rows as the Mac's Home builds them (newest per title, unfinished). */
 function continuingEntries(entries: WatchHistoryEntry[], profileId: string) {
@@ -33,9 +48,15 @@ function continuingEntries(entries: WatchHistoryEntry[], profileId: string) {
 initCloudSync();
 
 const handlers: Record<string, (...args: any[]) => unknown> = {
-  signUp: (email: string, password: string) => cloudSignIn(email, password, true).then((s) => ({ uid: s.uid })),
-  signIn: (email: string, password: string) => cloudSignIn(email, password, false).then((s) => ({ uid: s.uid })),
+  signUp: (email: string, password: string) => cloudSignIn(email, password, true).then(summary),
+  signIn: (email: string, password: string) => cloudSignIn(email, password, false).then(summary),
   signOut: () => cloudSignOut(),
+  signInWith: (provider: IdpProvider, claims: Record<string, unknown>) => cloudSignInWithProvider(provider, fakeProvider(claims)).then(summary),
+  // The Mac's browser flow: Firebase already signed in on its page and hands back that answer.
+  signInWithAnswer: (provider: IdpProvider, response: IdpResponse) => cloudSignInWithProvider(provider, async () => ({ kind: "response", response })).then(summary),
+  cancelSignIn: (provider: IdpProvider) => cloudSignInWithProvider(provider, async () => ({ kind: "cancelled" })).then(summary),
+  pendingLink: () => pendingAccountLink(),
+  methods: () => cloudSignInMethods(),
   record: (media: HistoryTitle, position: number, duration: number, details?: Record<string, unknown>) =>
     useHistory.getState().recordProgress(media, position, duration, details),
   remove: (media: HistoryTitle) => useHistory.getState().removeEntry(media),
@@ -52,6 +73,7 @@ const handlers: Record<string, (...args: any[]) => unknown> = {
     return request.deviceName;
   },
   deleteAccount: (password: string) => cloudDeleteAccount(password),
+  deleteAccountWith: (provider: IdpProvider, claims: Record<string, unknown>) => cloudDeleteAccount({ method: provider }, fakeProvider(claims)),
   state: () => {
     const settings = useSettings.getState();
     return {

@@ -15,7 +15,6 @@ import {
   type LocalSnapshot,
 } from "../src/lib/cloud/model";
 import { fromFields, toFields } from "../src/lib/cloud/firestore";
-import { parseFirebaseConfig } from "../src/lib/cloud/env";
 import { cloudProfileFor, cloudStatusLine, normalizeTvCode } from "../src/lib/cloud/engine";
 import { readJournal } from "../src/lib/cloud/journal";
 import { useHistory, type HistoryTitle, type WatchHistoryEntry } from "../src/stores/historyStore";
@@ -216,17 +215,6 @@ test("cloud sync: settings merge per setting by time", () => {
     { values: { audioLanguage: "eng", subtitleLanguage: "spa", language: "fr" }, at: { audioLanguage: 20, subtitleLanguage: 30, language: 5 } }
   )!;
   assert.deepEqual(merged.values, { audioLanguage: "jpn", subtitleLanguage: "spa", language: "fr" });
-});
-
-test("cloud sync: the Firebase console config snippet can be pasted as-is", () => {
-  const snippet = `const firebaseConfig = {\n  apiKey: "AIzaSyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvW",\n  authDomain: "akflix-123.firebaseapp.com",\n  projectId: "akflix-123",\n  appId: "1:123:web:abc"\n};`;
-  assert.deepEqual(parseFirebaseConfig(snippet), {
-    apiKey: "AIzaSyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvW",
-    projectId: "akflix-123",
-    authDomain: "akflix-123.firebaseapp.com",
-    appId: "1:123:web:abc",
-  });
-  assert.equal(parseFirebaseConfig("hello"), null);
 });
 
 test("cloud sync: TV codes ignore dashes, spaces and case", () => {
