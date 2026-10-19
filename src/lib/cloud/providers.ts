@@ -40,6 +40,8 @@ export interface BrowserResult {
   idToken?: string;
   refreshToken?: string;
   expiresIn?: number;
+  /** ok: this sign-in created the account. */
+  isNewUser?: boolean;
   /** exists: the credential to link later (OAuthCredential.toJSON()). */
   credential?: { idToken?: string; accessToken?: string; nonce?: string; pendingToken?: string };
   /** error: the SDK's code, such as auth/admin-restricted-operation. */
@@ -72,6 +74,7 @@ export function browserAnswer(result: BrowserResult, provider: IdpProvider): Pro
           idToken: result.idToken,
           refreshToken: result.refreshToken,
           expiresIn: String(result.expiresIn ?? 3600),
+          ...(result.isNewUser ? { isNewUser: true } : {}),
         },
       };
     case "exists":

@@ -24,6 +24,8 @@ test("Mac sign-in: the page's answers become the same results as the native shee
   assert.equal(ok.kind, "response");
   const session = sessionFromIdp(env, (ok as { response: Record<string, unknown> }).response, { providerId: "google.com" });
   assert.deepEqual({ uid: session.uid, method: session.method, refreshToken: session.refreshToken }, { uid: "u1", method: "google.com", refreshToken: "rt" });
+  const created = browserAnswer({ status: "ok", providerId: "apple.com", uid: "u2", idToken: "id", refreshToken: "rt", isNewUser: true }, "apple.com");
+  assert.equal(sessionFromIdp(env, (created as { response: Record<string, unknown> }).response, { providerId: "apple.com" }).isNewUser, true, "so a mistaken delete confirmation can remove it");
 
   const exists = browserAnswer({ status: "exists", providerId: "apple.com", email: "me@x.co", credential: { pendingToken: "pt" } }, "apple.com");
   assert.throws(

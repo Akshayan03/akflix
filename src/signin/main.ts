@@ -11,6 +11,7 @@ import { initializeApp } from "firebase/app";
 import {
   browserPopupRedirectResolver,
   connectAuthEmulator,
+  getAdditionalUserInfo,
   GoogleAuthProvider,
   inMemoryPersistence,
   initializeAuth,
@@ -112,6 +113,7 @@ if (!/^[0-9a-f]{32}$/.test(state) || !apiKey) {
         idToken: await user.getIdToken(),
         refreshToken: user.refreshToken,
         expiresIn: 3600,
+        isNewUser: getAdditionalUserInfo(result)?.isNewUser === true,
       });
       show(delivered ? "You're signed in" : "Akflix stopped waiting", delivered ? "Go back to Akflix. You can close this tab." : `Go back to Akflix and choose Continue with ${label} again.`);
     } catch (reason) {
