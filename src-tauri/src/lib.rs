@@ -1823,15 +1823,34 @@ mod tests {
         assert!(result.map(|pcm| pcm.is_empty()).unwrap_or(true));
     }
 
+    /// An FFmpeg that can synthesise test media (`-f lavfi`). The bundled build has
+    /// no libavdevice, so it can't make the fixture; the reader under test still
+    /// runs through `find_ffmpeg()`, i.e. the bundled build.
+    fn fixture_ffmpeg() -> Option<PathBuf> {
+        std::env::var_os("AKFLIX_FIXTURE_FFMPEG")
+            .map(PathBuf::from)
+            .into_iter()
+            .chain(
+                ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]
+                    .map(PathBuf::from),
+            )
+            .find(|path| path.is_file())
+    }
+
     #[test]
     fn skip_reader_returns_8khz_mono_pcm_chapters_and_duration() {
-        let Some(ffmpeg) = find_ffmpeg() else {
+        if find_ffmpeg().is_none() {
             eprintln!("no ffmpeg: skipped");
             return;
+        }
+        let Some(ffmpeg) = fixture_ffmpeg() else {
+            eprintln!("no FFmpeg with lavfi to make the fixture: skipped");
+            return;
         };
-        // media:// paths resolve under the development downloads folder in tests.
+        // media:// paths resolve under the test media root (a temporary folder), the
+        // same root every other test uses, so parallel tests agree on it.
         let name = format!(".akflix-skip-test-{}", std::process::id());
-        let folder = downloads_root().expect("downloads root").join(&name);
+        let folder = test_media_root().join(&name);
         fs::create_dir_all(&folder).expect("create folder");
         let chapters = folder.join("chapters.txt");
         fs::write(
