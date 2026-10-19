@@ -33,47 +33,30 @@ export function subtitleToVtt(value: string): string {
   return body.trimStart().startsWith("WEBVTT") ? body : `WEBVTT\n\n${body}`;
 }
 
-function shiftedTimestamp(
-  _match: string,
-  hours: string | undefined,
-  minutes: string,
-  seconds: string,
-  milliseconds: string,
-  offsetSeconds: number
-): string {
-  const original =
-    (Number(hours ?? 0) * 3600 + Number(minutes) * 60 + Number(seconds)) * 1000 +
-    Number(milliseconds);
-  const shifted = Math.max(0, original + Math.round(offsetSeconds * 1000));
-  const shiftedHours = Math.floor(shifted / 3_600_000);
-  const shiftedMinutes = Math.floor((shifted % 3_600_000) / 60_000);
-  const shiftedSeconds = Math.floor((shifted % 60_000) / 1000);
-  const shiftedMilliseconds = shifted % 1000;
-  const prefix = hours !== undefined || shiftedHours > 0
-    ? `${String(shiftedHours).padStart(2, "0")}:`
-    : "";
-  return `${prefix}${String(shiftedMinutes).padStart(2, "0")}:${String(shiftedSeconds).padStart(2, "0")}.${String(shiftedMilliseconds).padStart(3, "0")}`;
-}
+const CUE_TIMING =
+  /^((?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3})\s+-->\s+((?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3})(.*)$/;
 
+/**
+ * Shift every cue in place. Its text keeps its lines (two speakers stay on
+ * two lines), styling and cue settings; cues that would end before the start
+ * are dropped.
+ */
 export function offsetSubtitle(vtt: string, offsetSeconds: number): string {
   if (Math.abs(offsetSeconds) < 0.001) return vtt;
-  if (offsetSeconds < 0) {
-    return cuesToVtt(
-      parseVttCues(vtt)
-        .map((cue) => ({
-          ...cue,
-          start: cue.start + offsetSeconds,
-          end: cue.end + offsetSeconds,
-        }))
-        .filter((cue) => cue.end > 0)
-        .map((cue) => ({ ...cue, start: Math.max(0, cue.start) }))
-    );
-  }
-  return vtt.replace(
-    /(?:(\d{1,2}):)?(\d{2}):(\d{2})[.,](\d{3})/g,
-    (match, hours, minutes, seconds, milliseconds) =>
-      shiftedTimestamp(match, hours, minutes, seconds, milliseconds, offsetSeconds)
-  );
+  return vtt
+    .replace(/\r\n?/g, "\n")
+    .split(/\n{2,}/)
+    .flatMap((block) => {
+      const lines = block.split("\n");
+      const index = lines.findIndex((line) => CUE_TIMING.test(line));
+      if (index < 0) return [block];
+      const [, start, end, settings] = lines[index].match(CUE_TIMING)!;
+      const shiftedEnd = parseTimestamp(end) + offsetSeconds;
+      if (shiftedEnd <= 0) return [];
+      lines[index] = `${formatTimestamp(Math.max(0, parseTimestamp(start) + offsetSeconds))} --> ${formatTimestamp(shiftedEnd)}${settings}`;
+      return [lines.join("\n")];
+    })
+    .join("\n\n");
 }
 
 function parseTimestamp(value: string): number {
@@ -126,6 +109,43 @@ export function cuesToVtt(cues: CaptionCue[]): string {
   return `WEBVTT\n\n${ordered
     .map((cue, index) => `${index + 1}\n${formatTimestamp(cue.start)} --> ${formatTimestamp(cue.end)}\n${cue.text}`)
     .join("\n\n")}\n`;
+}
+
+const words = (value: string) => value.toLowerCase().match(/[a-z0-9']+/g) ?? [];
+
+/** Whether the texts are the same, or most (three or more) words of the shorter are in the longer. */
+function repeats(a: string, b: string): boolean {
+  const [short, long] = words(a).length <= words(b).length ? [words(a), words(b)] : [words(b), words(a)];
+  if (!short.length) return false;
+  if (short.join(" ") === long.join(" ")) return true;
+  const longWords = new Set(long);
+  const shared = short.filter((word) => longWords.has(word)).length;
+  return shared >= 3 && shared / short.length >= 0.6;
+}
+
+/**
+ * Generated captions come from overlapping recognition windows, so speech
+ * near a window edge can arrive twice with different timing and wording,
+ * and both used to show at once. Keep one line on screen at a time: a cue
+ * that repeats the one it overlaps is merged into it (the fuller wording
+ * wins) and otherwise the earlier cue ends where the next begins.
+ */
+export function sequentialCues(cues: CaptionCue[]): CaptionCue[] {
+  const result: CaptionCue[] = [];
+  for (const cue of [...cues].sort((a, b) => a.start - b.start || a.end - b.end)) {
+    const previous = result[result.length - 1];
+    if (previous && cue.start < previous.end) {
+      if (repeats(previous.text, cue.text)) {
+        if (words(cue.text).length > words(previous.text).length) previous.text = cue.text;
+        previous.end = Math.max(previous.end, cue.end);
+        continue;
+      }
+      previous.end = cue.start;
+      if (previous.end - previous.start < 0.2) result.pop();
+    }
+    result.push({ ...cue });
+  }
+  return result;
 }
 
 export function mergeCaptionRanges(ranges: CaptionRange[]): CaptionRange[] {

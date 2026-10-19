@@ -3,6 +3,7 @@ import "./storage.test";
 import "./playerSeek.test";
 import "./cloud-sync.test";
 import "./skip.test";
+import "./captions.test";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { selectVideoFile, sourceNamesAnotherShow } from "../src/lib/mediaSelection";

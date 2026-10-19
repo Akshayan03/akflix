@@ -903,9 +903,22 @@ video::cue {
   color: #ffffff;
   background: rgba(0, 0, 0, 0.8);
   font-family: var(--ak-font-sans);
-  font-size: 1.05rem;
+  font-size: var(--caption-size, 1.05rem);
   line-height: 1.45;
   text-shadow: 0 2px 5px rgba(0, 0, 0, 0.95);
+}
+
+/* WebKit lays captions out over the whole element, letterbox bars included.
+   PlayerHost frames them to the picture, above its bottom edge and clear of
+   the visible controls (lib/captionDisplay.ts). */
+video[data-caption-frame]::-webkit-media-text-track-container {
+  position: absolute !important;
+  top: var(--caption-top) !important;
+  left: var(--caption-left) !important;
+  width: var(--caption-width) !important;
+  height: var(--caption-height) !important;
+  right: auto !important;
+  bottom: auto !important;
 }
 
 /* Player controls use a larger invisible hit area with a precise visual rail. */

@@ -63,9 +63,11 @@ import {
   parseVttCues,
   removeManualCaption,
   saveManualCaption,
+  sequentialCues,
   type CaptionCue,
   type ManualCaption,
 } from "@/lib/manualCaptions";
+import { captionFrame, showOnlyCaptionTrack } from "@/lib/captionDisplay";
 import { transcribeCaptionChunk } from "@/lib/liveCaptions";
 import { httpRaw } from "@/lib/http";
 import {
@@ -310,6 +312,7 @@ export default function PlayerHost() {
   const seekFeedbackTimer = useRef<ReturnType<typeof setTimeout>>();
   const scrubTimeRef = useRef<number | null>(null);
   const scrubPointerActiveRef = useRef(false);
+  const controlsBarRef = useRef<HTMLDivElement>(null);
   const manualCaptionRef = useRef<ManualCaption | null>(null);
   const subtitleBlobUrlsRef = useRef<string[]>([]);
   const captionInputRef = useRef<string | null>(null);
@@ -1370,9 +1373,12 @@ export default function PlayerHost() {
       setManualTrack(null);
       return;
     }
+    const vtt = manualCaption.kind === "generated"
+      ? cuesToVtt(sequentialCues(parseVttCues(manualCaption.vtt)))
+      : manualCaption.vtt;
     const url = URL.createObjectURL(
       new Blob([offsetSubtitle(
-        manualCaption.vtt,
+        vtt,
         manualCaption.offsetSeconds - compatibilityStartSeconds
       )], {
         type: "text/vtt",
@@ -1548,13 +1554,68 @@ export default function PlayerHost() {
   }, [captionKey]);
 
   // ── Subtitle track switching ─────────────────────────────────────────
+  // One caption renderer: the selected <track>. Its element renders a step
+  // after the selection, and WebKit's automatic caption selection changes
+  // modes on its own whenever tracks are added (each load adds the file's
+  // in-band tracks, each fetch or offset change adds ours), so the choice is
+  // applied again whenever the track list changes.
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    for (const track of Array.from(v.textTracks)) {
-      track.mode = Number(track.id) === activeSub ? "showing" : "hidden";
-    }
-  }, [activeSub, manualTrack, subTracks]);
+    const video = videoRef.current;
+    if (!video) return;
+    const tracks = video.textTracks;
+    const apply = () => {
+      const selected = Array.from(video.getElementsByTagName("track")).find(
+        (element) => element.dataset.index === String(activeSub)
+      );
+      showOnlyCaptionTrack(tracks, selected?.track ?? null);
+    };
+    apply();
+    tracks.addEventListener("addtrack", apply);
+    tracks.addEventListener("change", apply);
+    return () => {
+      tracks.removeEventListener("addtrack", apply);
+      tracks.removeEventListener("change", apply);
+    };
+  }, [activeSub, session]);
+
+  // ── Caption placement ────────────────────────────────────────────────
+  // WebKit lays captions out over the whole element, so with a letterboxed
+  // picture they sat in the black bar at the window's edge. Frame them to
+  // the picture instead (index.css), clear of the controls while they show.
+  // Picture in picture and native fullscreen keep WebKit's own placement.
+  useEffect(() => {
+    const video = videoRef.current as WebKitVideoElement | null;
+    if (!video) return;
+    const place = () => {
+      const inline = !pictureInPicture && (video.webkitPresentationMode ?? "inline") === "inline";
+      const frame = inline
+        ? captionFrame(
+            { width: video.clientWidth, height: video.clientHeight },
+            { width: video.videoWidth, height: video.videoHeight },
+            mode === "expanded" && controlsVisible ? controlsBarRef.current?.offsetHeight ?? 0 : 0
+          )
+        : null;
+      if (!frame) {
+        delete video.dataset.captionFrame;
+        video.style.removeProperty("--caption-size");
+        return;
+      }
+      video.style.setProperty("--caption-top", `${frame.top}px`);
+      video.style.setProperty("--caption-left", `${frame.left}px`);
+      video.style.setProperty("--caption-width", `${frame.width}px`);
+      video.style.setProperty("--caption-height", `${frame.height}px`);
+      video.style.setProperty("--caption-size", `${frame.fontSize}px`);
+      video.dataset.captionFrame = "";
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(video);
+    video.addEventListener("resize", place);
+    return () => {
+      observer.disconnect();
+      video.removeEventListener("resize", place);
+    };
+  }, [controlsVisible, mode, pictureInPicture, session]);
 
   // ── Render ───────────────────────────────────────────────────────────
 
@@ -1829,6 +1890,7 @@ export default function PlayerHost() {
             <track
               key={`${s.index}:${s.url}`}
               id={String(s.index)}
+              data-index={s.index}
               kind="subtitles"
               label={s.label}
               srcLang={s.language ?? "und"}
@@ -1922,6 +1984,7 @@ export default function PlayerHost() {
 
               {/* Bottom bar */}
               <div
+                ref={controlsBarRef}
                 className={`px-4 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] transition-transform duration-300 md:p-5 ${
                   controlsVisible ? "translate-y-0" : "translate-y-3"
                 }`}
