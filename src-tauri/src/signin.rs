@@ -27,10 +27,9 @@ pub struct BrowserSignIn {
 }
 
 fn random_state() -> Result<String, String> {
+    // The operating system's generator: /dev/urandom does not exist on Windows.
     let mut bytes = [0u8; 16];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut file| file.read_exact(&mut bytes))
-        .map_err(|error| format!("No secure random source: {error}"))?;
+    getrandom::fill(&mut bytes).map_err(|error| format!("No secure random source: {error}"))?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
