@@ -236,11 +236,17 @@ function buildContext(signals: Signals, data: DiscoveryData, options: PlanOption
 const fresh = (ctx: Context, item: StremioMeta) =>
   !ctx.seen.has(keyOf(item)) && !ctx.blocked.has(keyOf(item)) && !ctx.saved.has(keyOf(item));
 
+/** No popularity data anywhere (Cinemeta activity, TMDB or Trakt): any rating it has comes from a handful of votes. */
+const unknown = (item: StremioMeta) =>
+  !((item.popularity ?? 0) > 0) && !((item.popularities?.moviedb ?? 0) > 0) && !((item.popularities?.trakt ?? 0) > 0);
+
 /**
- * Good enough to recommend: rated 6+ on IMDb, or too new to be rated yet but
- * already drawing viewers. Factual lists (What's New, Trending) skip this.
+ * Good enough to recommend: rated 6+ on IMDb by a title people actually
+ * watch, or too new to be rated yet but already drawing viewers. Factual
+ * lists (What's New, Trending) skip this.
  */
 function recommendable(ctx: Context, item: StremioMeta, floor = 6) {
+  if (unknown(item)) return false;
   const rating = ctx.scorer.index.of(item).rating;
   if (rating) return rating >= floor;
   const released = releasedAt(item);

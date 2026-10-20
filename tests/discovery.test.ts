@@ -397,6 +397,8 @@ test("discovery rows: hidden gems are well rated, less known and on taste", () =
   const obscure = meta("No Data", "series", ["Crime", "Drama"], { imdbRating: "9.4", popularity: undefined, popularities: undefined, writer: ["Dana Simmons"] });
   const again = planHome(signals({ history: [finished(crime[0], 2), finished(crime[1], 5)], ratings: [rated(crime[0], 5)] }), catalog({ catalog: [...ALL, ...gems, ...famous, obscure] }), UTC);
   assert.ok(!keys(rowOf(again.rows, "hidden-gems")?.items ?? []).includes(keyOf(obscure)), "no popularity data at all is not a gem");
+  const picked = again.rows.filter((r) => ["top-picks", "because-liked", "because-watched", "more-from", "genre"].includes(r.kind));
+  assert.ok(picked.length > 0 && picked.every((r) => !keys(r.items).includes(keyOf(obscure))), "a rating nobody watches is not recommended");
   assert.ok(row!.items.some((item) => item.name.startsWith("Quiet")));
   assert.ok(!row!.items.some((item) => item.name.startsWith("Blockbuster")));
 });
