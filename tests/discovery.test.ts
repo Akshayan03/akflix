@@ -368,6 +368,7 @@ test("discovery rows: Top picks say why, and My List titles are not repeated", (
   assert.ok(Object.values(picks.reasons).some((reason) => /^Because you (liked|watched) /.test(reason)));
   for (const row of plan.rows) assert.ok(!keys(row.items).includes(keyOf(crimeFilms[0])), `${row.title} repeats a My List title`);
   assert.equal(plan.hero?.eyebrow, "Top pick for you");
+  assert.ok(!keys(picks.items).includes(keyOf(plan.hero!.item)), "the hero is not repeated right below it");
 });
 
 test("discovery rows: More from a creator, and genre rows named for the taste", () => {

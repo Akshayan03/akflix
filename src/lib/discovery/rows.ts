@@ -734,6 +734,11 @@ export function planHome(signals: Signals, data: DiscoveryData, options: PlanOpt
       : popular
         ? { item: popular, eyebrow: "Trending now" }
         : null;
+  // The hero is not repeated as the first card of the row it came from.
+  if (hero) {
+    const row = rows.find((candidate) => candidate.items.includes(hero.item));
+    if (row && row.items.length > MIN_ROW) row.items = row.items.filter((item) => item !== hero.item);
+  }
 
   const onboarding = cold
     ? diversify(
