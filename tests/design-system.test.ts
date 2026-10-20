@@ -81,7 +81,7 @@ test("interface source uses only neutral colours", () => {
     if (CHROMATIC_CLASS.test(text)) offenders.push(`${path}: ${text.match(CHROMATIC_CLASS)![0]}`);
     for (const l of colourLiterals(text)) {
       // Google's sign-in rules require its "G" in Google's own four colours; nowhere else.
-      if (path.endsWith("components/signInMarkPaths.ts") && GOOGLE_G.has(l.literal.toUpperCase())) continue;
+      if (path.replace(/\\/g, "/").endsWith("components/signInMarkPaths.ts") && GOOGLE_G.has(l.literal.toUpperCase())) continue;
       if (!l.neutral) offenders.push(`${path}: ${l.literal}`);
     }
   }
