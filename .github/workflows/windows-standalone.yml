@@ -14,6 +14,13 @@ jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 60
+    # Akflix accounts: the project's public web config (repository variables,
+    # not secrets; the values ship inside the app).
+    env:
+      VITE_AKFLIX_FIREBASE_API_KEY: ${{ vars.VITE_AKFLIX_FIREBASE_API_KEY }}
+      VITE_AKFLIX_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_AKFLIX_FIREBASE_AUTH_DOMAIN }}
+      VITE_AKFLIX_FIREBASE_PROJECT_ID: ${{ vars.VITE_AKFLIX_FIREBASE_PROJECT_ID }}
+      VITE_AKFLIX_FIREBASE_APP_ID: ${{ vars.VITE_AKFLIX_FIREBASE_APP_ID }}
 
     steps:
       - uses: actions/checkout@v4
@@ -108,6 +115,14 @@ jobs:
       - name: Build Windows installers
         run: npx tauri build --config src-tauri/tauri.local.conf.json --bundles nsis,msi
 
+      - name: Check the accounts config is built in
+        shell: pwsh
+        run: |
+          if (!$env:VITE_AKFLIX_FIREBASE_PROJECT_ID) { throw "Accounts config variables are not set" }
+          $hits = Select-String -Path dist/assets/*.js -SimpleMatch $env:VITE_AKFLIX_FIREBASE_PROJECT_ID -List
+          if (!$hits) { throw "The frontend was built without the accounts config" }
+          $hits | ForEach-Object { $_.Path }
+
       - name: Test installed Windows app
         shell: pwsh
         run: ./scripts/test-windows-install.ps1
@@ -130,7 +145,7 @@ jobs:
           $tag = "v$version"
           gh release view $tag
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target $env:GITHUB_SHA --title "Akflix $tag" --notes "Akflix 1.0.23 fixes playback that stopped, stayed paused or switched to another source when skipping ahead in converted (MKV and similar) streams. Skips within the part already converted are now instant, quick repeated skips add up and keep playing, the conversion stream keeps about 20 seconds of buffer instead of under one so a slow source no longer stalls playback, and Watch or Resume tries the release that last played the episode first. Verified with automated tests and generated media in the macOS player, not by playing the reported show; an episode still cannot play when nobody is sharing it. It includes the 1.0.22 design polish. Use source features only for content you may lawfully access."
+            gh release create $tag --target $env:GITHUB_SHA --title "Akflix $tag" --notes "Akflix 1.0.28 adds Akflix accounts and Skip Intro, shows captions one track at a time, and includes the playback fixes from 1.0.24 to 1.0.27, which were not published on their own. Sign in with Google or email in Settings > Akflix account to sync Continue Watching (episode and minute), My List, ratings and preferences with your other devices and to approve a TV's sign-in code; Google opens in your web browser, Sign in with Apple is not available yet, and signing out keeps everything on the computer. Skip Intro and Skip Recap (S) appear while an intro or recap plays and a Next Episode card (N) when the end credits start, found from chapters, Jellyfin media segments or the season's episodes compared in the background; automatic skipping is optional in Settings > Playback. Only the caption track you choose is shown and Off turns every track off, generated captions no longer show the same speech twice, and on Mac captions stay inside the picture instead of the black bar under it. Quick repeated skips in converted (MKV and similar) streams add up and are retried instead of stopping on a slow source, and a direct (MP4) stream that stays stuck after its source goes quiet reloads at the same position. Verified with automated tests, generated media in the macOS player and sign-in against Firebase's test emulator; signing in with real Google and email accounts was not tried end to end, and an episode still cannot play when nobody is sharing it. Use source features only for content you may lawfully access."
             if ($LASTEXITCODE -ne 0) {
               gh release view $tag
               if ($LASTEXITCODE -ne 0) { throw "Could not create matching desktop release" }
