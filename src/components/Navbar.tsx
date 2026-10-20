@@ -75,6 +75,7 @@ export default function Navbar() {
     { to: "/", label: t("nav.home"), end: true },
     { to: "/movies", label: "Movies", end: false },
     { to: "/shows", label: "Shows", end: false },
+    { to: "/new", label: "What's New", end: false },
     { to: "/downloads", label: t("nav.downloads"), end: false },
   ];
 

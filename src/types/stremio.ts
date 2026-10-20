@@ -8,7 +8,10 @@ export interface StremioVideo {
   title?: string;
   season: number;
   episode: number;
+  /** Cinemeta's calendar feed numbers episodes here instead of `episode`. */
+  number?: number;
   released?: string;
+  firstAired?: string;
   overview?: string;
   thumbnail?: string;
 }
@@ -28,6 +31,15 @@ export interface StremioMeta {
   genres?: string[];
   cast?: string[];
   director?: string[];
+  /** Writers; for series this is the creator. */
+  writer?: string[];
+  country?: string;
+  /** ISO date of the first release (a film's release, a series' first air date). */
+  released?: string;
+  status?: string;
+  /** Cinemeta's current popularity score (recent activity). */
+  popularity?: number;
+  popularities?: Record<string, number>;
   videos?: StremioVideo[];
 }
 

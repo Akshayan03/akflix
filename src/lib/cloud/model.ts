@@ -8,6 +8,8 @@
  *            duration, completed; `removed` when dismissed from the row
  *   list   – saved to My List or not
  *   rating – personal 1-5 rating, 0 when cleared
+ *   engage – times finished, rewatches and binge sessions (recommendations);
+ *            the Roku never writes it, older apps leave it out
  * Titles are keyed `${type}:${imdbId}`, the same ids Mac, iPhone and Roku use.
  */
 import type { CloudJournal } from "@/lib/cloud/journal";
@@ -15,6 +17,7 @@ import { journalKey } from "@/lib/cloud/journal";
 import { safeDocId } from "@/lib/cloud/firestore";
 import type { HistoryTitle, PersonalRating, WatchHistoryEntry } from "@/stores/historyStore";
 import type { SavedTitle } from "@/stores/listStore";
+import type { EngagementRow } from "@/lib/discovery/engagement";
 
 export type CloudMediaType = "movie" | "series";
 
@@ -51,6 +54,14 @@ export interface RatingFacet {
   value: number;
 }
 
+export interface EngageFacet {
+  at: number;
+  plays: number;
+  rewatches: number;
+  binges: number;
+  lastFinishedAt?: number;
+}
+
 export interface CloudTitle {
   key: string;
   type: CloudMediaType;
@@ -59,12 +70,15 @@ export interface CloudTitle {
   watch?: WatchFacet;
   list?: ListFacet;
   rating?: RatingFacet;
+  engage?: EngageFacet;
 }
 
 export interface LocalSnapshot {
   entries: WatchHistoryEntry[];
   ratings: PersonalRating[];
   list: SavedTitle[];
+  /** Optional so callers from before the engage facet keep working. */
+  engagement?: EngagementRow[];
   journal: CloudJournal;
 }
 
@@ -158,8 +172,26 @@ export function entryFromWatch(profileId: string, title: CloudTitle, watch: Watc
 
 const removedWatch = (at: number): WatchFacet => ({ at, removed: true, position: 0, duration: 0, progress: 0, completed: false });
 
+const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(100_000, Math.round(value))) : 0);
+
+export function engageFromRow(row: Pick<EngagementRow, "at" | "plays" | "rewatches" | "binges" | "lastFinishedAt">): EngageFacet {
+  return compact({
+    at: Math.round(row.at),
+    plays: count(row.plays),
+    rewatches: count(row.rewatches),
+    binges: count(row.binges),
+    lastFinishedAt: whole(row.lastFinishedAt),
+  });
+}
+
+function asEngage(value: unknown): EngageFacet | undefined {
+  const raw = value as Partial<EngageFacet> | null;
+  if (!raw || typeof raw !== "object" || typeof raw.at !== "number") return undefined;
+  return engageFromRow({ at: raw.at, plays: raw.plays ?? 0, rewatches: raw.rewatches ?? 0, binges: raw.binges ?? 0, lastFinishedAt: raw.lastFinishedAt });
+}
+
 function newestAt(title: CloudTitle | undefined) {
-  return Math.max(title?.watch?.at ?? 0, title?.list?.at ?? 0, title?.rating?.at ?? 0);
+  return Math.max(title?.watch?.at ?? 0, title?.list?.at ?? 0, title?.rating?.at ?? 0, title?.engage?.at ?? 0);
 }
 
 /** Last writer wins; an exact tie is broken by content so both sides agree. */
@@ -186,13 +218,14 @@ export function mergeTitles(a: CloudTitle | undefined, b: CloudTitle | undefined
     watch: pickFacet(a.watch, b.watch),
     list: pickFacet(a.list, b.list),
     rating: pickFacet(a.rating, b.rating),
+    engage: pickFacet(a.engage, b.engage),
   });
 }
 
 /** What sync compares; titles' display metadata alone never causes a write. */
 export function fingerprint(title: CloudTitle | undefined): string {
   if (!title) return "";
-  return stable({ watch: title.watch, list: title.list, rating: title.rating });
+  return stable({ watch: title.watch, list: title.list, rating: title.rating, engage: title.engage });
 }
 
 /** Builds this device's view of every catalog title for one local profile. */
@@ -223,6 +256,11 @@ export function localTitles(profileId: string, snapshot: LocalSnapshot): Map<str
     if (rating.profileId !== profileId || rating.media?.source !== "discover" || !rating.media.id) continue;
     const title = ensure(rating.media);
     title.rating = pickFacet(title.rating, { at: Math.round(rating.updatedAt), value: Math.max(1, Math.min(5, Math.round(rating.value))) });
+  }
+  for (const row of snapshot.engagement ?? []) {
+    if (row.profileId !== profileId || row.media?.source !== "discover" || !row.media.id) continue;
+    const title = ensure(row.media);
+    title.engage = pickFacet(title.engage, engageFromRow(row));
   }
 
   // Removals and cleared ratings only matter when nothing newer replaced them.
@@ -280,6 +318,7 @@ export interface LocalPatch {
   ratings: PersonalRating[];
   removeRatings: string[];
   list: SavedTitle[];
+  engagement: EngagementRow[];
   watchTombstones: [string, number][];
   ratingTombstones: [string, number][];
 }
@@ -290,12 +329,13 @@ export const emptyPatch = (): LocalPatch => ({
   ratings: [],
   removeRatings: [],
   list: [],
+  engagement: [],
   watchTombstones: [],
   ratingTombstones: [],
 });
 
 export function patchIsEmpty(patch: LocalPatch) {
-  return !patch.entries.length && !patch.removeEntries.length && !patch.ratings.length && !patch.removeRatings.length && !patch.list.length;
+  return !patch.entries.length && !patch.removeEntries.length && !patch.ratings.length && !patch.removeRatings.length && !patch.list.length && !patch.engagement.length;
 }
 
 /** Adds to `patch` whatever this device must change to match `merged`. */
@@ -318,6 +358,9 @@ export function collectLocalChanges(profileId: string, merged: CloudTitle, local
   }
   if (merged.list && stable(merged.list) !== stable(local?.list)) {
     patch.list.push({ profileId, media: mediaFromTitle(merged), saved: merged.list.saved, at: merged.list.at });
+  }
+  if (merged.engage && stable(merged.engage) !== stable(local?.engage)) {
+    patch.engagement.push({ profileId, media: mediaFromTitle(merged), ...merged.engage });
   }
 }
 
@@ -344,6 +387,7 @@ export function titleToDoc(title: CloudTitle): Record<string, unknown> {
     watch: title.watch,
     list: title.list,
     rating: title.rating,
+    engage: title.engage,
     updatedAt: newestAt(title),
   });
 }
@@ -382,6 +426,7 @@ export function titleFromDoc(data: Record<string, unknown>): CloudTitle | null {
       rating && typeof rating.at === "number"
         ? { at: rating.at, value: Math.max(0, Math.min(5, Math.round(Number(rating.value ?? 0)))) }
         : undefined,
+    engage: asEngage(data.engage),
   });
 }
 

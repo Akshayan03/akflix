@@ -18,6 +18,7 @@ import StreamController from "@/components/StreamController";
 import StartupExperience from "@/components/StartupExperience";
 import DirectPlayer from "@/pages/DirectPlayer";
 import Browse from "@/pages/Browse";
+import WhatsNew from "@/pages/WhatsNew";
 import Account from "@/pages/Account";
 import { initCloudSync } from "@/lib/cloud/engine";
 import { isAppleMobile } from "@/lib/platform";
@@ -58,6 +59,7 @@ export default function App() {
       <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
       <Route path="/movies" element={<RequireAuth><Browse type="movie" /></RequireAuth>} />
       <Route path="/shows" element={<RequireAuth><Browse type="series" /></RequireAuth>} />
+      <Route path="/new" element={<RequireAuth><WhatsNew /></RequireAuth>} />
       <Route path="/search" element={<RequireAuth><Search /></RequireAuth>} />
       <Route path="/title/:itemId" element={<RequireAuth><Details /></RequireAuth>} />
       <Route path="/discover/:type/:imdbId" element={<RequireAuth><DiscoverDetails /></RequireAuth>} />

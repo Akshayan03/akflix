@@ -41,6 +41,7 @@ import {
 import { readJournal, writeJournal, noteSettingsChanged } from "@/lib/cloud/journal";
 import { useHistory } from "@/stores/historyStore";
 import { useMyList } from "@/stores/listStore";
+import { useEngagement } from "@/stores/engagementStore";
 import { useSettings } from "@/stores/settingsStore";
 import { LOCAL_PROFILE_ID, useAuth } from "@/stores/authStore";
 import { isAppleMobile } from "@/lib/platform";
@@ -259,6 +260,7 @@ function snapshot() {
     entries: useHistory.getState().entries,
     ratings: useHistory.getState().ratings,
     list: useMyList.getState().items,
+    engagement: useEngagement.getState().rows,
     journal: readJournal(),
   };
 }
@@ -274,6 +276,7 @@ function applyPatch(profileId: string, patch: LocalPatch) {
         removeRatings: patch.removeRatings.map((key) => ({ profileId, key })),
       });
       useMyList.getState().applyCloud(patch.list);
+      useEngagement.getState().applyCloud(patch.engagement);
     } finally {
       applyingCloud = false;
     }
@@ -554,6 +557,9 @@ export function initCloudSync() {
     }),
     useMyList.subscribe((state, previous) => {
       if (!applyingCloud && state.items !== previous.items) requestCloudSync(4_000);
+    }),
+    useEngagement.subscribe((state, previous) => {
+      if (!applyingCloud && state.rows !== previous.rows) requestCloudSync(30_000);
     }),
     useSettings.subscribe((state, previous) => {
       if (applyingCloud) return;

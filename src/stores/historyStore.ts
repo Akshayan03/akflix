@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { safeStateStorage } from "@/lib/safeStorage";
 import { useAuth } from "@/stores/authStore";
 import { noteRatingCleared, noteWatchRemoved } from "@/lib/cloud/journal";
+import { useEngagement } from "@/stores/engagementStore";
 
 export type HistoryMediaType = "movie" | "series";
 export type HistoryMediaSource = "discover" | "jellyfin";
@@ -99,11 +100,14 @@ export const useHistory = create<HistoryState>()(
           details.completed === true ||
           (media.type === "movie" && duration > 0 && progress >= 92);
         const key = historyMediaKey(media);
+        let previous: WatchHistoryEntry | undefined;
+        let written: WatchHistoryEntry | undefined;
 
         set((state) => {
           const existingIndex = state.entries.findIndex(
             (entry) => entry.profileId === profileId && historyMediaKey(entry.media) === key
           );
+          previous = existingIndex >= 0 ? state.entries[existingIndex] : undefined;
           const entry: WatchHistoryEntry = {
             profileId,
             media,
@@ -116,11 +120,14 @@ export const useHistory = create<HistoryState>()(
             episode: details.episode,
             updatedAt: Date.now(),
           };
+          written = entry;
           const entries = [...state.entries];
           if (existingIndex >= 0) entries[existingIndex] = entry;
           else entries.push(entry);
           return { entries: entries.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, HISTORY_LIMIT) };
         });
+        // Finishes and rewatches feed the recommendations (stores/engagementStore).
+        if (written) useEngagement.getState().record(previous, written, details.upNext === true);
       },
 
       setRating: (media, value) => {

@@ -1,6 +1,9 @@
 /**
- * Home — hero banner + Netflix-style rows:
- * Continue Watching, Next Up, My List, Recently Added per library, genre rows.
+ * Home — hero banner + rows:
+ * Continue Watching, My List, then personal discovery rows ordered by
+ * predicted interest (lib/discovery): new episodes of your shows, Top picks,
+ * Because you watched/liked, What's New, More from, taste genres, Trending,
+ * Hidden gems, Top rated, Watch it again. Popular rows and Jellyfin rows follow.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -11,19 +14,20 @@ import { useT } from "@/i18n";
 import HeroBanner from "@/components/HeroBanner";
 import DiscoverHero from "@/components/DiscoverHero";
 import DiscoverRow from "@/components/DiscoverRow";
+import PickThree, { pickThreeDismissed } from "@/components/PickThree";
 import { savedTitlesFor, useMyList } from "@/stores/listStore";
 import MediaRow from "@/components/MediaRow";
-import { HomeSkeleton } from "@/components/Skeletons";
-import { cinemeta } from "@/api/cinemeta";
+import { HomeSkeleton, RowSkeleton } from "@/components/Skeletons";
 import type { BaseItem } from "@/types/jellyfin";
 import type { StremioMeta } from "@/types/stremio";
 import { useHistory, type WatchHistoryEntry } from "@/stores/historyStore";
-import { recommendedTitles } from "@/lib/recommendations";
 import type { DiscoverCardState } from "@/components/DiscoverCard";
 import { balancedCatalog } from "@/lib/catalogRanking";
+import { planHome, type HomeRow } from "@/lib/discovery/rows";
+import { FALLBACK_GENRES } from "@/lib/discovery/feeds";
+import { useDiscoveryData, useDiscoverySignals } from "@/lib/discovery/useDiscovery";
 
 const GENRE_ROWS = ["Action", "Comedy", "Drama", "Science Fiction", "Horror", "Animation"];
-const BALANCE_YEARS = ["1990", "2000", "2010"];
 
 interface HomeData {
   hero: BaseItem | null;
@@ -35,10 +39,17 @@ interface HomeData {
   genreRows: { genre: string; items: BaseItem[] }[];
 }
 
-interface DiscoverData {
-  hero: StremioMeta | null;
-  rows: { title: string; items: StremioMeta[] }[];
-}
+const emptyHome = (): HomeData => ({
+  hero: null,
+  resume: [],
+  nextUp: [],
+  favorites: [],
+  watched: [],
+  latestByLibrary: [],
+  genreRows: [],
+});
+
+const cardKey = (item: { type: string; id: string }) => `${item.type}:${item.id}`;
 
 export default function Home() {
   const t = useT();
@@ -48,23 +59,13 @@ export default function Home() {
   const personalRatings = useHistory((state) => state.ratings);
   const listItems = useMyList((state) => state.items);
   const [data, setData] = useState<HomeData | null>(null);
-  const [discover, setDiscover] = useState<DiscoverData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [catalogError, setCatalogError] = useState<string | null>(null);
-  const [catalogReload, setCatalogReload] = useState(0);
+  const [startDismissed, setStartDismissed] = useState(() => pickThreeDismissed(profileId ?? "akflix-local"));
+
+  useEffect(() => setStartDismissed(pickThreeDismissed(profileId ?? "akflix-local")), [profileId]);
 
   useEffect(() => {
     if (!client) {
-      setError(null);
-      setData({
-        hero: null,
-        resume: [],
-        nextUp: [],
-        favorites: [],
-        watched: [],
-        latestByLibrary: [],
-        genreRows: [],
-      });
+      setData(emptyHome());
       return;
     }
     let cancelled = false;
@@ -114,19 +115,8 @@ export default function Home() {
         }
       } catch {
         // Jellyfin is optional. An offline saved server must never hide the
-        // standalone Cinemeta catalog.
-        if (!cancelled) {
-          setError(null);
-          setData({
-            hero: null,
-            resume: [],
-            nextUp: [],
-            favorites: [],
-            watched: [],
-            latestByLibrary: [],
-            genreRows: [],
-          });
-        }
+        // standalone catalogue.
+        if (!cancelled) setData(emptyHome());
       }
     })();
 
@@ -137,52 +127,30 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId]);
 
-  // Cinemeta supplies the browseable Stremio catalog; Torrentio supplies
-  // sources after a title is selected. This keeps an empty Jellyfin server
-  // from producing an empty Akflix home screen.
-  useEffect(() => {
-    const ctrl = new AbortController();
-    Promise.all([
-      cinemeta.catalog("movie", "top", undefined, ctrl.signal),
-      cinemeta.catalog("series", "top", undefined, ctrl.signal),
-      cinemeta.catalogOrEmpty("movie", "top", { genre: "Action" }, ctrl.signal),
-      cinemeta.catalogOrEmpty("series", "top", { genre: "Drama" }, ctrl.signal),
-      cinemeta.catalogOrEmpty("movie", "top", { genre: "Comedy" }, ctrl.signal),
-      ...BALANCE_YEARS.flatMap((year) => [
-        cinemeta.catalogOrEmpty("movie", "year", { genre: year }, ctrl.signal),
-        cinemeta.catalogOrEmpty("series", "year", { genre: year }, ctrl.signal),
-      ]),
-    ])
-      .then(([movies, series, action, drama, comedy, ...balanceFeeds]) => {
-        const balanceMovies = balanceFeeds.filter((_, index) => index % 2 === 0).flat();
-        const balanceSeries = balanceFeeds.filter((_, index) => index % 2 === 1).flat();
-        const popularMovies = balancedCatalog([...movies, ...balanceMovies]);
-        const popularSeries = balancedCatalog([...series, ...balanceSeries]);
-        setDiscover({
-          hero: popularMovies.find((item) => item.background) ?? popularMovies[0] ?? null,
-          rows: [
-            { title: "Popular Movies", items: popularMovies },
-            { title: "Popular Series", items: popularSeries },
-            { title: "Action Movies", items: balancedCatalog(action) },
-            { title: "Drama Series", items: balancedCatalog(drama) },
-            { title: "Comedy Movies", items: balancedCatalog(comedy) },
-          ],
-        });
-      })
-      .catch((reason) => {
-        if (ctrl.signal.aborted) return;
-        setDiscover({ hero: null, rows: [] });
-        setCatalogError(reason instanceof Error ? reason.message : String(reason));
-      });
-    return () => ctrl.abort();
-  }, [catalogReload]);
-
-  const retryCatalog = () => {
-    setCatalogError(null);
-    setDiscover(null);
-    setCatalogReload((value) => value + 1);
-  };
-
+  // Titles watched on Jellyfin shape the taste profile too (genres only).
+  const jellyfinHistory = useMemo<WatchHistoryEntry[]>(
+    () =>
+      (data?.watched ?? []).map((item, index) => ({
+        profileId: profileId ?? "akflix-local",
+        media: {
+          source: "jellyfin",
+          id: item.Id,
+          type: item.Type === "Series" ? "series" : "movie",
+          name: item.Name,
+          description: item.Overview,
+          releaseInfo: item.ProductionYear?.toString(),
+          year: item.ProductionYear?.toString(),
+          imdbRating: item.CommunityRating?.toString(),
+          genres: item.Genres,
+        },
+        position: 0,
+        duration: 0,
+        progress: 100,
+        completed: true,
+        updatedAt: Date.now() - index,
+      })),
+    [data?.watched, profileId]
+  );
   const profileHistory = useMemo(
     () => historyEntries.filter((entry) => entry.profileId === profileId),
     [historyEntries, profileId]
@@ -214,9 +182,6 @@ export default function Home() {
             (entry.media.type === "series" && !!entry.season && !!entry.episode))
       )
       .sort((a, b) => b.updatedAt - a.updatedAt);
-    const watched = catalogHistory
-      .filter((entry) => entry.completed)
-      .sort((a, b) => b.updatedAt - a.updatedAt);
     const cardState: Record<string, DiscoverCardState> = {};
 
     for (const entry of catalogHistory) {
@@ -243,49 +208,72 @@ export default function Home() {
 
     return {
       continuing: continuing.map((entry) => toMeta(entry.media)),
-      watched: watched.map((entry) => toMeta(entry.media)),
       myList,
       cardState,
     };
   }, [profileHistory, profileRatings, listItems, profileId]);
 
+  const signals = useDiscoverySignals(jellyfinHistory);
+  const discovery = useDiscoveryData(signals);
+  const continuingKeys = useMemo(() => personalRows.continuing.map(cardKey), [personalRows.continuing]);
+  const plan = useMemo(
+    () => (discovery.data ? planHome(signals, discovery.data, { continuing: continuingKeys }) : null),
+    [signals, discovery.data, continuingKeys]
+  );
+
+
   const rows = useMemo(() => {
-    if (!data || !discover) return null;
-    const jellyfinHistory: WatchHistoryEntry[] = data.watched.map((item, index) => ({
-      profileId: profileId ?? "akflix-local",
-      media: {
-        source: "jellyfin",
-        id: item.Id,
-        type: item.Type === "Series" ? "series" : "movie",
-        name: item.Name,
-        description: item.Overview,
-        releaseInfo: item.ProductionYear?.toString(),
-        year: item.ProductionYear?.toString(),
-        imdbRating: item.CommunityRating?.toString(),
-        genres: item.Genres,
-      },
-      position: 0,
-      duration: 0,
-      progress: 100,
-      completed: true,
-      updatedAt: Date.now() - index,
-    }));
-    const allHistory = [...profileHistory, ...jellyfinHistory];
-    const recommendations = recommendedTitles(
-      discover.rows.flatMap((row) => row.items),
-      allHistory,
-      profileRatings
+    if (!data || !plan || !discovery.data) return null;
+    const feeds = discovery.data;
+    // Discovery cards keep the progress/rating marks and add why and what's
+    // new; a resume label would only repeat Continue Watching.
+    const stateFor = (row: HomeRow) => {
+      const state: Record<string, DiscoverCardState> = {};
+      for (const item of row.items) {
+        const key = cardKey(item);
+        const own = personalRows.cardState[key];
+        // On "your shows" cards the last episode's progress would read as the new one's.
+        const yours = row.kind === "new-episodes" || row.kind === "finish-series";
+        state[key] = { ...own, progress: yours ? undefined : own?.progress, resumeLabel: undefined, badge: row.badges[key], reason: row.reasons[key] };
+      }
+      return state;
+    };
+    const planRow = (row: HomeRow, index: number) => (
+      <DiscoverRow
+        key={row.id}
+        id={`home-${row.kind}`}
+        title={row.title}
+        tagline={row.tagline}
+        items={row.items}
+        cardState={stateFor(row)}
+        variant={row.variant}
+        seeAll={row.seeAll}
+        className={index >= 3 ? `ak-lazy-row ${row.variant === "landscape" ? "ak-lazy-row--landscape" : ""}` : ""}
+      />
     );
-    const personalized = allHistory.length > 0 || profileRatings.length > 0;
+    const popularMovies = balancedCatalog([...feeds.trendingMovies, ...feeds.catalog.filter((item) => item.type === "movie")]);
+    const popularSeries = balancedCatalog([...feeds.trendingSeries, ...feeds.catalog.filter((item) => item.type === "series")]);
+    const tasteGenreRows = plan.rows.some((row) => row.kind === "genre");
+    const lead = plan.rows.slice(0, 2);
+    const rest = plan.rows.slice(2);
+    const showStart = plan.coldStart && !startDismissed && plan.onboarding.length >= 6;
+    const continuingState: Record<string, DiscoverCardState> = { ...personalRows.cardState };
+    for (const [key, badge] of Object.entries(plan.continueBadges)) {
+      if (badge) continuingState[key] = { ...continuingState[key], badge };
+    }
     return (
       <div className="relative z-10 -mt-8 md:-mt-20">
         <DiscoverRow
           title="Continue Watching"
           tagline="Pick up where you left off"
           items={personalRows.continuing}
-          cardState={personalRows.cardState}
+          cardState={continuingState}
           variant="landscape"
         />
+        {showStart && (
+          <PickThree profileId={profileId ?? "akflix-local"} items={plan.onboarding} onDone={() => setStartDismissed(true)} />
+        )}
+        {lead.map(planRow)}
         <DiscoverRow
           id="my-list"
           title="My List"
@@ -294,29 +282,22 @@ export default function Home() {
           cardState={personalRows.cardState}
         />
         <MediaRow title={t("row.continueWatching")} items={data.resume} variant="landscape" />
-        <DiscoverRow
-          title="Recommended for You"
-          tagline={personalized ? "Based on your watches and ratings" : "Rate titles to personalize this row"}
-          items={recommendations}
-          cardState={personalRows.cardState}
-        />
-        <DiscoverRow
-          title="Watched"
-          tagline="Finished on Akflix"
-          items={personalRows.watched}
-          cardState={personalRows.cardState}
-        />
+        {rest.map((row, index) => planRow(row, index + 2))}
+        <DiscoverRow title="Popular Movies" items={popularMovies} cardState={personalRows.cardState} className="ak-lazy-row" />
+        <DiscoverRow title="Popular Series" items={popularSeries} cardState={personalRows.cardState} className="ak-lazy-row" />
+        {!tasteGenreRows &&
+          FALLBACK_GENRES.map(({ type, genre, title }) => (
+            <DiscoverRow
+              key={title}
+              title={title}
+              items={balancedCatalog(feeds.byGenre[`${type}:${genre}`] ?? [])}
+              cardState={personalRows.cardState}
+              className="ak-lazy-row"
+            />
+          ))}
         <MediaRow title="Watched in Jellyfin" items={data.watched} />
         <MediaRow title={t("row.nextUp")} items={data.nextUp} variant="landscape" />
         <MediaRow title={personalRows.myList.length ? `${t("row.myList")} · Jellyfin` : t("row.myList")} items={data.favorites} />
-        {discover.rows.map((row) => (
-          <DiscoverRow
-            key={row.title}
-            title={row.title}
-            items={row.items}
-            cardState={personalRows.cardState}
-          />
-        ))}
         {data.latestByLibrary.map((l) => (
           <MediaRow
             key={l.name}
@@ -329,19 +310,9 @@ export default function Home() {
         ))}
       </div>
     );
-  }, [data, discover, personalRows, profileHistory, profileId, profileRatings, t]);
+  }, [data, plan, discovery.data, personalRows, profileId, startDismissed, t]);
 
-  if (error)
-    return (
-      <div className="flex min-h-screen items-center justify-center p-8">
-        <p role="alert" className="ak-notice ak-notice--error max-w-lg whitespace-pre-wrap text-sm">
-          <AlertTriangle size={18} aria-hidden="true" />
-          <span>{t("common.error")}: {error}</span>
-        </p>
-      </div>
-    );
-
-  if (!data || !discover) return <HomeSkeleton />;
+  if (!data || (!discovery.data && !discovery.failed)) return <HomeSkeleton />;
 
   return (
     <motion.main
@@ -353,24 +324,41 @@ export default function Home() {
     >
       {data.hero ? (
         <HeroBanner item={data.hero} />
-      ) : discover.hero ? (
-        <DiscoverHero item={discover.hero} />
+      ) : plan?.hero ? (
+        <DiscoverHero item={plan.hero.item} eyebrow={plan.hero.eyebrow} />
       ) : null}
-      {catalogError && (
+      {discovery.failed && (
         <div className={`ak-gutter ${data.hero ? "mb-10" : "pb-6 pt-28"}`}>
           <div role="alert" className="ak-notice ak-notice--error max-w-2xl">
             <AlertTriangle size={18} aria-hidden="true" />
             <div className="min-w-0">
               <p><strong>The movie and series catalog didn't load.</strong> Check your internet connection, then try again.</p>
-              <p className="mt-1 break-words text-xs opacity-75">{catalogError}</p>
-              <button onClick={retryCatalog} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-full bg-black px-4 text-xs font-bold text-white">
+              <button onClick={discovery.retry} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-full bg-black px-4 text-xs font-bold text-white">
                 <RefreshCw size={14} aria-hidden="true" /> Try again
               </button>
             </div>
           </div>
         </div>
       )}
-      {rows}
+      {rows ?? (discovery.failed ? <FailedRows continuing={personalRows.continuing} myList={personalRows.myList} cardState={personalRows.cardState} /> : <RowSkeleton />)}
     </motion.main>
+  );
+}
+
+/** With no catalogue at all, the rows from this device's own history still show. */
+function FailedRows({
+  continuing,
+  myList,
+  cardState,
+}: {
+  continuing: StremioMeta[];
+  myList: StremioMeta[];
+  cardState: Record<string, DiscoverCardState>;
+}) {
+  return (
+    <div className="relative z-10">
+      <DiscoverRow title="Continue Watching" tagline="Pick up where you left off" items={continuing} cardState={cardState} variant="landscape" />
+      <DiscoverRow id="my-list" title="My List" tagline="Saved on every screen you sign in to" items={myList} cardState={cardState} />
+    </div>
   );
 }
