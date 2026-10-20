@@ -908,7 +908,18 @@ fn stop_skip_read(stale: impl Fn(&str) -> bool) {
             unsafe {
                 libc::kill(*pid as i32, libc::SIGTERM);
             }
-            #[cfg(not(unix))]
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/F"])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+            #[cfg(not(any(unix, windows)))]
             let _ = pid;
         }
     }
@@ -1996,8 +2007,11 @@ mod tests {
         let raw = root.join(format!("pattern-{}.yuv", std::process::id()));
         let input = root.join(format!("pattern-{}.mp4", std::process::id()));
         fs::write(&raw, &pattern).expect("write raw frames");
+        // 64 s (the pattern 8 times): the converter's 20 s burst would finish
+        // an 8 s clip before the count below on a fast machine.
         let encoded = Command::new(&ffmpeg)
-            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo"])
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-stream_loop", "7"])
+            .args(["-f", "rawvideo"])
             .args(["-pix_fmt", "yuv420p", "-s", "160x120", "-r", "24", "-i"])
             .arg(&raw)
             .args(["-c:v", "h264_videotoolbox", "-allow_sw", "1"])
