@@ -7,6 +7,9 @@
  * when nothing is left the attempt ends with a reason instead of a spinner.
  */
 import type { TorrentResult } from "@/types/torrent";
+import { httpRaw } from "@/lib/http";
+
+const MIB = 1024 * 1024;
 
 export const START_LIMITS = {
   /** Nobody connected (or the file list never came) by now: try the next source. */
@@ -27,6 +30,12 @@ export const START_LIMITS = {
   lastSourceReceivingNoFirstByteMs: 60_000,
   /** Total time for one press of Play across every source tried. */
   requestBudgetMs: 120_000,
+  /**
+   * Nothing from the source by now: warm up the next ranked one beside it and
+   * switch if it delivers first. Which swarm starts fast does not follow the
+   * seed count (The Office: a 7-seed pack opened in 4 s, a 422-seed one in 26 s).
+   */
+  warmNextAfterMs: 8_000,
 };
 
 export type StartStage = "source" | "files" | "peers" | "opening" | "player";
@@ -88,6 +97,55 @@ export function startStage(snapshot: Pick<StartSnapshot, "fileSelected" | "peers
   if (!snapshot.fileSelected) return "files";
   if (snapshot.firstByte) return "player";
   return snapshot.peers > 0 ? "opening" : "peers";
+}
+
+/** The longest one request waits for the opening bytes before asking again. */
+export const FIRST_BYTE_WAIT_MS = 30_000;
+
+/**
+ * rqbit's stream route exists as soon as metadata resolves, but its response
+ * blocks until the requested piece arrives. Opening the player before then
+ * left a black screen with nobody sharing the source and no way back.
+ */
+export async function waitForFirstBytes(
+  url: string,
+  stillWanted: () => boolean,
+  size = 0
+): Promise<boolean> {
+  // One request waits for the opening piece (the engine fetches what is being
+  // read first) for as long as this source is still the one starting. Short
+  // probes gave up just before it arrived and asked again later.
+  const controller = new AbortController();
+  const started = Date.now();
+  const watch = setInterval(() => {
+    if (!stillWanted() || Date.now() - started >= FIRST_BYTE_WAIT_MS) controller.abort();
+  }, 250);
+  // The player reads the end of the file next when the index is stored there
+  // (MP4s without "fast start", MKV cues). Asking for it now downloads both
+  // ends together; Oppenheimer's YTS MP4 took 8 s longer one after the other.
+  if (size > 4 * MIB) {
+    const tail = new AbortController();
+    const tailWatch = setInterval(() => {
+      if (!stillWanted() || Date.now() - started >= FIRST_BYTE_WAIT_MS) tail.abort();
+    }, 250);
+    void httpRaw(url, { headers: { Range: `bytes=${size - 2}-${size - 1}` }, signal: tail.signal })
+      .then((response) => response.arrayBuffer())
+      .catch(() => undefined)
+      .finally(() => clearInterval(tailWatch));
+  }
+  try {
+    const response = await httpRaw(url, {
+      headers: { Range: "bytes=0-1" },
+      signal: controller.signal,
+    });
+    if (!response.ok) return false;
+    const bytes = await response.arrayBuffer();
+    return bytes.byteLength > 0;
+  } catch {
+    return false;
+  } finally {
+    clearInterval(watch);
+  }
 }
 
 export const STAGE_LABELS: Record<StartStage, string> = {

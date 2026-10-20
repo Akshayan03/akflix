@@ -22,7 +22,7 @@ import { availableMediaStorage } from "@/lib/mediaStorage";
 import { formatBytes } from "@/lib/utils";
 import { sourceNamesAnotherShow } from "@/lib/mediaSelection";
 import { preferRememberedSource, rememberSource, rememberedSource } from "@/lib/sourceMemory";
-import { orderForStartup, START_LIMITS } from "@/lib/streamStart";
+import { orderForStartup, START_LIMITS, waitForFirstBytes } from "@/lib/streamStart";
 
 interface TorrentState {
   torrents: QbtTorrent[];
@@ -103,6 +103,15 @@ interface TorrentState {
   failoverPendingStream: (requestId?: number) => Promise<TorrentResult | null>;
   /** The playing source never showed a picture: start the next ranked one. */
   startNextSource: () => Promise<TorrentResult | null>;
+  /**
+   * The source being started has sent nothing yet: warm up the next ranked
+   * one beside it (add it, select its file, ask for its opening). Resolves to
+   * that source once its first bytes arrive while the current one still has
+   * none, so the caller can switch to it (the engine reuses it); else null.
+   */
+  warmNextSource: (requestId: number) => Promise<TorrentResult | null>;
+  /** Remove the warmed-up source unless it became the stream (after warmNextSource won). */
+  discardWarmSource: () => Promise<void>;
   finishActiveStream: () => Promise<void>;
   pause: (hash: string) => Promise<void>;
   resume: (hash: string) => Promise<void>;
@@ -139,6 +148,8 @@ function wakePolling(): void {
   pollTimer = setTimeout(() => void pollTick?.(), 0);
 }
 type TorrentClient = QbtClient | RqbitClient;
+/** The source warmed up beside a slow one (warmNextSource). */
+let warming: { hash: string; existed: boolean } | null = null;
 let sourceRaceController: AbortController | null = null;
 let sourceRaceHashes = new Set<string>();
 let sourceRaceExistingHashes = new Set<string>();
@@ -967,6 +978,48 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       set((state) => ({ torrents: state.torrents.filter((torrent) => torrent.hash !== hash) }));
       useAuth.getState().client()?.refreshLibrary().catch(() => {});
     }
+  },
+
+  warmNextSource: async (requestId) => {
+    const state = get();
+    const primary = state.pendingStreamHash;
+    const candidate = state.pendingStreamFallbacks[0];
+    const link = candidate?.magnetUrl ?? candidate?.downloadUrl;
+    const hash = link ? magnetInfoHash(link) : null;
+    const qbt = state.qbt();
+    if (!primary || !candidate || !link || !hash || warming || !qbt.instantStreaming) return null;
+    if (state.streamRequestId !== requestId) return null;
+    const wanted = () => get().streamRequestId === requestId && get().pendingStreamHash === primary;
+    warming = { hash, existed: state.torrents.some((torrent) => torrent.hash === hash) };
+    let won = false;
+    try {
+      const basePath = (useSettings.getState().downloadPath || "/downloads").replace(/\/$/, "");
+      await qbt.add(link, "stream", `${basePath}/Streaming Cache`);
+      if (!wanted()) return null;
+      const media = state.pendingStreamMedia;
+      const selected = await qbt.prioritizeVideoFile(hash, candidate.fileIndex, {
+        season: media?.season,
+        episode: media?.episode,
+        title: media?.title,
+      });
+      const url = selected ? qbt.streamUrl(hash, selected.index) : null;
+      if (!selected || !url || !wanted()) return null;
+      won = (await waitForFirstBytes(url, wanted, selected.size)) && wanted();
+      return won ? candidate : null;
+    } catch {
+      return null;
+    } finally {
+      if (!won) await get().discardWarmSource();
+    }
+  },
+
+  discardWarmSource: async () => {
+    const warmed = warming;
+    warming = null;
+    if (!warmed || warmed.existed) return;
+    const state = get();
+    if (state.pendingStreamHash === warmed.hash || state.activeStreamHash === warmed.hash) return;
+    await state.qbt().delete(warmed.hash, true).catch(() => {});
   },
 
   pause: (h) => get().qbt().pause(h).finally(wakePolling),

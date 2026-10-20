@@ -21,8 +21,7 @@ import { startCompatibilityStream, startCompatibilityStreamUrl } from "@/lib/com
 import { useSettings } from "@/stores/settingsStore";
 import Artwork from "@/components/Artwork";
 import { mediaDisplayFromRelease } from "@/lib/mediaTitle";
-import { httpRaw } from "@/lib/http";
-import { decideStart, STAGE_LABELS, startStage } from "@/lib/streamStart";
+import { decideStart, START_LIMITS, STAGE_LABELS, startStage, waitForFirstBytes } from "@/lib/streamStart";
 
 const MIB = 1024 * 1024;
 const STREAM_GATEWAY = "http://127.0.0.1:8097";
@@ -35,38 +34,6 @@ function needsCompatibility(filename: string | null): boolean {
 function openingBuffer(size: number, compatibility = false): number {
   if (compatibility) return Math.max(6 * MIB, Math.min(12 * MIB, size * 0.003));
   return Math.max(3 * MIB, Math.min(8 * MIB, size * 0.001));
-}
-
-/** The longest one request waits for the opening bytes before asking again. */
-const FIRST_BYTE_WAIT_MS = 30_000;
-
-/**
- * rqbit's stream route exists as soon as metadata resolves, but its response
- * blocks until the requested piece arrives. Opening the player before then
- * left a black screen with nobody sharing the source and no way back.
- */
-async function embeddedStreamHasPlayableByte(url: string, stillWanted: () => boolean): Promise<boolean> {
-  // One request waits for the opening piece (the engine fetches what is being
-  // read first) for as long as this source is still the one starting. Short
-  // probes gave up just before it arrived and asked again later.
-  const controller = new AbortController();
-  const started = Date.now();
-  const watch = window.setInterval(() => {
-    if (!stillWanted() || Date.now() - started >= FIRST_BYTE_WAIT_MS) controller.abort();
-  }, 250);
-  try {
-    const response = await httpRaw(url, {
-      headers: { Range: "bytes=0-1" },
-      signal: controller.signal,
-    });
-    if (!response.ok) return false;
-    const bytes = await response.arrayBuffer();
-    return bytes.byteLength > 0;
-  } catch {
-    return false;
-  } finally {
-    window.clearInterval(watch);
-  }
 }
 
 function gatewayUrl(filename: string): string {
@@ -113,6 +80,8 @@ export default function StreamController() {
   const firstByte = useRef<{ key: string; at: number } | null>(null);
   /** Failed player handoffs (a conversion that never started) for `${requestId}:${hash}`. */
   const handoffFailures = useRef<{ key: string; count: number }>({ key: "", count: 0 });
+  /** `${requestId}:${hash}` whose next source has been warmed up beside it. */
+  const warmedFor = useRef("");
 
   useEffect(() => {
     startPolling();
@@ -184,7 +153,8 @@ export default function StreamController() {
       if (state.streamRequestId !== requestId || state.pendingStreamHash !== hash) return;
       if (failoverBusy.current === requestId) return;
       const current = state.torrents.find((entry) => entry.hash === hash);
-      const served = firstByte.current?.key === `${requestId}:${hash}` && Date.now() - firstByte.current.at < 30_000;
+      const key = `${requestId}:${hash}`;
+      const served = firstByte.current?.key === key && Date.now() - firstByte.current.at < 30_000;
       const decision = decideStart({
         now: Date.now(),
         startedAt: state.pendingStreamStartedAt,
@@ -195,7 +165,19 @@ export default function StreamController() {
         firstByte: served || (!state.qbt().instantStreaming && state.pendingStreamHeadBytes > 0),
         fallbacks: state.pendingStreamFallbacks.length,
       });
-      if (decision.kind === "wait") return;
+      if (decision.kind === "wait") {
+        if (
+          !served &&
+          state.qbt().instantStreaming &&
+          warmedFor.current !== key &&
+          state.pendingStreamFallbacks.length > 0 &&
+          Date.now() - state.pendingStreamStartedAt >= START_LIMITS.warmNextAfterMs
+        ) {
+          warmedFor.current = key;
+          void warmNextThenSwitch(key);
+        }
+        return;
+      }
       failoverBusy.current = requestId;
       const title = state.pendingStreamMedia?.title;
       const tried = state.streamStartAttempt;
@@ -220,6 +202,29 @@ export default function StreamController() {
           if (failoverBusy.current === requestId) failoverBusy.current = null;
         });
     };
+    // The next ranked source started beside a silent one: switch if its first
+    // bytes arrive while this one still has none, otherwise remove it.
+    const warmNextThenSwitch = async (key: string) => {
+      const next = await useTorrents.getState().warmNextSource(requestId);
+      if (!next) return;
+      const state = useTorrents.getState();
+      if (
+        state.streamRequestId === requestId &&
+        state.pendingStreamHash === hash &&
+        firstByte.current?.key !== key &&
+        failoverBusy.current !== requestId
+      ) {
+        failoverBusy.current = requestId;
+        try {
+          if (await failoverPendingStream(requestId)) {
+            toast.info("Switched to a faster source", { description: "The first source had not started sending video." });
+          }
+        } finally {
+          if (failoverBusy.current === requestId) failoverBusy.current = null;
+        }
+      }
+      await useTorrents.getState().discardWarmSource();
+    };
     const timer = setInterval(check, 1_000);
     return () => clearInterval(timer);
   }, [cancelPendingStream, failoverPendingStream, pendingStreamHash, pendingStreamStartedAt, streamRequestId]);
@@ -243,7 +248,7 @@ export default function StreamController() {
 
     const handoff = async () => {
       try {
-        if (embeddedUrl && !(await embeddedStreamHasPlayableByte(embeddedUrl, stillCurrent))) {
+        if (embeddedUrl && !(await waitForFirstBytes(embeddedUrl, stillCurrent, pendingStreamFileSize ?? 0))) {
           if (!stillCurrent()) return;
           // Keep the status card up and let the start supervisor move on
           // instead of presenting a black player.

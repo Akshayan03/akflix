@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import { decideStart, orderForStartup, START_LIMITS, startStage, startupScore, type StartSnapshot } from "../src/lib/streamStart";
 import { rememberSource } from "../src/lib/sourceMemory";
 import { useTorrents } from "../src/stores/torrentStore";
@@ -234,4 +235,86 @@ test("an idle engine is listed every 15 s, a starting stream every second", asyn
   assert.equal(torrentPollDelay({ ...idle, activeStreamHash: "a" }, []), 2_000);
   assert.equal(torrentPollDelay({ ...idle, streamLaunchPhase: "Finding available sources" }, []), 1_000);
   assert.equal(torrentPollDelay({ ...idle, pendingStreamHash: "a" }, []), 1_000);
+});
+
+/** An engine stream route: answers the opening bytes of `fast` hashes at once and holds the rest. */
+async function streamServer(fast: Set<string>) {
+  const held: Array<() => void> = [];
+  const server = createServer((request, response) => {
+    const hash = request.url!.slice(1);
+    if (fast.has(hash)) {
+      response.writeHead(206, { "content-range": "bytes 0-1/1000", "content-length": "2" });
+      response.end("ok");
+    } else {
+      held.push(() => response.destroy());
+    }
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as { port: number };
+  return {
+    base: `http://127.0.0.1:${port}`,
+    close: () => new Promise<void>((resolve) => { held.forEach((release) => release()); server.close(() => resolve()); }),
+  };
+}
+
+function warmableEngine(base: string) {
+  const fake = fakeEngine();
+  Object.assign(fake.engine, {
+    prioritizeVideoFile: async () => ({ index: 0, name: "Show.S01E01.mp4", size: 1000, progress: 0, priority: 7 }),
+    streamUrl: (hash: string) => `${base}/${hash}`,
+  });
+  return fake;
+}
+
+test("a silent source's next one is warmed up beside it and switched to when it sends first", async () => {
+  const server = await streamServer(new Set([hashFor(2)]));
+  const { engine, torrents } = warmableEngine(server.base);
+  try {
+    await withFakeEngine(engine, async () => {
+      const requestId = await useTorrents.getState().beginStreamRequest({ title: "Show" });
+      torrents.set(hashFor(1), { hash: hashFor(1), category: "akflix-stream" } as QbtTorrent);
+      useTorrents.setState({
+        pendingStreamHash: hashFor(1),
+        pendingStreamTemporary: true,
+        pendingStreamStartedAt: Date.now(),
+        streamStartAttempt: 1,
+        pendingStreamFallbacks: [source("B 1080p", 7, 2), source("C 1080p", 5, 3)],
+      });
+      const next = await useTorrents.getState().warmNextSource(requestId);
+      assert.equal(next?.title, "B 1080p");
+      assert.ok(torrents.has(hashFor(2)), "the warmed source is in the engine");
+      assert.ok(await useTorrents.getState().failoverPendingStream(requestId));
+      await useTorrents.getState().discardWarmSource();
+      assert.equal(useTorrents.getState().pendingStreamHash, hashFor(2));
+      assert.ok(torrents.has(hashFor(2)), "the source switched to is kept");
+      assert.equal(torrents.has(hashFor(1)), false, "the silent one is removed");
+    });
+  } finally {
+    await server.close();
+  }
+});
+
+test("a warmed source that loses the race is removed", async () => {
+  const server = await streamServer(new Set());
+  const { engine, torrents } = warmableEngine(server.base);
+  try {
+    await withFakeEngine(engine, async () => {
+      const requestId = await useTorrents.getState().beginStreamRequest({ title: "Show" });
+      torrents.set(hashFor(1), { hash: hashFor(1), category: "akflix-stream" } as QbtTorrent);
+      useTorrents.setState({
+        pendingStreamHash: hashFor(1),
+        pendingStreamStartedAt: Date.now(),
+        pendingStreamFallbacks: [source("B 1080p", 7, 2)],
+      });
+      const warming = useTorrents.getState().warmNextSource(requestId);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      assert.ok(torrents.has(hashFor(2)));
+      // The first source started after all (handed to the player).
+      useTorrents.setState({ pendingStreamHash: null });
+      assert.equal(await warming, null);
+      assert.equal(torrents.has(hashFor(2)), false, "the warmed source is deleted");
+    });
+  } finally {
+    await server.close();
+  }
 });
