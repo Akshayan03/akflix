@@ -32,6 +32,8 @@ test("website prominently discloses unresolved reports and existing installer pr
   for (const text of ["1.0.28 accounts and Skip Intro update", "which were not published on their own", "was not tried end to end"]) assert.ok(html.includes(text), text);
   // A recommendations release must not read as a playback fix.
   for (const text of ["1.0.29 personal Home update", "playback and download code is unchanged from 1.0.28"]) assert.ok(html.includes(text), text);
+  // A playback release says what was reproduced and what still depends on other people sharing.
+  for (const text of ["1.0.30 playback fix", "kept loading and never played", "A title still cannot play when nobody is sharing it", "1.0.28 and 1.0.30 fix"]) assert.ok(html.includes(text), text);
 });
 
 test("a Mac-only update retains the newest complete Windows release", () => {
