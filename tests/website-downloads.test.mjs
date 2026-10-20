@@ -30,6 +30,8 @@ test("website prominently discloses unresolved reports and existing installer pr
   for (const text of ["1.0.22 design polish", "It changes only how screens look and move."]) assert.ok(html.includes(text), text);
   for (const text of ["1.0.23 skip and stall fix", "not by playing the reported show", "playback that stops when skipping"]) assert.ok(html.includes(text), text);
   for (const text of ["1.0.28 accounts and Skip Intro update", "which were not published on their own", "was not tried end to end"]) assert.ok(html.includes(text), text);
+  // A recommendations release must not read as a playback fix.
+  for (const text of ["1.0.29 personal Home update", "playback and download code is unchanged from 1.0.28"]) assert.ok(html.includes(text), text);
 });
 
 test("a Mac-only update retains the newest complete Windows release", () => {
