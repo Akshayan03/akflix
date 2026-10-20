@@ -43,9 +43,33 @@ function writeCache<T>(url: string, value: T) {
   if (safeSetItem(cacheKey(url), raw)) trimCatalogCache();
 }
 
-async function cachedJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+const refreshing = new Set<string>();
+
+/** Fetch a fresh copy for next time, once per URL at a time. */
+function refreshInBackground<T>(url: string) {
+  if (refreshing.has(url)) return;
+  refreshing.add(url);
+  void httpJson<T>(url)
+    .then((value) => writeCache(url, value))
+    .catch(() => {})
+    .finally(() => refreshing.delete(url));
+}
+
+/**
+ * `staleWhileRefreshing`: a copy older than CACHE_MAX_AGE is answered at once
+ * and refreshed in the background. Catalogues use it, so opening Home the next
+ * day no longer waits for every row's catalogue to download again.
+ */
+async function cachedJson<T>(url: string, signal?: AbortSignal, staleWhileRefreshing = false): Promise<T> {
   const cached = readCache<T>(url);
   if (cached) return cached;
+  if (staleWhileRefreshing) {
+    const stale = readCache<T>(url, true);
+    if (stale) {
+      refreshInBackground<T>(url);
+      return stale;
+    }
+  }
   try {
     const value = await httpJson<T>(url, { signal });
     writeCache(url, value);
@@ -85,7 +109,8 @@ export class CinemetaClient {
       : "";
     const response = await cachedJson<StremioCatalogResponse>(
       `${BASE_URL}/catalog/${type}/${catalog}${suffix}.json`,
-      signal
+      signal,
+      !extra?.search
     );
     return response.metas ?? [];
   }

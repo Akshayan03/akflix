@@ -7,6 +7,7 @@ import "./cloud-browser.test";
 import "./skip.test";
 import "./captions.test";
 import "./discovery.test";
+import "./stream-start.test";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { selectVideoFile, sourceNamesAnotherShow } from "../src/lib/mediaSelection";
@@ -81,6 +82,34 @@ test("cancelled catalog results stay cancelled", async () => {
   const controller = new AbortController();
   controller.abort();
   await assert.rejects(new CinemetaClient().search("cancelled", controller.signal), { name: "AbortError" });
+});
+test("a day-old catalogue opens at once and is refreshed for next time", async () => {
+  const original = globalThis.fetch;
+  localStorage.setItem(
+    "akflix.catalog.v1./catalog/movie/top/genre=Drama.json",
+    JSON.stringify({ savedAt: Date.now() - 30 * 3_600_000, value: { metas: [{ id: "old", type: "movie", name: "Yesterday" }] } })
+  );
+  let release!: () => void;
+  const network = new Promise<void>((resolve) => (release = resolve));
+  let fetched = 0;
+  globalThis.fetch = async () => {
+    fetched += 1;
+    await network;
+    return new Response(JSON.stringify({ metas: [{ id: "new", type: "movie", name: "Today" }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const first = await new CinemetaClient().catalog("movie", "top", { genre: "Drama" });
+    assert.equal(first[0].name, "Yesterday", "answered from the old copy, not after the download");
+    assert.equal(fetched, 1, "refreshed in the background");
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const second = await new CinemetaClient().catalog("movie", "top", { genre: "Drama" });
+    assert.equal(second[0].name, "Today");
+    assert.equal(fetched, 1);
+  } finally { globalThis.fetch = original; }
 });
 
 // ── Embedded engine orchestration (fake rqbit HTTP API) ─────────────────────
@@ -361,6 +390,13 @@ test("a provider row pointing at a spin-off file is recognised before it is adde
 test("dubbed and voice-over releases without ISO tags are not treated as English", () => {
   assert.equal(classifySourceLanguage("Игра престолов / Game of Thrones [S01-08] (2011-2019) BDRip-AVC от DZgas | КПК | LostFilm"), "non-english");
   assert.equal(classifySourceLanguage("The Walking Dead *2010-2022* ((SEZON 1-11)) [1080p.BluRay.WEB.x264-MIX] [Lektor PL]"), "non-english");
+  // Torrentio's tracker flag and capitalised scene tags (Breaking Bad S1E1 on 2026-10-20 offered these).
+  assert.equal(classifySourceLanguage("Breaking Bad (Integrale) FRENCH HDTV\nBreaking.Bad.S01E01.FRENCH.BRRip.x264-DUFF.mp4\n👤 8 💾 620.03 MB ⚙️ Torrent9 | 🇫🇷"), "non-english");
+  assert.equal(classifySourceLanguage("Во все тяжкие / Breaking Bad [S01-05]\n👤 11 💾 263.36 MB ⚙️ Rutor | 🇷🇺"), "non-english");
+  assert.equal(classifySourceLanguage("Movie.2023.MULTi.1080p\n⚙️ Torrent9 | 🇬🇧 / 🇫🇷"), "multi");
+  assert.equal(classifySourceLanguage("Show.S01E01.FRENCH.ENGLISH.1080p.WEB.x264"), "multi");
+  assert.equal(classifySourceLanguage("The.French.Dispatch.2021.1080p.BluRay.x264-YTS"), "unknown");
+  assert.equal(classifySourceLanguage("Movie.2023.1080p.WEB.x264\n⚙️ 1337x | 🇺🇸🇬🇧"), "english");
   assert.equal(classifySourceLanguage("Game.of.Thrones.S01.1080p.BluRay.x265-RARBG"), "unknown");
   assert.equal(classifySourceLanguage("Game Of Thrones - Season 1 to 6 (Eng Subs) - Mp4 1080p"), "english");
 });

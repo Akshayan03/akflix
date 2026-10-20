@@ -99,6 +99,12 @@ const LOCAL_HISTORY_INTERVAL_MS = 5_000;
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 const SEEK_SECONDS = 10;
 const MANUAL_SUBTITLE_INDEX = 900_000;
+/**
+ * A torrent stream that has shown no picture by then moves on to the next
+ * ranked source (the conversion gets longer: FFmpeg has to start first).
+ */
+export const FIRST_FRAME_LIMIT_MS = 45_000;
+export const COMPATIBILITY_FIRST_FRAME_LIMIT_MS = 75_000;
 
 interface SubTrack {
   index: number;
@@ -297,6 +303,9 @@ export default function PlayerHost() {
   const directIdRef = useRef<number | null>(null);
   const directRequestRef = useRef<DirectPlaybackRequest | null>(null);
   const compatibilityFallbackRef = useRef<DirectPlaybackRequest | null>(null);
+  const firstFrameTimer = useRef<ReturnType<typeof setTimeout>>();
+  /** The direct request whose first picture has been decoded. */
+  const pictureShownRef = useRef<DirectPlaybackRequest | null>(null);
   const requestedPlaybackRateRef = useRef(usePlayback.getState().playbackRate);
   const bufferingIndicatorTimer = useRef<ReturnType<typeof setTimeout>>();
   const playbackStallTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -621,6 +630,50 @@ export default function PlayerHost() {
     [client, preferredAudioLanguage, subtitleLanguage, teardown, _setSession, _sync, t]
   );
 
+  /**
+   * The source handed to the player never produced a picture (it stopped
+   * sharing, or never really started). Start the next ranked source instead
+   * of a black screen that loads forever.
+   */
+  const moveToNextSource = useCallback(
+    async (request: DirectPlaybackRequest, reason: string) => {
+      const video = videoRef.current;
+      if (!video || directRequestRef.current !== request) return;
+      if (!useTorrents.getState().handedOff?.fallbacks.length) {
+        _sync({ buffering: false });
+        setError(`${reason} Akflix has no other source for this title. Go back and try again in a while.`);
+        return;
+      }
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+      _sync({ buffering: true });
+      toast.info("Trying another source", { description: reason });
+      const next = await useTorrents.getState().startNextSource().catch(() => null);
+      if (!next && directRequestRef.current === request) {
+        _sync({ buffering: false });
+        setError(`${reason} None of the other sources could start either. Go back and try again in a while.`);
+      }
+    },
+    [_sync]
+  );
+
+  const watchFirstFrame = useCallback(
+    (request: DirectPlaybackRequest, limitMs: number) => {
+      clearTimeout(firstFrameTimer.current);
+      if (!request.id.startsWith("torrent:")) return;
+      firstFrameTimer.current = setTimeout(() => {
+        const video = videoRef.current;
+        if (!video || directRequestRef.current !== request || pictureShownRef.current === request) return;
+        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA || video.currentTime > 0.5) return;
+        void moveToNextSource(request, "The source never delivered a picture.");
+      }, limitMs);
+    },
+    [moveToNextSource]
+  );
+
+  useEffect(() => () => clearTimeout(firstFrameTimer.current), []);
+
   /** Local progressive playback bypasses Jellyfin's slow incomplete-file probe. */
   const loadDirect = useCallback(
     async (request: DirectPlaybackRequest) => {
@@ -685,6 +738,7 @@ export default function PlayerHost() {
       );
       video.src = request.url;
       video.preload = "auto";
+      watchFirstFrame(request, FIRST_FRAME_LIMIT_MS);
       applyPlaybackRate(video, requestedPlaybackRateRef.current);
       video.volume = usePlayback.getState().volume;
       video.muted = usePlayback.getState().muted;
@@ -721,7 +775,7 @@ export default function PlayerHost() {
           .catch(() => {});
       }
     },
-    [_setSession, _sync, preferredAudioLanguage, subtitleLanguage, teardown]
+    [_setSession, _sync, preferredAudioLanguage, subtitleLanguage, teardown, watchFirstFrame]
   );
 
   // React to open() requests from pages.
@@ -865,22 +919,23 @@ export default function PlayerHost() {
         setCompatibilityStartSeconds(startSeconds);
         video.src = url;
         video.load();
+        watchFirstFrame(request, COMPATIBILITY_FIRST_FRAME_LIMIT_MS);
         applyPlaybackRate(video, requestedPlaybackRateRef.current);
         video.volume = usePlayback.getState().volume;
         video.muted = usePlayback.getState().muted;
         await video.play().catch(() => {});
       } catch (conversion) {
         if (directRequestRef.current !== request) return true;
-        _sync({ buffering: false });
-        setError(
+        void moveToNextSource(
+          request,
           `${reason} Akflix could not convert it either (${
             conversion instanceof Error ? conversion.message : String(conversion)
-          }). Choose another source.`
+          }).`
         );
       }
       return true;
     },
-    [_sync, preferredAudioLanguage]
+    [_sync, moveToNextSource, preferredAudioLanguage, watchFirstFrame]
   );
 
   const showSeekFeedback = useCallback((delta: number) => {
@@ -1710,6 +1765,9 @@ export default function PlayerHost() {
           }}
           onWaiting={schedulePlaybackStall}
           onStalled={schedulePlaybackStall}
+          onLoadedData={() => {
+            pictureShownRef.current = directRequestRef.current;
+          }}
           onPlaying={() => {
             if (seeker.replacing()) return;
             clearPlaybackStall();
@@ -1853,6 +1911,15 @@ export default function PlayerHost() {
                 setError(`${reason} Choose another source.`);
                 _sync({ buffering: false });
               });
+              return;
+            }
+            if (
+              session?.direct &&
+              directRequest?.id.startsWith("torrent:") &&
+              pictureShownRef.current !== directRequest
+            ) {
+              // Never showed a picture: not an interruption to wait out.
+              void moveToNextSource(directRequest, "The source stopped before the first picture.");
               return;
             }
             setError(

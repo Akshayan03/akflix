@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "akflix"
-version = "1.0.29"
+version = "1.0.30"
 dependencies = [
  "getrandom 0.3.4",
  "libc",

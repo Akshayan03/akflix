@@ -21,6 +21,8 @@ import { startCompatibilityStream, startCompatibilityStreamUrl } from "@/lib/com
 import { useSettings } from "@/stores/settingsStore";
 import Artwork from "@/components/Artwork";
 import { mediaDisplayFromRelease } from "@/lib/mediaTitle";
+import { httpRaw } from "@/lib/http";
+import { decideStart, STAGE_LABELS, startStage } from "@/lib/streamStart";
 
 const MIB = 1024 * 1024;
 const STREAM_GATEWAY = "http://127.0.0.1:8097";
@@ -33,6 +35,38 @@ function needsCompatibility(filename: string | null): boolean {
 function openingBuffer(size: number, compatibility = false): number {
   if (compatibility) return Math.max(6 * MIB, Math.min(12 * MIB, size * 0.003));
   return Math.max(3 * MIB, Math.min(8 * MIB, size * 0.001));
+}
+
+/** The longest one request waits for the opening bytes before asking again. */
+const FIRST_BYTE_WAIT_MS = 30_000;
+
+/**
+ * rqbit's stream route exists as soon as metadata resolves, but its response
+ * blocks until the requested piece arrives. Opening the player before then
+ * left a black screen with nobody sharing the source and no way back.
+ */
+async function embeddedStreamHasPlayableByte(url: string, stillWanted: () => boolean): Promise<boolean> {
+  // One request waits for the opening piece (the engine fetches what is being
+  // read first) for as long as this source is still the one starting. Short
+  // probes gave up just before it arrived and asked again later.
+  const controller = new AbortController();
+  const started = Date.now();
+  const watch = window.setInterval(() => {
+    if (!stillWanted() || Date.now() - started >= FIRST_BYTE_WAIT_MS) controller.abort();
+  }, 250);
+  try {
+    const response = await httpRaw(url, {
+      headers: { Range: "bytes=0-1" },
+      signal: controller.signal,
+    });
+    if (!response.ok) return false;
+    const bytes = await response.arrayBuffer();
+    return bytes.byteLength > 0;
+  } catch {
+    return false;
+  } finally {
+    window.clearInterval(watch);
+  }
 }
 
 function gatewayUrl(filename: string): string {
@@ -69,11 +103,16 @@ export default function StreamController() {
     cancelSourceRace,
     streamLaunchPhase,
     streamLaunchMedia,
+    streamStartAttempt,
   } = useTorrents();
   const priorityBusy = useRef<number | null>(null);
   const handoffBusy = useRef<number | null>(null);
   const retryAfter = useRef(0);
   const failoverBusy = useRef<number | null>(null);
+  /** `${requestId}:${hash}` whose first video byte was served, and when. */
+  const firstByte = useRef<{ key: string; at: number } | null>(null);
+  /** Failed player handoffs (a conversion that never started) for `${requestId}:${hash}`. */
+  const handoffFailures = useRef<{ key: string; count: number }>({ key: "", count: 0 });
 
   useEffect(() => {
     startPolling();
@@ -132,26 +171,45 @@ export default function StreamController() {
       });
   }, [cancelPendingStream, failoverPendingStream, pendingStreamFileName, pendingStreamHash, prepareStreamFile, streamRequestId, torrent]);
 
-  // A source that cannot deliver metadata or a single opening byte should
-  // never spin forever. Try the next ranked Torrentio release automatically.
+  // A source that cannot deliver its file list, a peer or the opening bytes in
+  // time is replaced by the next ranked one, checked every second for as long
+  // as it is pending (not once). With nothing left, the attempt ends with the
+  // reason instead of an endless spinner.
   useEffect(() => {
-    if (!pendingStreamHash || !pendingStreamFallbacks.length || !pendingStreamStartedAt) return;
+    if (!pendingStreamHash || !pendingStreamStartedAt) return;
     const requestId = streamRequestId;
-    const wait = Math.max(0, pendingStreamStartedAt + 10_000 - Date.now());
-    const timer = setTimeout(() => {
+    const hash = pendingStreamHash;
+    const check = () => {
       const state = useTorrents.getState();
-      if (state.streamRequestId !== requestId) return;
-      const current = state.torrents.find((entry) => entry.hash === state.pendingStreamHash);
-      const stalled = !current || (current.dlspeed <= 0 && state.pendingStreamHeadBytes === 0);
-      if (!stalled || failoverBusy.current === requestId) return;
+      if (state.streamRequestId !== requestId || state.pendingStreamHash !== hash) return;
+      if (failoverBusy.current === requestId) return;
+      const current = state.torrents.find((entry) => entry.hash === hash);
+      const served = firstByte.current?.key === `${requestId}:${hash}` && Date.now() - firstByte.current.at < 30_000;
+      const decision = decideStart({
+        now: Date.now(),
+        startedAt: state.pendingStreamStartedAt,
+        requestStartedAt: state.streamRequestStartedAt,
+        fileSelected: !!state.pendingStreamFileName,
+        peers: current?.num_seeds ?? 0,
+        downloadBps: current?.dlspeed ?? 0,
+        firstByte: served || (!state.qbt().instantStreaming && state.pendingStreamHeadBytes > 0),
+        fallbacks: state.pendingStreamFallbacks.length,
+      });
+      if (decision.kind === "wait") return;
       failoverBusy.current = requestId;
-      failoverPendingStream(requestId)
-        .then((next) => {
+      const title = state.pendingStreamMedia?.title;
+      const tried = state.streamStartAttempt;
+      (decision.kind === "failover" ? failoverPendingStream(requestId) : Promise.resolve(null))
+        .then(async (next) => {
           if (next) {
-            toast.info("Switching to a healthier source", {
-              description: `${next.seeders.toLocaleString()} reported peers · trying automatically`,
-            });
+            toast.info("Switching to another source", { description: decision.reason });
+            return;
           }
+          if (useTorrents.getState().streamRequestId !== requestId) return;
+          await cancelPendingStream(requestId).catch(() => {});
+          toast.error(title ? `Couldn’t start ${title}` : "Couldn’t start playback", {
+            description: `${decision.reason} Akflix tried ${Math.max(1, tried)} source${tried === 1 ? "" : "s"}. Try again in a while or choose a source yourself.`,
+          });
         })
         .catch((reason) => {
           toast.error("Couldn’t start playback", {
@@ -161,28 +219,10 @@ export default function StreamController() {
         .finally(() => {
           if (failoverBusy.current === requestId) failoverBusy.current = null;
         });
-    }, wait);
-    return () => clearTimeout(timer);
-  }, [failoverPendingStream, pendingStreamFallbacks.length, pendingStreamHash, pendingStreamStartedAt, streamRequestId]);
-
-  // A single unhealthy source used to leave the progress card spinning
-  // forever because there was no fallback to trigger the race logic. End the
-  // attempt cleanly and return control to the user instead.
-  useEffect(() => {
-    if (!pendingStreamHash || pendingStreamFallbacks.length || !pendingStreamStartedAt) return;
-    const requestId = streamRequestId;
-    const wait = Math.max(0, pendingStreamStartedAt + 30_000 - Date.now());
-    const timer = setTimeout(() => {
-      const state = useTorrents.getState();
-      if (state.streamRequestId !== requestId || state.pendingStreamHash !== pendingStreamHash) return;
-      void cancelPendingStream(requestId).finally(() => {
-        toast.error("This source could not start", {
-          description: "Choose another stream or try again. Akflix cleared the unfinished temporary cache.",
-        });
-      });
-    }, wait);
-    return () => clearTimeout(timer);
-  }, [cancelPendingStream, pendingStreamFallbacks.length, pendingStreamHash, pendingStreamStartedAt, streamRequestId]);
+    };
+    const timer = setInterval(check, 1_000);
+    return () => clearInterval(timer);
+  }, [cancelPendingStream, failoverPendingStream, pendingStreamHash, pendingStreamStartedAt, streamRequestId]);
 
   useEffect(() => {
     if (!pendingStreamHash || !torrent || !pendingStreamFileName) return;
@@ -203,6 +243,15 @@ export default function StreamController() {
 
     const handoff = async () => {
       try {
+        if (embeddedUrl && !(await embeddedStreamHasPlayableByte(embeddedUrl, stillCurrent))) {
+          if (!stillCurrent()) return;
+          // Keep the status card up and let the start supervisor move on
+          // instead of presenting a black player.
+          retryAfter.current = Date.now() + 1_500;
+          return;
+        }
+        if (!stillCurrent()) return;
+        if (embeddedUrl) firstByte.current = { key: `${requestId}:${handoffHash}`, at: Date.now() };
         const resumeSeconds = Math.max(0, pendingStreamMedia?.resumeSeconds ?? 0);
         const compatibilitySource = compatibility
           ? {
@@ -254,16 +303,37 @@ export default function StreamController() {
         navigate("/stream");
       } catch (reason) {
         if (!stillCurrent()) return;
-        retryAfter.current = Date.now() + 5_000;
-        toast.error("Still preparing the player", {
-          description: reason instanceof Error ? reason.message : String(reason),
-        });
+        const detail = reason instanceof Error ? reason.message : String(reason);
+        const key = `${requestId}:${handoffHash}`;
+        const failures = handoffFailures.current.key === key ? handoffFailures.current.count + 1 : 1;
+        handoffFailures.current = { key, count: failures };
+        if (failures < 2) {
+          retryAfter.current = Date.now() + 5_000;
+          toast.error("Still preparing the player", { description: detail });
+          return;
+        }
+        // Served bytes hold the start supervisor off, so a conversion that
+        // keeps failing has to move on here or it retries forever.
+        firstByte.current = null;
+        if (failoverBusy.current === requestId) return;
+        failoverBusy.current = requestId;
+        try {
+          const next = await failoverPendingStream(requestId);
+          if (next) {
+            toast.info("Switching to another source", { description: detail });
+          } else if (useTorrents.getState().streamRequestId === requestId) {
+            await cancelPendingStream(requestId).catch(() => {});
+            toast.error("Couldn’t start playback", { description: detail });
+          }
+        } finally {
+          if (failoverBusy.current === requestId) failoverBusy.current = null;
+        }
       } finally {
         if (handoffBusy.current === requestId) handoffBusy.current = null;
       }
     };
     void handoff();
-  }, [audioLanguage, embeddedUrl, markStreamReady, navigate, openDirect, pendingStreamFileName, pendingStreamFileSize, pendingStreamHash, pendingStreamHeadBytes, pendingStreamMedia, streamRequestId, torrent]);
+  }, [audioLanguage, cancelPendingStream, embeddedUrl, failoverPendingStream, markStreamReady, navigate, openDirect, pendingStreamFileName, pendingStreamFileSize, pendingStreamHash, pendingStreamHeadBytes, pendingStreamMedia, streamRequestId, torrent]);
 
   if (!pendingStreamHash && !sourceRaceActive && !streamLaunchPhase) return null;
 
@@ -271,10 +341,38 @@ export default function StreamController() {
   const compatibility = needsCompatibility(pendingStreamFileName);
   const bufferTarget = openingBuffer(streamSize || 3 * 1024 ** 3, compatibility);
   const received = torrent ? Math.min(streamSize || pendingStreamHeadBytes, pendingStreamHeadBytes) : 0;
-  const bufferProgress = torrent
-    ? Math.min(100, (received / Math.min(bufferTarget, streamSize || bufferTarget)) * 100)
-    : 3;
+  const instant = useTorrents.getState().qbt().instantStreaming;
   const waitingForPeers = !!torrent && torrent.dlspeed <= 0 && torrent.progress < 1;
+  const stage = startStage({
+    hasTorrent: !!torrent,
+    fileSelected: !!pendingStreamFileName,
+    peers: torrent?.num_seeds ?? 0,
+    firstByte: false,
+  });
+  // The built-in engine serves the opening as soon as it arrives, so its bar
+  // follows the stages; qBittorrent's follows the opening buffer.
+  const stageProgress = { source: 8, files: 22, peers: 40, opening: 70, player: 95 }[stage];
+  const sourceCount = streamStartAttempt + pendingStreamFallbacks.length;
+  const attemptNote =
+    streamStartAttempt > 1 ? ` · source ${streamStartAttempt} of ${Math.max(streamStartAttempt, sourceCount)}` : "";
+  const statusTitle = streamLaunchPhase
+    ? `${streamLaunchPhase}${attemptNote}`
+    : sourceRaceActive
+      ? "Checking the best sources"
+      : !instant
+        ? waitingForPeers
+          ? "Finding a fast peer"
+          : compatibility
+            ? "Preparing compatibility stream"
+            : "Fast-starting your stream"
+        : compatibility && stage === "opening"
+          ? `Preparing compatible video${attemptNote}`
+          : `${STAGE_LABELS[stage]}${attemptNote}`;
+  const bufferProgress = !torrent
+    ? 3
+    : instant
+      ? stageProgress
+      : Math.min(100, (received / Math.min(bufferTarget, streamSize || bufferTarget)) * 100);
 
   return (
     <motion.aside
@@ -295,15 +393,7 @@ export default function StreamController() {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <p role="status" aria-live="polite" className="text-sm font-semibold">
-                {streamLaunchPhase || (sourceRaceActive
-                  ? "Checking the best sources"
-                  : waitingForPeers
-                  ? "Finding a fast peer"
-                  : embeddedUrl
-                    ? "Opening instantly"
-                    : compatibility
-                    ? "Preparing compatibility stream"
-                    : "Fast-starting your stream")}
+                {statusTitle}
               </p>
               <span className="ak-badge ak-badge--quiet !px-2 !py-0.5">temporary</span>
             </div>
@@ -354,8 +444,12 @@ export default function StreamController() {
                 : "You can keep browsing while Akflix works"
               : sourceRaceActive
               ? "Testing peer response and language"
-              : embeddedUrl
-              ? "Direct source ready"
+              : instant
+              ? torrent
+                ? torrent.num_seeds
+                  ? "Only the start of the video is needed to begin"
+                  : `${torrent.num_leechs.toLocaleString()} peers found · connecting`
+                : "Loading torrent metadata"
               : torrent
               ? `${formatBytes(Math.min(received, bufferTarget))} / ${formatBytes(
                   Math.min(bufferTarget, streamSize || bufferTarget)

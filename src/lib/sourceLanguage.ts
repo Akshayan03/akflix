@@ -46,12 +46,28 @@ export function matchesPreferredAudio(result: TorrentResult, preferredLanguage: 
 // name (LostFilm and similar dubbing groups) or a Polish "Lektor" track.
 const FOREIGN_RELEASE =
   /\p{Script=Cyrillic}|\b(?:lektor|dubbing|napisy|lostfilm|newstudio|coldfilm|baibako)\b/iu;
+// Scene releases name a dubbed language in capitals (Show.S01E01.FRENCH.720p);
+// titles are not written that way (The French Dispatch).
+const CAPITAL_LANGUAGE =
+  /\b(?:FRENCH|GERMAN|SPANISH|ITALIAN|RUSSIAN|HINDI|TAMIL|TELUGU|POLISH|DUTCH|KOREAN|JAPANESE|CHINESE|ARABIC|TURKISH|PORTUGUESE|HUNGARIAN|CZECH|SWEDISH|NORWEGIAN|DANISH|FINNISH|GREEK|HEBREW|THAI|UKRAINIAN|LATINO|CASTELLANO)\b/;
+const CAPITAL_ENGLISH = /\bENGLISH\b/;
+// Torrentio marks releases from foreign-language trackers with a flag (🇫🇷).
+const FLAG = /[\u{1F1E6}-\u{1F1FF}]{2}/gu;
+const ENGLISH_FLAGS = new Set(["🇬🇧", "🇺🇸", "🇨🇦", "🇦🇺", "🇮🇪", "🇳🇿"]);
+
+function hasForeignFlag(text: string): boolean {
+  return [...text.matchAll(FLAG)].some(([flag]) => !ENGLISH_FLAGS.has(flag));
+}
 
 /** Classify only explicit release language tags; unlabelled releases stay neutral. */
 export function classifySourceLanguage(text: string): SourceLanguage {
   const normalized = text.replace(/[._]+/g, " ");
-  const hasEnglish = ENGLISH.test(normalized);
-  const hasNonEnglish = NON_ENGLISH.test(normalized) || FOREIGN_RELEASE.test(normalized);
+  const hasEnglish = ENGLISH.test(normalized) || CAPITAL_ENGLISH.test(normalized);
+  const hasNonEnglish =
+    NON_ENGLISH.test(normalized) ||
+    FOREIGN_RELEASE.test(normalized) ||
+    CAPITAL_LANGUAGE.test(normalized) ||
+    hasForeignFlag(normalized);
   if (MULTI.test(normalized) || (hasEnglish && hasNonEnglish)) return "multi";
   if (hasEnglish) return "english";
   if (hasNonEnglish) return "non-english";

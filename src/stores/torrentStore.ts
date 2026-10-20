@@ -22,6 +22,7 @@ import { availableMediaStorage } from "@/lib/mediaStorage";
 import { formatBytes } from "@/lib/utils";
 import { sourceNamesAnotherShow } from "@/lib/mediaSelection";
 import { preferRememberedSource, rememberSource, rememberedSource } from "@/lib/sourceMemory";
+import { orderForStartup, START_LIMITS } from "@/lib/streamStart";
 
 interface TorrentState {
   torrents: QbtTorrent[];
@@ -46,6 +47,15 @@ interface TorrentState {
   /** True while Watch now is measuring candidate sources. */
   sourceRaceActive: boolean;
   sourceRaceMedia: DirectPlaybackMetadata | null;
+  /** When Play was pressed for the current request (0 when idle). */
+  streamRequestStartedAt: number;
+  /** Sources started for the current request, counting the current one. */
+  streamStartAttempt: number;
+  /**
+   * The ranked sources left over when the player took a stream, so a source
+   * that never shows a picture can still move on to the next one.
+   */
+  handedOff: { hash: string; media: DirectPlaybackMetadata | null; fallbacks: TorrentResult[]; attempt: number } | null;
   /** Stream currently attached to the player. Temporary jobs are deleted on stop. */
   activeStreamHash: string | null;
   activeStreamTemporary: boolean;
@@ -91,6 +101,8 @@ interface TorrentState {
   cancelSourceRace: () => Promise<void>;
   cancelPendingStream: (requestId?: number) => Promise<void>;
   failoverPendingStream: (requestId?: number) => Promise<TorrentResult | null>;
+  /** The playing source never showed a picture: start the next ranked one. */
+  startNextSource: () => Promise<TorrentResult | null>;
   finishActiveStream: () => Promise<void>;
   pause: (hash: string) => Promise<void>;
   resume: (hash: string) => Promise<void>;
@@ -102,7 +114,30 @@ interface TorrentState {
   stopPolling: () => void;
 }
 
-let pollTimer: ReturnType<typeof setInterval> | null = null;
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let pollTick: (() => Promise<void>) | null = null;
+
+/**
+ * How soon to list the engine again: every second while a stream is starting,
+ * every 2 s while something plays or transfers, otherwise every 15 s (an idle
+ * Home used to wake the engine every 2 s for nothing).
+ */
+export function torrentPollDelay(
+  state: Pick<TorrentState, "pendingStreamHash" | "sourceRaceActive" | "streamLaunchPhase" | "activeStreamHash">,
+  torrents: QbtTorrent[]
+): number {
+  if (state.pendingStreamHash || state.sourceRaceActive || state.streamLaunchPhase) return 1_000;
+  if (state.activeStreamHash) return 2_000;
+  if (torrents.some((torrent) => torrent.progress < 1 && !torrent.state.startsWith("paused"))) return 2_000;
+  return 15_000;
+}
+
+/** Poll now (a stream or download just started) instead of waiting out an idle delay. */
+function wakePolling(): void {
+  if (!pollTimer || !pollTick) return;
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(() => void pollTick?.(), 0);
+}
 type TorrentClient = QbtClient | RqbitClient;
 let sourceRaceController: AbortController | null = null;
 let sourceRaceHashes = new Set<string>();
@@ -200,6 +235,9 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
   streamLaunchMedia: null,
   sourceRaceActive: false,
   sourceRaceMedia: null,
+  streamRequestStartedAt: 0,
+  streamStartAttempt: 0,
+  handedOff: null,
   activeStreamHash: null,
   activeStreamTemporary: false,
 
@@ -258,6 +296,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     if (requestId !== undefined) {
       get().setStreamLaunchPhase(requestId, "Checking device storage");
     }
+    wakePolling();
     if (mode === "stream") await sourcesThatFitStorage([result]);
     const link = result.magnetUrl ?? result.downloadUrl;
     if (!link) throw new Error("Result has no magnet or download link.");
@@ -298,15 +337,25 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       streamLaunchMedia: media ?? null,
     });
     try {
+    const audioLanguage = useSettings.getState().audioLanguage;
+    const hashOf = (result: TorrentResult) => {
+      const link = result.magnetUrl ?? result.downloadUrl;
+      return link ? magnetInfoHash(link) : null;
+    };
+    // Sources are tried in the order they can start (peers, size), not the
+    // provider's: the first one whose metadata loaded used to win even with
+    // nobody sharing it.
+    const ranked = orderForStartup(
+      await sourcesThatFitStorage(automaticSafeSources(sameShowSources(results, media), audioLanguage)),
+      { english: audioLanguage === "eng", webPlayer: true }
+    );
+    // The release that played last time goes first only while it is still shared.
+    const remembered = rememberedSource(media);
+    const rememberedResult = remembered ? ranked.find((result) => hashOf(result) === remembered) : undefined;
     const eligibleResults = preferRememberedSource(
-      await sourcesThatFitStorage(
-        automaticSafeSources(sameShowSources(results, media), useSettings.getState().audioLanguage)
-      ),
-      (result) => {
-        const link = result.magnetUrl ?? result.downloadUrl;
-        return link ? magnetInfoHash(link) : null;
-      },
-      rememberedSource(media)
+      ranked,
+      hashOf,
+      rememberedResult && rememberedResult.seeders >= 3 ? remembered : null
     );
     ensureCurrent();
     const unique = new Map<string, TorrentResult>();
@@ -346,15 +395,19 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       for (let index = 0; index < attempts.length; index += 1) {
         ensureCurrent();
         if (controller.signal.aborted) throw new DOMException("Source search cancelled.", "AbortError");
+        if (index > 0 && Date.now() - get().streamRequestStartedAt >= START_LIMITS.requestBudgetMs) break;
         const selected = attempts[index];
         sourceRaceHashes.add(selected.hash);
+        set({ streamStartAttempt: index + 1 });
         get().setStreamLaunchPhase(
           requestId,
           index === 0 ? "Connecting to the best source" : `Trying backup source ${index + 1}`
         );
+        // Fallbacks for the supervisor: every ranked source not tried yet.
+        const tried = new Set(attempts.slice(0, index + 1).map((attempt) => attempt.hash));
         const fallbacks = eligibleResults.filter((result) => {
-          const link = result.magnetUrl ?? result.downloadUrl;
-          return !link || magnetInfoHash(link) !== selected.hash;
+          const hash = hashOf(result);
+          return !!hash && !tried.has(hash);
         });
         try {
           return await get().addTorrent(
@@ -380,7 +433,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       const uniqueErrors = [...new Set(errors)].filter(Boolean);
       const detail = uniqueErrors[uniqueErrors.length - 1];
       throw new Error(
-        `Akflix tried ${attempts.length} sources but none could load.${detail ? ` ${detail}` : ""}`
+        `Akflix tried ${get().streamStartAttempt || attempts.length} sources but none could load.${detail ? ` ${detail}` : ""}`
       );
     }
 
@@ -563,6 +616,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     const basePath = (s.downloadPath || "/downloads").replace(/\/$/, "");
     const savePath = streamMode ? `${basePath}/Streaming Cache` : basePath;
     await qbt.add(magnet, mode, savePath, signal);
+    wakePolling();
     if (!current()) {
       if (streamMode && hash && (!existing || existing.category === "akflix-stream")) {
         await qbt.delete(hash, true).catch(() => {});
@@ -607,6 +661,9 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     suppressStreamAdoptionUntil = Date.now() + 30_000;
     set({
       streamRequestId: requestId,
+      streamRequestStartedAt: Date.now(),
+      streamStartAttempt: 0,
+      handedOff: null,
       streamLaunchPhase: "Finding available sources",
       streamLaunchMedia: media,
       sourceRaceActive: false,
@@ -724,6 +781,13 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     if (state.streamRequestId !== requestId || state.pendingStreamHash !== hash) return false;
     rememberSource(state.pendingStreamMedia, hash);
     set({
+      handedOff: {
+        hash,
+        media: state.pendingStreamMedia,
+        fallbacks: state.pendingStreamFallbacks,
+        attempt: Math.max(1, state.streamStartAttempt),
+      },
+      streamRequestStartedAt: 0,
       pendingStreamHash: null,
       pendingStreamTemporary: false,
       pendingStreamFileIndex: null,
@@ -750,6 +814,8 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     suppressStreamAdoptionUntil = Date.now() + 30_000;
     set({
       streamRequestId: state.streamRequestId + 1,
+      streamRequestStartedAt: 0,
+      streamStartAttempt: 0,
       sourceRaceActive: false,
       sourceRaceMedia: null,
       streamLaunchPhase: null,
@@ -787,6 +853,8 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     suppressStreamAdoptionUntil = Date.now() + 30_000;
     set({
       streamRequestId: state.streamRequestId + 1,
+      streamRequestStartedAt: 0,
+      streamStartAttempt: 0,
       pendingStreamHash: null,
       pendingStreamTemporary: false,
       pendingStreamFileIndex: null,
@@ -825,6 +893,9 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       pendingStreamHeadBytes: 0,
       pendingStreamFallbacks: [],
       pendingStreamStartedAt: 0,
+      // Keep the status card up (and the title on it) while the next source is added.
+      streamLaunchPhase: "Trying another source",
+      streamLaunchMedia: media,
     });
     if (oldTemporary) {
       await deleteTemporaryStream(get().qbt(), oldHash).catch(() => {});
@@ -835,6 +906,8 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
       const candidate = candidates.shift()!;
       const link = candidate.magnetUrl ?? candidate.downloadUrl;
       if (!link) continue;
+      if (get().streamRequestId !== requestId) return null;
+      set({ streamStartAttempt: get().streamStartAttempt + 1 });
       try {
         await get().addMagnet(link, "stream", candidate.fileIndex, media, undefined, requestId);
         if (get().streamRequestId !== requestId) return null;
@@ -848,6 +921,35 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
         if (error instanceof EngineStorageError) throw error;
         // Try the next ranked source without making the user reopen the picker.
       }
+    }
+    if (get().streamRequestId === requestId) set({ streamLaunchPhase: null, streamLaunchMedia: null });
+    return null;
+  },
+
+  startNextSource: async () => {
+    const last = get().handedOff;
+    if (!last || !last.fallbacks.length) return null;
+    const media = last.media;
+    const requestId = await get().beginStreamRequest(media);
+    set({ streamStartAttempt: last.attempt });
+    const fallbacks = [...last.fallbacks];
+    for (let index = 0; index < fallbacks.length; index += 1) {
+      if (get().streamRequestId !== requestId) return null;
+      if (Date.now() - get().streamRequestStartedAt >= START_LIMITS.requestBudgetMs) break;
+      const candidate = fallbacks[index];
+      if (!(candidate.magnetUrl ?? candidate.downloadUrl)) continue;
+      set({ streamStartAttempt: get().streamStartAttempt + 1 });
+      get().setStreamLaunchPhase(requestId, "Trying another source");
+      try {
+        await get().addTorrent(candidate, "stream", fallbacks.slice(index + 1), media ?? undefined, undefined, requestId);
+        if (get().streamRequestId !== requestId) return null;
+        return candidate;
+      } catch (error) {
+        if (error instanceof EngineStorageError) throw error;
+      }
+    }
+    if (get().streamRequestId === requestId) {
+      set({ streamRequestStartedAt: 0, streamLaunchPhase: null, streamLaunchMedia: null });
     }
     return null;
   },
@@ -867,8 +969,8 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
     }
   },
 
-  pause: (h) => get().qbt().pause(h),
-  resume: (h) => get().qbt().resume(h),
+  pause: (h) => get().qbt().pause(h).finally(wakePolling),
+  resume: (h) => get().qbt().resume(h).finally(wakePolling),
 
   remove: async (hash, deleteFiles) => {
     await get().qbt().delete(hash, deleteFiles);
@@ -883,7 +985,11 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
 
   startPolling: () => {
     if (pollTimer) return;
+    let busy = false;
     const tick = async () => {
+      if (busy) return;
+      busy = true;
+      let listed: QbtTorrent[] = get().torrents;
       try {
         const client = get().qbt();
         // Complete one-time cleanup before listing sessions. Otherwise an old
@@ -891,6 +997,7 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
         // the disk in the background.
         await client.optimizeForStreaming();
         const torrents = await client.list();
+        listed = torrents;
         const {
           pendingStreamHash: pending,
           pendingStreamFileIndex: fileIndex,
@@ -925,16 +1032,23 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
         });
       } catch {
         set({ qbtOnline: false });
+      } finally {
+        busy = false;
+        if (pollTick === tick) {
+          if (pollTimer) clearTimeout(pollTimer);
+          pollTimer = setTimeout(() => void tick(), torrentPollDelay(get(), listed));
+        }
       }
     };
-    tick();
-    pollTimer = setInterval(tick, 2000);
+    pollTick = tick;
+    pollTimer = setTimeout(() => void tick(), 0);
     set({ polling: true });
   },
 
   stopPolling: () => {
-    if (pollTimer) clearInterval(pollTimer);
+    if (pollTimer) clearTimeout(pollTimer);
     pollTimer = null;
+    pollTick = null;
     set({ polling: false });
   },
 }));
