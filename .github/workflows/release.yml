@@ -66,6 +66,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Akflix accounts: public web config (repository variables).
+          VITE_AKFLIX_FIREBASE_API_KEY: ${{ vars.VITE_AKFLIX_FIREBASE_API_KEY }}
+          VITE_AKFLIX_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_AKFLIX_FIREBASE_AUTH_DOMAIN }}
+          VITE_AKFLIX_FIREBASE_PROJECT_ID: ${{ vars.VITE_AKFLIX_FIREBASE_PROJECT_ID }}
+          VITE_AKFLIX_FIREBASE_APP_ID: ${{ vars.VITE_AKFLIX_FIREBASE_APP_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Akflix ${{ github.ref_name }}"
