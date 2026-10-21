@@ -223,7 +223,7 @@ test("watching one episode keeps the rest of an offline season download", async 
       return json(details(HASH, {
         files: [
           { name: "Show.S01E01.mp4", length: 100, included: true },
-          { name: "Show.S01E02.mp4", length: 100, included: true },
+          { name: "Show.S01E02.mp4", length: 100, included: false },
           { name: "Show.S01E03.mp4", length: 100, included: true },
         ],
       }));
@@ -239,6 +239,36 @@ test("watching one episode keeps the rest of an offline season download", async 
     const selected = await new RqbitClient("http://engine").prioritizeVideoFile(HASH, undefined, { season: 1, episode: 2 });
     assert.equal(selected?.index, 1);
     assert.deepEqual([...onlyFiles].sort(), [0, 1, 2]);
+  });
+});
+
+test("a stream whose file is already the only one selected is not reselected", async () => {
+  let selections = 0;
+  await withEngine((call) => {
+    if (call.path === `/torrents/${HASH}`) {
+      return json(details(HASH, {
+        files: [
+          { name: "Show.S01E01.mp4", length: 100, included: false },
+          { name: "Show.S01E02.mp4", length: 100, included: true },
+        ],
+      }));
+    }
+    if (call.path === `/torrents/${HASH}/stats/v1`) return json({ state: "live", file_progress: [0, 0] });
+    if (call.path === `/torrents/${HASH}/update_only_files`) {
+      selections++;
+      return json({});
+    }
+    return json({}, 404);
+  }, async () => {
+    storage.set(MODES, JSON.stringify({ [HASH]: "stream" }));
+    const client = new RqbitClient("http://engine");
+    const selected = await client.prioritizeVideoFile(HASH, undefined, { season: 1, episode: 2 });
+    assert.equal(selected?.index, 1);
+    assert.equal(selections, 0);
+    // A different episode of the same pack still changes the selection.
+    const other = await client.prioritizeVideoFile(HASH, undefined, { season: 1, episode: 1 });
+    assert.equal(other?.index, 0);
+    assert.equal(selections, 1);
   });
 });
 
