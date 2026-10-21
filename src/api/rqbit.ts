@@ -392,9 +392,14 @@ export class RqbitClient {
     if (!selected) return null;
     // Watching one episode of an offline season pack must not cancel the
     // other episodes the user asked to keep.
+    const current = files.filter((file) => file.priority > 0).map((file) => file.index);
     const onlyFiles = readModes()[hash.toLowerCase()] === "download"
-      ? [...new Set([...files.filter((file) => file.priority > 0).map((file) => file.index), selected.index])]
+      ? [...new Set([...current, selected.index])]
       : [selected.index];
+    // Streams are added with only their file selected. Selecting the same files
+    // again is not free: librqbit 9 can deadlock the whole engine while it
+    // changes the selection of a live torrent with peers (seen 2026-10-21).
+    if (current.length === onlyFiles.length && onlyFiles.every((index) => current.includes(index))) return selected;
     const select = () =>
       this.request(`/torrents/${hash}/update_only_files`, {
         method: "POST",

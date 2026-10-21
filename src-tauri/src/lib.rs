@@ -13,7 +13,7 @@
 use std::{
     collections::HashMap,
     fs::{self, File},
-    io::{Read, Seek, SeekFrom},
+    io::{Read, Seek, SeekFrom, Write},
     net::{SocketAddr, TcpStream},
     path::{Component, Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -392,6 +392,37 @@ fn rqbit_ready() -> bool {
         .is_some()
 }
 
+/// Does an HTTP API answer a request, not just accept the connection? A
+/// wedged rqbit keeps accepting: librqbit 9's update_only_files takes the
+/// torrent lock and then the peer map while peer tasks take them the other
+/// way round, and every later request then waits forever (seen 2026-10-21).
+fn api_answers(address: SocketAddr, timeout: Duration) -> bool {
+    let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(500)) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(timeout));
+    let _ = stream.set_write_timeout(Some(timeout));
+    if stream
+        .write_all(b"GET /torrents HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+    let mut status = [0u8; 12];
+    let mut read = 0;
+    while read < status.len() {
+        match stream.read(&mut status[read..]) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => read += n,
+        }
+    }
+    read == status.len() && status.starts_with(b"HTTP/1.")
+}
+
+/// Unanswered checks in a row (one every 10 s, 8 s each) before a wedged
+/// engine is restarted: about a minute in which no Play could start anyway.
+const ENGINE_UNANSWERED_LIMIT: u32 = 3;
+
 fn pause_persisted_torrents(state: &std::path::Path) -> Result<(), String> {
     let session_path = state.join("session.json");
     if session_path.is_file() {
@@ -607,11 +638,30 @@ fn stop_embedded_torrent_engine() {
 
 #[cfg(desktop)]
 fn monitor_embedded_torrent_engine(app: tauri::AppHandle) {
+    let mut ticks: u64 = 0;
+    let mut unanswered = 0;
     thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(2));
+        ticks += 1;
         if rqbit_ready() {
+            if ticks % 5 != 0 {
+                continue;
+            }
+            let answers = RQBIT_API
+                .parse::<SocketAddr>()
+                .is_ok_and(|address| api_answers(address, Duration::from_secs(8)));
+            unanswered = if answers { 0 } else { unanswered + 1 };
+            // Only an engine this app started is replaced; the next pass
+            // starts a fresh one through the normal recovery below.
+            if unanswered < ENGINE_UNANSWERED_LIMIT || !rqbit_process_running() {
+                continue;
+            }
+            eprintln!("Akflix embedded engine stopped answering; restarting it");
+            unanswered = 0;
+            stop_embedded_torrent_engine();
             continue;
         }
+        unanswered = 0;
 
         // Do not cross a pending storage change or write to a disconnected
         // drive. Once the active location is ready again, recover rqbit
@@ -1791,6 +1841,40 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_engine_that_accepts_but_never_answers_counts_as_stuck() {
+        // Accepts the connection and holds it without a byte, like a wedged rqbit.
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let silent_address = silent.local_addr().expect("address");
+        thread::spawn(move || {
+            let mut open = Vec::new();
+            for stream in silent.incoming().flatten() {
+                open.push(stream);
+            }
+        });
+        let started = Instant::now();
+        assert!(!api_answers(silent_address, Duration::from_millis(400)));
+        assert!(started.elapsed() < Duration::from_secs(3));
+
+        let healthy = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let healthy_address = healthy.local_addr().expect("address");
+        thread::spawn(move || {
+            for mut stream in healthy.incoming().flatten() {
+                let mut request = [0u8; 256];
+                let _ = stream.read(&mut request);
+                let _ = stream
+                    .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 15\r\n\r\n{\"torrents\":[]}");
+            }
+        });
+        assert!(api_answers(healthy_address, Duration::from_secs(2)));
+
+        // Nothing listening at all.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let closed_address = closed.local_addr().expect("address");
+        drop(closed);
+        assert!(!api_answers(closed_address, Duration::from_millis(400)));
+    }
 
     fn unique_test_folder(name: &str) -> PathBuf {
         let nonce = std::time::SystemTime::now()
