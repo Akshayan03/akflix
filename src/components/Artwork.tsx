@@ -1,13 +1,16 @@
 import { useEffect, useState, type ImgHTMLAttributes } from "react";
 import Brand from "@/components/Brand";
+import { artworkSrcSet } from "@/lib/artwork";
 
 type ArtworkVariant = "poster" | "landscape" | "backdrop" | "compact";
 
-interface ArtworkProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | "title"> {
+interface ArtworkProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | "title" | "srcSet"> {
   src?: string | null;
   title: string;
   variant?: ArtworkVariant;
   fallbackClassName?: string;
+  /** CSS width the image is drawn at; with it the browser loads the size this screen needs. */
+  sizes?: string;
 }
 
 function initials(title: string): string {
@@ -60,13 +63,17 @@ export default function Artwork({
   className = "",
   fallbackClassName,
   alt = "",
+  sizes,
   ...imageProps
 }: ArtworkProps) {
-  const [failed, setFailed] = useState(false);
+  // 0: the size for this screen, 1: the URL as the catalogue gave it, 2: failed.
+  const [attempt, setAttempt] = useState(0);
 
-  useEffect(() => setFailed(false), [src]);
+  useEffect(() => setAttempt(0), [src]);
 
-  if (!src || failed) {
+  const srcSet = sizes && attempt === 0 ? artworkSrcSet(src) : undefined;
+
+  if (!src || attempt === 2) {
     return (
       <ArtworkFallback
         title={title}
@@ -78,13 +85,15 @@ export default function Artwork({
 
   return (
     <img
-      key={src}
+      key={`${src}#${attempt}`}
       {...imageProps}
       src={src}
+      srcSet={srcSet}
+      sizes={srcSet ? sizes : undefined}
       alt={alt}
       decoding={imageProps.decoding ?? "async"}
       className={`akflix-artwork ${className}`}
-      onError={() => setFailed(true)}
+      onError={() => setAttempt(srcSet ? 1 : 2)}
     />
   );
 }

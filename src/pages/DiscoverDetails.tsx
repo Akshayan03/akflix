@@ -439,6 +439,7 @@ export default function DiscoverDetails() {
                 src={meta.poster}
                 title={meta.name}
                 variant="poster"
+                sizes="104px"
                 className="h-full w-full object-cover"
                 draggable={false}
               />
@@ -572,6 +573,8 @@ export default function DiscoverDetails() {
                           src={episode.thumbnail}
                           title={episode.name ?? episode.title ?? `Episode ${episode.episode}`}
                           variant="landscape"
+                          sizes="122px"
+                          loading="lazy"
                           className="h-full w-full object-cover"
                           draggable={false}
                         />
@@ -671,7 +674,7 @@ export default function DiscoverDetails() {
           {/* A poster only when there is no backdrop; otherwise the artwork leads. */}
           {!meta.background && (
             <div className="ak-rise-in hidden aspect-[2/3] w-40 shrink-0 overflow-hidden rounded-xl shadow-[0_24px_70px_rgba(0,0,0,.65)] ring-1 ring-white/15 lg:block">
-              <Artwork src={meta.poster} title={meta.name} variant="poster" className="h-full w-full object-cover" draggable={false} />
+              <Artwork src={meta.poster} title={meta.name} variant="poster" sizes="160px" className="h-full w-full object-cover" draggable={false} />
             </div>
           )}
           <div className="ak-rise-in min-w-0 max-w-[700px]">
@@ -793,6 +796,8 @@ export default function DiscoverDetails() {
                           src={episode.thumbnail}
                           title={episodeTitle(episode)}
                           variant="landscape"
+                          sizes="(min-width: 1024px) 192px, 144px"
+                          loading="lazy"
                           className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.04]"
                           draggable={false}
                         />

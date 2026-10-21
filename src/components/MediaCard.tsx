@@ -8,6 +8,7 @@ import { useAuth } from "@/stores/authStore";
 import { formatRuntime } from "@/lib/utils";
 import type { BaseItem } from "@/types/jellyfin";
 import Artwork from "@/components/Artwork";
+import { CARD_SIZES } from "@/lib/artwork";
 import { isAppleMobile } from "@/lib/platform";
 
 interface Props {
@@ -63,6 +64,7 @@ export default function MediaCard({ item, variant = "poster" }: Props) {
         src={img}
         title={title}
         variant={variant}
+        sizes={CARD_SIZES[variant]}
         alt=""
         loading="lazy"
         className="ak-card-art"

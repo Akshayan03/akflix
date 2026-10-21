@@ -94,7 +94,7 @@ export default function PickThree({
                 onClick={() => toggle(item.id)}
                 className="ak-pick-card"
               >
-                <Artwork src={item.poster} title={item.name} variant="poster" alt="" loading="lazy" className="h-full w-full object-cover" draggable={false} />
+                <Artwork src={item.poster} title={item.name} variant="poster" sizes="(min-width: 640px) 160px, 25vw" alt="" loading="lazy" className="h-full w-full object-cover" draggable={false} />
                 {on && (
                   <span className="ak-pick-check" aria-hidden="true">
                     <Check size={18} strokeWidth={3} />

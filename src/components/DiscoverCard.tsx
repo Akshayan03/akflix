@@ -2,6 +2,7 @@ import { Check, Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { StremioMeta } from "@/types/stremio";
 import Artwork from "@/components/Artwork";
+import { CARD_SIZES } from "@/lib/artwork";
 import { isAppleMobile } from "@/lib/platform";
 
 export interface DiscoverCardState {
@@ -60,6 +61,7 @@ export default function DiscoverCard({
             src={item.poster}
             title={item.name}
             variant={variant}
+            sizes={fluid ? CARD_SIZES.grid : CARD_SIZES.poster}
             alt=""
             loading="lazy"
             className="ak-card-art"
@@ -97,6 +99,7 @@ export default function DiscoverCard({
         src={landscape ? item.background ?? item.poster : item.poster}
         title={item.name}
         variant={variant}
+        sizes={fluid ? CARD_SIZES.grid : CARD_SIZES[variant]}
         alt=""
         loading="lazy"
         className="ak-card-art"
