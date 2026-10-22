@@ -33,8 +33,9 @@ test("website prominently discloses unresolved reports and existing installer pr
   // A recommendations release must not read as a playback fix.
   for (const text of ["1.0.29 personal Home update", "playback and download code is unchanged from 1.0.28"]) assert.ok(html.includes(text), text);
   // A playback release says what was reproduced and what still depends on other people sharing.
-  for (const text of ["1.0.30 playback fix", "kept loading and never played", "A title still cannot play when nobody is sharing it", "1.0.28, 1.0.30 and 1.0.31 fix"]) assert.ok(html.includes(text), text);
+  for (const text of ["1.0.30 playback fix", "kept loading and never played", "A title still cannot play when nobody is sharing it", "1.0.28, 1.0.30, 1.0.31 and 1.0.32 fix"]) assert.ok(html.includes(text), text);
   for (const text of ["1.0.31 engine fix", "stop answering for good", "restarts the engine by itself"]) assert.ok(html.includes(text), text);
+  for (const text of ["1.0.32 engine", "eight disk slots", "big season packs start faster"]) assert.ok(html.includes(text), text);
 });
 
 test("a Mac-only update retains the newest complete Windows release", () => {
