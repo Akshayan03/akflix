@@ -1,0 +1,17 @@
+# The torrent engine Akflix bundles (src-tauri/binaries/rqbit-<target>): the rqbit 9.0.1 command-line client from
+# crates.io, unchanged, built against librqbit 9.0.1 with three local fixes (the same copy Akflix for iPhone uses):
+#   - src/torrent_state/live/mod.rs update_only_files: the torrent-state lock is released before peers are
+#     reconnected. rqbit 9 took that lock and a peer-map lock in opposite orders, so changing the selected file of a
+#     torrent with connected peers could lock the engine for good (it kept accepting requests, never answered).
+#   - src/torrent_state/streaming.rs stream: a stream no longer holds one of the session's 8 blocking-I/O permits
+#     for its whole life. Streams waiting for pieces that never came kept theirs, and with all 8 taken no torrent
+#     could write a chunk or start.
+#   - src/piece_tracker.rs try_steal_urgent: the piece a stream reader waits on is taken from a slow peer after 3x
+#     its average piece time (at least 4 s) instead of 10x.
+# Build: sh engine/build.sh (see README.md).
+[workspace]
+members = ["rqbit"]
+resolver = "2"
+
+[patch.crates-io]
+librqbit = { path = "vendor/librqbit-9.0.1" }

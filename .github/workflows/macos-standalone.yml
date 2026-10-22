@@ -30,7 +30,9 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: |
+            src-tauri
+            engine
 
       - run: npm ci
 
@@ -40,7 +42,7 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Reuse the verified standalone engines from v1.0.1
+      - name: Reuse the verified standalone FFmpeg from v1.0.1
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -48,12 +50,15 @@ jobs:
           gh release download v1.0.1 --pattern "Akflix_1.0.1_aarch64.dmg" --dir "$RUNNER_TEMP"
           hdiutil attach "$RUNNER_TEMP/Akflix_1.0.1_aarch64.dmg" \
             -nobrowse -readonly -mountpoint "$RUNNER_TEMP/akflix-old"
-          cp "$RUNNER_TEMP/akflix-old/Akflix.app/Contents/MacOS/rqbit" \
-            src-tauri/binaries/rqbit-aarch64-apple-darwin
           cp "$RUNNER_TEMP/akflix-old/Akflix.app/Contents/MacOS/ffmpeg" \
             src-tauri/binaries/ffmpeg-aarch64-apple-darwin
           hdiutil detach "$RUNNER_TEMP/akflix-old"
-          chmod +x src-tauri/binaries/*-aarch64-apple-darwin
+          chmod +x src-tauri/binaries/ffmpeg-aarch64-apple-darwin
+
+      # rqbit 9.0.1 with Akflix's librqbit fixes (engine/README.md), built from this repository.
+      - name: Build the torrent engine
+        run: |
+          sh engine/build.sh aarch64-apple-darwin
           file src-tauri/binaries/*-aarch64-apple-darwin
 
       - name: Download the bundled captions model
@@ -91,6 +96,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish Mac-only update
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
