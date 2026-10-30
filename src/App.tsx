@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-
 import { Toaster } from "sonner";
 import { useAuth } from "@/stores/authStore";
 import { initDeepLinks, checkForUpdatesQuietly } from "@/lib/desktop";
+import { runPlaybackSelftestIfRequested } from "@/lib/selftest";
 import Navbar from "@/components/Navbar";
 import PlayerHost from "@/components/PlayerHost";
 import Login from "@/pages/Login";
@@ -43,6 +44,7 @@ export default function App() {
     initCloudSync();
     initDeepLinks(navigate);
     if (!mobileApple) checkForUpdatesQuietly();
+    void runPlaybackSelftestIfRequested(navigate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

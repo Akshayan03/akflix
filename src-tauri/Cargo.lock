@@ -19,10 +19,12 @@ dependencies = [
 
 [[package]]
 name = "akflix"
-version = "1.0.32"
+version = "1.0.33"
 dependencies = [
+ "block2",
  "getrandom 0.3.4",
  "libc",
+ "objc2",
  "percent-encoding",
  "serde",
  "serde_json",

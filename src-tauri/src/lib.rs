@@ -1080,6 +1080,100 @@ async fn skip_media_pcm(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// Hidden playback self-test (src/lib/selftest.ts): the value of
+/// `--akflix-selftest-play <imdb id>[:season:episode][+upnext][,...]`, handed out once
+/// per process so a reloaded page does not start it again.
+#[tauri::command]
+fn selftest_request() -> Option<String> {
+    static TAKEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let mut args = std::env::args();
+    let mut value = None;
+    while let Some(arg) = args.next() {
+        if arg == "--akflix-selftest-play" {
+            value = args.next();
+        } else if let Some(rest) = arg.strip_prefix("--akflix-selftest-play=") {
+            value = Some(rest.to_string());
+        }
+    }
+    let value = value.filter(|value| !value.trim().is_empty())?;
+    (!TAKEN.swap(true, std::sync::atomic::Ordering::SeqCst)).then_some(value)
+}
+
+/// One self-test record: printed and appended to <app data>/selftest/selftest.jsonl.
+#[tauri::command]
+fn selftest_log(app: tauri::AppHandle, line: String) {
+    println!("AKFLIX-SELFTEST {line}");
+    let Ok(dir) = app.path().app_data_dir().map(|dir| dir.join("selftest")) else {
+        return;
+    };
+    if fs::create_dir_all(&dir).is_ok() {
+        if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(dir.join("selftest.jsonl")) {
+            use std::io::Write;
+            let _ = writeln!(file, "{line}");
+        }
+    }
+}
+
+/// The self-test's screenshot of the window's web content (WKWebView's own
+/// snapshot: no screen-recording permission), as <app data>/selftest/<name>.png.
+/// Only the self-test calls it.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn selftest_snapshot(window: tauri::WebviewWindow, name: String) -> Result<(), String> {
+    use objc2::{class, msg_send, runtime::AnyObject};
+    let safe: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .take(60)
+        .collect();
+    if safe.is_empty() || !selftest_request_was_made() {
+        return Err("not a self-test".into());
+    }
+    let dir = window.app_handle().path().app_data_dir().map_err(|e| e.to_string())?.join("selftest");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("{safe}.png"));
+    window
+        .with_webview(move |webview| unsafe {
+            let view = webview.inner() as *mut AnyObject;
+            let block = block2::RcBlock::new(move |image: *mut AnyObject, _error: *mut AnyObject| {
+                if image.is_null() {
+                    return;
+                }
+                let tiff: *mut AnyObject = msg_send![image, TIFFRepresentation];
+                if tiff.is_null() {
+                    return;
+                }
+                let rep: *mut AnyObject = msg_send![class!(NSBitmapImageRep), imageRepWithData: tiff];
+                if rep.is_null() {
+                    return;
+                }
+                let properties: *mut AnyObject = msg_send![class!(NSDictionary), dictionary];
+                // NSBitmapImageFileTypePNG
+                let png: *mut AnyObject = msg_send![rep, representationUsingType: 4usize, properties: properties];
+                if png.is_null() {
+                    return;
+                }
+                let length: usize = msg_send![png, length];
+                let bytes: *const u8 = msg_send![png, bytes];
+                let _ = fs::write(&path, std::slice::from_raw_parts(bytes, length));
+            });
+            let configuration: *mut AnyObject = std::ptr::null_mut();
+            let _: () = msg_send![view, takeSnapshotWithConfiguration: configuration, completionHandler: &*block];
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn selftest_snapshot(_name: String) -> Result<(), String> {
+    Err("snapshots are macOS only".into())
+}
+
+/// Whether this process was launched for the self-test (snapshots only then).
+fn selftest_request_was_made() -> bool {
+    std::env::args().any(|arg| arg == "--akflix-selftest-play" || arg.starts_with("--akflix-selftest-play="))
+}
+
 /// The player moved on: stop that file's read now instead of letting it finish.
 #[tauri::command]
 fn skip_media_cancel(owner: String) {
@@ -1753,6 +1847,9 @@ pub fn run() {
             skip_media_pcm,
             skip_media_probe,
             skip_media_cancel,
+            selftest_request,
+            selftest_log,
+            selftest_snapshot,
             embedded_engine_status,
             ensure_embedded_torrent_engine,
             available_media_storage,

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { selftestActive } from "@/lib/selftestFlag";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { safeStateStorage } from "@/lib/safeStorage";
 import { useAuth } from "@/stores/authStore";
@@ -89,6 +90,8 @@ export const useHistory = create<HistoryState>()(
       ratings: [],
 
       recordProgress: (media, rawPosition, rawDuration, details = {}) => {
+        // The hidden playback self-test's titles are not the viewer's history.
+        if (selftestActive()) return;
         const profileId = activeProfileId();
         const position = Number.isFinite(rawPosition) ? Math.max(0, rawPosition) : 0;
         const duration = Number.isFinite(rawDuration) ? Math.max(0, rawDuration) : 0;

@@ -1,6 +1,6 @@
 [package]
 name = "akflix"
-version = "1.0.32"
+version = "1.0.33"
 description = "Standalone movie and series streaming app"
 authors = ["Akshayan"]
 edition = "2021"
@@ -33,6 +33,9 @@ tauri-plugin-process = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.16", features = ["metal"] }
+# The self-test's web-content snapshot (selftest_snapshot); already in the tree via wry.
+objc2 = "0.6"
+block2 = "0.6"
 
 [profile.release]
 panic = "abort"

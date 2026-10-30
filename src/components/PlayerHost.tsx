@@ -1376,6 +1376,7 @@ export default function PlayerHost() {
       advancingRef.current = true;
       autoplayStreakRef.current = by === "viewer" ? 0 : autoplayStreakRef.current + 1;
       console.info(`[upnext] next episode (${by}: ${why}, streak ${autoplayStreakRef.current})`);
+      window.dispatchEvent(new CustomEvent("akflix-upnext", { detail: { type: "next", by, why } }));
       void usePlayback.getState().controls?.next().then((advanced) => {
         if (!advanced) advancingRef.current = false;
       });
@@ -1395,9 +1396,15 @@ export default function PlayerHost() {
   // The card's reason, once per appearance, for the logs (credits vs fallback).
   const cardKey = card ? `${card.kind}:${card.reason}:${Math.round(card.at)}` : null;
   useEffect(() => {
-    if (card) console.info(`[upnext] card ${card.kind} at ${card.at.toFixed(1)} s (${card.reason})`);
+    if (!card) return;
+    console.info(`[upnext] card ${card.kind} at ${card.at.toFixed(1)} s (${card.reason})`);
+    // For the hidden self-test (lib/selftest.ts).
+    window.dispatchEvent(new CustomEvent("akflix-upnext", { detail: { type: "card", ...card } }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardKey]);
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("akflix-skip-markers", { detail: skipMarkers }));
+  }, [skipMarkers]);
 
   // The countdown ran out: the next episode starts now.
   const countdownDue = !!countdown?.due;
