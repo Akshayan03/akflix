@@ -625,10 +625,29 @@ export default function Settings() {
             <span className="block text-sm font-semibold text-zinc-100">Skip intros automatically</span>
             <span className="mt-1 block text-xs leading-5 text-zinc-400">
               Jumps past an intro or recap as soon as it starts, with a Watch it button to go back.
-              Skip Intro shows on screen either way. Next Episode appears when the end credits start.
+              Skip Intro and Skip Recap show on screen either way.
             </span>
           </span>
           <span aria-hidden="true" className="ak-switch" data-on={settings.autoSkipIntro ? "true" : "false"}>
+            <span className="ak-switch__thumb" />
+          </span>
+        </button>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={settings.autoPlayNextEpisode}
+          onClick={() => settings.update({ autoPlayNextEpisode: !settings.autoPlayNextEpisode })}
+          className="ak-switch-row"
+        >
+          <span className="min-w-0 text-left">
+            <span className="block text-sm font-semibold text-zinc-100">Autoplay next episode</span>
+            <span className="mt-1 block text-xs leading-5 text-zinc-400">
+              When the end credits start, Next Episode counts down for 10 seconds and then plays it. Watch Credits
+              lets them run; the next episode starts when they end. After three episodes in a row without you
+              touching anything, Akflix asks if you are still watching.
+            </span>
+          </span>
+          <span aria-hidden="true" className="ak-switch" data-on={settings.autoPlayNextEpisode ? "true" : "false"}>
             <span className="ak-switch__thumb" />
           </span>
         </button>

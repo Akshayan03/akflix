@@ -5,7 +5,7 @@
  */
 
 export type SkipKind = "intro" | "recap" | "credits";
-export type MarkerSource = "chapter" | "jellyfin" | "fingerprint" | "cache";
+export type MarkerSource = "chapter" | "jellyfin" | "fingerprint" | "cache" | "online";
 
 export interface SkipSegment {
   start: number;
@@ -277,6 +277,86 @@ export function skipView(input: SkipInput): SkipView {
     view.nextEpisode = { at: credits.start };
   }
   return view;
+}
+
+// ── The credits card (Next episode / Watch credits) ───────────────────────
+
+/** Without known credits, an episode's card comes this long before its end (a fallback; the logs say which). */
+export const FALLBACK_CARD_SECONDS = 40;
+/** Seconds the Next Episode countdown runs before the next episode starts. */
+export const NEXT_COUNTDOWN_SECONDS = 10;
+/** Episodes started by autoplay in a row, with no input, before "Are you still watching?". */
+export const STILL_WATCHING_AFTER = 3;
+
+export interface CreditsCardInput {
+  markers: SkipMarkers;
+  time: number;
+  /** The file's duration; 0 while unknown. */
+  duration: number;
+  /** An episode (a movie gets a card only at detected credits). */
+  isEpisode: boolean;
+  /** There is a next episode (false for a series finale). */
+  hasNext: boolean;
+  /** The viewer chose Watch Credits (or closed the card) for this file. */
+  dismissed: boolean;
+}
+
+export interface CreditsCard {
+  /** "next": Next Episode + Watch Credits. "movie": Watch Credits + Back to browse. */
+  kind: "next" | "movie";
+  /** Media time the card appears at. */
+  at: number;
+  /** Why it appears there: detected/known credits, or the fallback before the end. */
+  reason: "credits" | "fallback";
+}
+
+/** When the credits card is up, and which one. Null: no card now. */
+export function creditsCard(input: CreditsCardInput): CreditsCard | null {
+  const { markers, time, duration } = input;
+  if (input.dismissed || !(duration > 0) || time >= duration - 0.5) return null;
+  if (input.isEpisode && !input.hasNext) return null; // the series finale: nothing to offer
+  const credits = markers.credits && plausibleSegment("credits", markers.credits, duration) ? markers.credits : null;
+  let card: CreditsCard | null = null;
+  if (credits) card = { kind: input.isEpisode ? "next" : "movie", at: credits.start, reason: "credits" };
+  else if (input.isEpisode) {
+    // The last 40 s (the last quarter of a very short file).
+    card = { kind: "next", at: duration - Math.min(FALLBACK_CARD_SECONDS, duration / 4), reason: "fallback" };
+  }
+  return card && time >= card.at ? card : null;
+}
+
+export interface NextCountdownInput {
+  /** Settings: Autoplay next episode. */
+  autoplay: boolean;
+  /** Episodes autoplay started in a row with no input from the viewer. */
+  streak: number;
+  /** Media time the card appeared at (the countdown follows playback: it pauses with it). */
+  shownAt: number;
+  time: number;
+}
+
+export interface NextCountdown {
+  /** Seconds left before the next episode starts; null: no countdown (autoplay off, or still watching). */
+  left: number | null;
+  /** 0..1 of the countdown run (the ring). */
+  progress: number;
+  /** Ask "Are you still watching?" instead of starting another episode. */
+  stillWatching: boolean;
+  /** The countdown ran out: start the next episode now. */
+  due: boolean;
+}
+
+export function nextCountdown(input: NextCountdownInput): NextCountdown {
+  const stillWatching = input.autoplay && input.streak >= STILL_WATCHING_AFTER;
+  if (!input.autoplay || stillWatching) return { left: null, progress: 0, stillWatching, due: false };
+  const elapsed = Math.max(0, input.time - input.shownAt);
+  const left = Math.max(0, NEXT_COUNTDOWN_SECONDS - elapsed);
+  return { left, progress: Math.min(1, elapsed / NEXT_COUNTDOWN_SECONDS), stillWatching: false, due: left <= 0 };
+}
+
+/** Whether the end of an episode starts the next one by itself. */
+export function autoplayAtEnd(autoplay: boolean, streak: number, hasNext: boolean): boolean {
+  return autoplay && hasNext && streak < STILL_WATCHING_AFTER;
 }
 
 /** Media identity that markers are cached under. */

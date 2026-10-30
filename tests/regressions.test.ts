@@ -5,6 +5,7 @@ import "./cloud-sync.test";
 import "./cloud-signin.test";
 import "./cloud-browser.test";
 import "./skip.test";
+import "./upnext.test";
 import "./captions.test";
 import "./discovery.test";
 import "./stream-start.test";

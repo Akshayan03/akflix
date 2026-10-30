@@ -20,6 +20,8 @@ import {
   type Signature,
 } from "./match";
 import { rememberPrint, type SeasonMemory, type SkipMemory } from "./cache";
+import { combineOnlineParts, type OnlineParts } from "./online";
+import { abortableSleep } from "./streamReader";
 import {
   markersFromChapters,
   mergeMarkers,
@@ -53,6 +55,8 @@ export interface SkipSourceAdapter {
   closingReady?: (signal: AbortSignal) => Promise<void>;
   /** Stops a read in progress at once (the episode changed or the player closed). */
   cancel?: () => void;
+  /** The public timestamp databases' answers (online.ts); used below chapters and fingerprints. */
+  online?: (signal: AbortSignal) => Promise<OnlineParts[] | null>;
 }
 
 export interface SkipAnalysis {
@@ -66,6 +70,8 @@ export interface SkipAnalysis {
   log?: (message: string) => void;
   /** Checked before reading the opening (false: e.g. resumed past it on a slow stream). */
   wantIntro?: () => boolean;
+  /** Resolves when reading the file may start (playback under way). Online markers never wait for it. */
+  audioReady?: (signal: AbortSignal) => Promise<void>;
 }
 
 /** Seconds at the end that are searched for the end credits. */
@@ -121,9 +127,13 @@ export async function analyzeSkipMarkers(job: SkipAnalysis): Promise<SkipMarkers
   let shown: SkipMarkers = {};
   let named: SkipMarkers = {};
   let found: SkipMarkers = {};
+  let online: OnlineParts[] = [];
   const publish = () => {
+    if (signal.aborted) return;
     const duration = job.duration();
-    const merged = mergeMarkers(named, found);
+    // The file's own names first, then what was found in this exact file, then
+    // the databases (measured on someone else's copy).
+    const merged = mergeMarkers(named, found, combineOnlineParts(online, duration));
     for (const kind of ["intro", "recap", "credits"] as const) {
       const segment = merged[kind];
       if (segment && !plausibleSegment(kind, segment, duration)) delete merged[kind];
@@ -134,6 +144,31 @@ export async function analyzeSkipMarkers(job: SkipAnalysis): Promise<SkipMarkers
     }
   };
 
+  // 0. The databases, as soon as they answer (often before the first frame,
+  // and at once from memory): a first episode needs nothing played before it.
+  const onlineDone = (adapter.online?.(signal) ?? Promise.resolve(null))
+    .then((parts) => {
+      if (!parts?.length) return;
+      online = parts;
+      log(`online: ${JSON.stringify(combineOnlineParts(online, job.duration()))}`);
+      publish();
+    })
+    .catch(() => {});
+
+  // What was found in this exact file before (local, so at once too).
+  const cached = memory.markers(identity);
+  if (cached) {
+    found = Object.fromEntries(
+      Object.entries(cached).map(([kind, segment]) => [kind, { ...(segment as SkipSegment), source: "cache" }])
+    ) as SkipMarkers;
+  }
+  publish();
+
+  // Reading the file (its chapters, then audio) waits until playback is
+  // under way: it must never take bandwidth from the start.
+  if (job.audioReady) await job.audioReady(signal);
+  aborted(signal);
+
   // 1. What the file or server names.
   const [chapters, known] = await Promise.all([
     adapter.chapters?.(signal).catch(() => [] as MediaChapter[]) ?? Promise.resolve([] as MediaChapter[]),
@@ -143,13 +178,6 @@ export async function analyzeSkipMarkers(job: SkipAnalysis): Promise<SkipMarkers
   named = mergeMarkers(markersFromChapters(chapters, job.duration()), known);
   if (chapters.length) log(`chapters: ${chapters.map((chapter) => chapter.title).join(", ")}`);
 
-  // 2. What was found for this file before.
-  const cached = memory.markers(identity);
-  if (cached) {
-    found = Object.fromEntries(
-      Object.entries(cached).map(([kind, segment]) => [kind, { ...(segment as SkipSegment), source: "cache" }])
-    ) as SkipMarkers;
-  }
   publish();
 
   const season: SeasonMemory = memory.season(identity);
@@ -168,8 +196,15 @@ export async function analyzeSkipMarkers(job: SkipAnalysis): Promise<SkipMarkers
     }
   };
 
-  if (!adapter.pcm) return shown;
-
+  if (!adapter.pcm) {
+    await onlineDone;
+    // Online credits need the duration, which a stream may report late.
+    for (let waited = 0; online.length && !(job.duration() > 0) && waited < 120; waited += 1) {
+      await abortableSleep(1000, signal);
+    }
+    publish();
+    return shown;
+  }
   // 3a. The intro, from the opening minutes.
   if (!named.intro && !found.intro && (job.wantIntro?.() ?? true)) {
     const window = openingWindow(job.duration());
@@ -272,6 +307,8 @@ export async function analyzeSkipMarkers(job: SkipAnalysis): Promise<SkipMarkers
     save();
   }
 
+  publish(); // the duration may have arrived since (online credits use it)
+
   // 3b. The end credits, from the last minutes (once the duration is known).
   // Read chunk by chunk like the opening, so "Next episode" can appear as soon
   // as the shared closing audio is seen running up to what has been read.
@@ -279,6 +316,8 @@ export async function analyzeSkipMarkers(job: SkipAnalysis): Promise<SkipMarkers
     if (adapter.closingReady) await adapter.closingReady(signal);
     aborted(signal);
     const duration = job.duration();
+    // Online credits wait for the duration; it is surely known by now.
+    publish();
     if (duration >= 300) {
       const start = duration - closingWindow(duration);
       const acceptCredits = (from: number, how: string) => {
@@ -350,5 +389,6 @@ export async function analyzeSkipMarkers(job: SkipAnalysis): Promise<SkipMarkers
       save();
     }
   }
+  await onlineDone;
   return shown;
 }

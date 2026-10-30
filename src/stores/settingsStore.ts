@@ -31,6 +31,8 @@ export interface Settings {
   audioLanguage: string;
   /** Jump past intros and recaps on its own (the Skip button shows either way). */
   autoSkipIntro: boolean;
+  /** Next Episode counts down at the credits and starts the next episode by itself. */
+  autoPlayNextEpisode: boolean;
 }
 
 interface SettingsState extends Settings {
@@ -53,6 +55,7 @@ const defaults: Settings = {
   subtitleLanguage: "eng",
   audioLanguage: "eng",
   autoSkipIntro: false,
+  autoPlayNextEpisode: true,
 };
 
 export const useSettings = create<SettingsState>()(

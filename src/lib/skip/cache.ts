@@ -10,6 +10,7 @@
 import type { AudioPrint } from "./fingerprint";
 import type { Signature } from "./match";
 import type { SkipIdentity, SkipMarkers } from "./markers";
+import type { OnlineParts } from "./online";
 
 export interface SkipStorage {
   getItem(key: string): string | null;
@@ -21,6 +22,7 @@ const PREFIX = "akflix.skip.v1.";
 const INDEX_KEY = `${PREFIX}index`;
 const MAX_SEASONS = 12;
 const MAX_FILES = 300;
+const MAX_ONLINE = 400;
 /** Characters all skip entries may take together (about 1.2 MB). */
 export const MAX_STORED_CHARS = 1_200_000;
 /** Episodes whose opening (and closing) prints are kept per season. */
@@ -92,6 +94,16 @@ export function decodePrint(stored: StoredPrint): AudioPrint & { seconds: number
   return { hashes, quiet, offset: stored.o, seconds: stored.s ?? 0 };
 }
 
+/** A remembered online lookup (online.ts): the databases' answers, and when. */
+export interface StoredOnline {
+  at: number;
+  parts: OnlineParts[];
+}
+
+function onlineStorageKey(key: string): string {
+  return `${PREFIX}online:${key}`;
+}
+
 function seasonKey(identity: Pick<SkipIdentity, "show" | "season">): string {
   return `${PREFIX}season:${identity.show}:${identity.season}`;
 }
@@ -126,6 +138,7 @@ export class SkipMemory {
     };
     prune("season", MAX_SEASONS);
     prune("file", MAX_FILES);
+    prune("online", MAX_ONLINE);
     // The byte budget: drop the least recently used seasons (the bulk) first.
     const sizes = Object.keys(index).map((name) => [name, this.storage.getItem(name)?.length ?? 0] as const);
     let total = sizes.reduce((sum, [, size]) => sum + size, 0);
@@ -166,6 +179,22 @@ export class SkipMemory {
   saveMarkers(identity: SkipIdentity, markers: SkipMarkers) {
     const key = fileKey(identity);
     if (this.write(key, JSON.stringify({ markers, at: this.now() }))) this.touch(key);
+  }
+
+  online(key: string): StoredOnline | null {
+    try {
+      const raw = this.storage.getItem(onlineStorageKey(key));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as StoredOnline;
+      return typeof parsed?.at === "number" && Array.isArray(parsed.parts) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  saveOnline(key: string, value: StoredOnline) {
+    const name = onlineStorageKey(key);
+    if (this.write(name, JSON.stringify(value))) this.touch(name);
   }
 
   season(identity: Pick<SkipIdentity, "show" | "season">): SeasonMemory {

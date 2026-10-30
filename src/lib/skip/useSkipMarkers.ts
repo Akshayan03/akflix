@@ -9,7 +9,9 @@ import { useEffect, useState } from "react";
 import { analyzeSkipMarkers, type SkipSourceAdapter } from "./detector";
 import { SkipMemory, type SkipStorage } from "./cache";
 import type { SkipIdentity, SkipMarkers } from "./markers";
+import { onlineParts, type OnlineLookup } from "./online";
 import { abortableSleep } from "./streamReader";
+import { httpJson } from "../http";
 
 export interface SkipSubject {
   /** Changes whenever a different file starts playing. */
@@ -20,6 +22,8 @@ export interface SkipSubject {
   playhead: () => number;
   /** Checked before reading the opening (see SkipAnalysis.wantIntro). */
   wantIntro?: () => boolean;
+  /** IMDb id (+ season/episode) for the public timestamp databases (online.ts); null: none. */
+  online?: OnlineLookup | null;
 }
 
 let sharedMemory: SkipMemory | null = null;
@@ -48,6 +52,15 @@ function browserStorage(): SkipStorage {
 export function skipMemory(): SkipMemory {
   sharedMemory ??= new SkipMemory(browserStorage());
   return sharedMemory;
+}
+
+const fetchJson = (url: string, signal: AbortSignal) =>
+  httpJson<unknown>(url, { signal, headers: { Accept: "application/json" } });
+
+/** The databases' answers for a file about to play (the next episode): remembered, so its buttons are there at once. */
+export function prefetchOnlineMarkers(lookup: OnlineLookup | null | undefined): void {
+  if (!lookup) return;
+  void onlineParts(lookup, skipMemory(), fetchJson, new AbortController().signal).catch(() => {});
 }
 
 /** Playback is under way: the playhead moved a little, or enough time passed. */
@@ -80,14 +93,20 @@ export function useSkipMarkers(subject: SkipSubject | null): SkipMarkers {
     const log = (message: string) => {
       if (SKIP_DEBUG) console.info(`[skip ${subject.identity.show} S${subject.identity.season}E${subject.identity.episode}] ${message}`);
     };
+    const lookup = subject.online;
+    const adapter = lookup
+      ? { ...subject.adapter, online: (signal: AbortSignal) => onlineParts(lookup, skipMemory(), fetchJson, signal) }
+      : subject.adapter;
     void (async () => {
       try {
-        await playbackStarted(subject, controller.signal);
+        // Online markers are published at once; reading the file waits until
+        // playback is under way (it must never slow the start).
         await analyzeSkipMarkers({
           identity: subject.identity,
           duration: subject.duration,
           memory: skipMemory(),
-          adapter: subject.adapter,
+          adapter,
+          audioReady: (signal) => playbackStarted(subject, signal),
           onMarkers: (markers) => {
             if (!controller.signal.aborted) setState({ key, markers });
           },

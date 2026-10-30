@@ -80,17 +80,23 @@ import { iosNativeSources } from "@/lib/iosSourceCompatibility";
 import { automaticSafeSources } from "@/lib/sourceLanguage";
 import { directSubtitleTracks } from "@/api/subtitles";
 import MiniPlayer from "@/components/MiniPlayer";
-import SkipControls, { type SkipNotice } from "@/components/SkipControls";
+import SkipControls, { type CreditsCardView, type SkipNotice } from "@/components/SkipControls";
 import { openingWindow } from "@/lib/skip/detector";
 import { desktopSkipReader } from "@/lib/skip/desktopSource";
 import {
+  autoplayAtEnd,
+  creditsCard,
   markersFromJellyfinSegments,
+  nextCountdown,
   skipView,
   sourceKey,
   type SkipMarkers,
   type SkippableKind,
 } from "@/lib/skip/markers";
-import { useSkipMarkers, type SkipSubject } from "@/lib/skip/useSkipMarkers";
+import { onlineLookupFor, type OnlineLookup } from "@/lib/skip/online";
+import { prefetchOnlineMarkers, useSkipMarkers, type SkipSubject } from "@/lib/skip/useSkipMarkers";
+import { createNextPreparer, shouldPrepareNext } from "@/lib/nextEpisodePrep";
+import type { TorrentResult } from "@/types/torrent";
 import type { MediaSource, MediaStream } from "@/types/jellyfin";
 import { useHistory, type HistoryTitle } from "@/stores/historyStore";
 
@@ -214,6 +220,8 @@ function desktopSkipSubject(options: {
   isEpisode: boolean;
   audioLanguage: string;
   known?: (signal: AbortSignal, duration: number) => Promise<SkipMarkers>;
+  /** The public timestamp databases' lookup (IMDb titles only). */
+  online?: OnlineLookup | null;
 }): SkipSubject {
   const playhead = () => usePlayback.getState().currentTime;
   const reader = desktopSkipReader({
@@ -240,6 +248,7 @@ function desktopSkipSubject(options: {
     playhead,
     // Resumed past the opening: no Skip Intro to offer, and no reason to read it.
     wantIntro: () => playhead() < openingWindow(reader.duration()) - 30,
+    online: options.online ?? null,
   };
 }
 
@@ -269,6 +278,7 @@ export default function PlayerHost() {
   const client = useJellyfinClient();
   const subtitleLanguage = useSettings((s) => s.subtitleLanguage);
   const autoSkipIntro = useSettings((s) => s.autoSkipIntro);
+  const autoPlayNextEpisode = useSettings((s) => s.autoPlayNextEpisode);
   const preferredAudioLanguage = useSettings((s) => s.audioLanguage);
   const activeStreamHash = useTorrents((s) => s.activeStreamHash);
   const finishActiveStream = useTorrents((s) => s.finishActiveStream);
@@ -352,7 +362,22 @@ export default function PlayerHost() {
   const autoSkippedRef = useRef(new Set<SkippableKind>());
   const skipDismissedRef = useRef(new Set<SkippableKind>());
   const skipNoticeTimer = useRef<ReturnType<typeof setTimeout>>();
-  const skipActionsRef = useRef<{ skip: (() => void) | null; next: (() => void) | null }>({ skip: null, next: null });
+  const skipActionsRef = useRef<{
+    skip: (() => void) | null;
+    next: (() => void) | null;
+    dismissCard: (() => void) | null;
+  }>({ skip: null, next: null, dismissCard: null });
+  /** Media time the credits card appeared at (its countdown runs from there); null while it is down. */
+  const cardShownAtRef = useRef<number | null>(null);
+  /** Episodes autoplay started in a row with no key press or click: three, and Akflix asks first. */
+  const autoplayStreakRef = useRef(0);
+  /** The next episode is being started (the countdown or the end fired once). */
+  const advancingRef = useRef(false);
+  /** The episode ended without starting the next one (autoplay off / still watching): the card stays. */
+  const [heldAtEnd, setHeldAtEnd] = useState(false);
+  // The next episode's sources, looked up once before its card shows and
+  // shared by the card, the countdown and the end (lib/nextEpisodePrep.ts).
+  const nextPrepRef = useRef(createNextPreparer<TorrentResult[]>());
 
   // Skips, converter restarts and their retries. Created once: it reads the
   // live video, request and store through refs.
@@ -454,6 +479,9 @@ export default function PlayerHost() {
     setSkipNotice(null);
     clearTimeout(skipNoticeTimer.current);
     setCreditsDismissed(false);
+    setHeldAtEnd(false);
+    cardShownAtRef.current = null;
+    advancingRef.current = false;
     setNextTitle(undefined);
     skipTimeRef.current = null;
     autoSkippedRef.current = new Set();
@@ -733,6 +761,11 @@ export default function PlayerHost() {
               input: skipInput,
               isEpisode: !!request.isEpisode && request.season !== undefined && request.episode !== undefined,
               audioLanguage: request.compatibility?.audioLanguage ?? preferredAudioLanguage,
+              online: request.catalogId
+                ? request.mediaType === "movie"
+                  ? onlineLookupFor(request.catalogId)
+                  : onlineLookupFor(request.catalogId, request.season, request.episode)
+                : null,
             })
           : null
       );
@@ -811,6 +844,27 @@ export default function PlayerHost() {
 
   // ── Imperative controls registered with the store ────────────────────
 
+  /** Start (or join) the next episode's source lookup, and fetch its skip
+   * markers ahead (remembered, so its buttons are there when it opens). Null
+   * when there is nothing to look up. */
+  const prepareNextEpisode = useCallback(
+    (current: DirectPlaybackRequest | null, options?: { force?: boolean }) => {
+      const next = current?.episodeQueue?.[0];
+      if (!current?.catalogId || !next) return null;
+      const key = `${current.catalogId}:${next.season}:${next.episode}`;
+      if (nextPrepRef.current.key !== key) {
+        prefetchOnlineMarkers(onlineLookupFor(current.catalogId, next.season, next.episode));
+      }
+      const lookup = { imdbId: current.catalogId, type: "series" as const, season: next.season, episode: next.episode };
+      return nextPrepRef.current.prepare(
+        key,
+        (signal) => useTorrents.getState().search(current.title, signal, lookup),
+        { force: options?.force }
+      );
+    },
+    []
+  );
+
   const playNext = useCallback(async (): Promise<boolean> => {
     const nextId = nextEpisodeRef.current;
     if (nextId) {
@@ -854,12 +908,14 @@ export default function PlayerHost() {
       });
       const torrentState = useTorrents.getState();
       const requestId = await torrentState.beginStreamRequest(nextMedia);
-      const results = await torrentState.search(current.title, undefined, {
-        imdbId: current.catalogId,
-        type: "series",
-        season: next.season,
-        episode: next.episode,
-      });
+      // Usually looked up already, before the card showed (prepareNextEpisode).
+      const results = await (prepareNextEpisode(current, { force: true }) ??
+        torrentState.search(current.title, undefined, {
+          imdbId: current.catalogId,
+          type: "series",
+          season: next.season,
+          episode: next.episode,
+        }));
       if (useTorrents.getState().streamRequestId !== requestId) return false;
       let eligible = automaticSafeSources(results, preferredAudioLanguage);
       if (mobileApple) eligible = iosNativeSources(eligible);
@@ -885,7 +941,7 @@ export default function PlayerHost() {
       });
       return false;
     }
-  }, [load, mobileApple, navigate, preferredAudioLanguage, _sync]);
+  }, [load, mobileApple, navigate, preferredAudioLanguage, prepareNextEpisode, _sync]);
 
   /**
    * The extension check sends every MP4 to WebKit directly, but WebKit cannot
@@ -1279,23 +1335,94 @@ export default function PlayerHost() {
   const undoAutoSkip = useCallback(() => {
     if (skipNotice) undoSkip(skipNotice);
   }, [skipNotice, undoSkip]);
-  const upNext =
-    skip.nextEpisode && skipMarkers.credits
-      ? {
-          title: nextTitle,
-          endsIn: mediaEnd - currentTime,
-          progress: (currentTime - skipMarkers.credits.start) / Math.max(1, mediaEnd - skipMarkers.credits.start),
-        }
+  // The credits card: at the credits (chapters, fingerprints or the online
+  // databases), else FALLBACK_CARD_SECONDS before the end of an episode.
+  // Held at the end when the next episode did not start by itself.
+  const isEpisode = !!session?.isEpisode;
+  const card = creditsCard({
+    markers: skipMarkers,
+    time: heldAtEnd ? Math.max(0, mediaEnd - 1) : currentTime,
+    duration: mediaEnd,
+    isEpisode,
+    hasNext,
+    dismissed: creditsDismissed,
+  });
+  // Ref bookkeeping during render, like skipActionsRef: the countdown is
+  // measured in media time from where the card first appeared.
+  if (!card) cardShownAtRef.current = null;
+  else if (cardShownAtRef.current === null) cardShownAtRef.current = heldAtEnd ? mediaEnd : currentTime;
+  const countdown =
+    card?.kind === "next" && !heldAtEnd
+      ? nextCountdown({
+          autoplay: autoPlayNextEpisode,
+          streak: autoplayStreakRef.current,
+          shownAt: cardShownAtRef.current ?? currentTime,
+          time: currentTime,
+        })
       : null;
+  const cardView: CreditsCardView | null = card
+    ? {
+        kind: card.kind,
+        title: nextTitle,
+        countdown: countdown?.left != null ? { left: countdown.left, progress: countdown.progress } : null,
+        stillWatching: heldAtEnd ? autoPlayNextEpisode : !!countdown?.stillWatching,
+      }
+    : null;
+
+  /** Next Episode: by the viewer (resets the autoplay streak) or by the countdown / the end. */
+  const advanceToNext = useCallback(
+    (by: "viewer" | "autoplay", why: string) => {
+      if (advancingRef.current) return;
+      advancingRef.current = true;
+      autoplayStreakRef.current = by === "viewer" ? 0 : autoplayStreakRef.current + 1;
+      console.info(`[upnext] next episode (${by}: ${why}, streak ${autoplayStreakRef.current})`);
+      void usePlayback.getState().controls?.next().then((advanced) => {
+        if (!advanced) advancingRef.current = false;
+      });
+    },
+    []
+  );
+  const backToBrowse = useCallback(() => {
+    saveDirectProgress(directRequestRef.current, videoRef.current, true);
+    stop();
+    if (usePlayback.getState().mode === "expanded") navigate(-1);
+  }, [navigate, stop]);
+  const dismissCard = useCallback(() => {
+    autoplayStreakRef.current = 0;
+    setCreditsDismissed(true);
+  }, []);
+
+  // The card's reason, once per appearance, for the logs (credits vs fallback).
+  const cardKey = card ? `${card.kind}:${card.reason}:${Math.round(card.at)}` : null;
+  useEffect(() => {
+    if (card) console.info(`[upnext] card ${card.kind} at ${card.at.toFixed(1)} s (${card.reason})`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardKey]);
+
+  // The countdown ran out: the next episode starts now.
+  const countdownDue = !!countdown?.due;
+  useEffect(() => {
+    if (countdownDue) advanceToNext("autoplay", "countdown");
+  }, [advanceToNext, countdownDue]);
+
+  // Look the next episode up (and fetch its skip markers) well before its card.
+  const prepareDue = shouldPrepareNext(currentTime, mediaEnd);
+  useEffect(() => {
+    if (prepareDue) void prepareNextEpisode(directRequestRef.current)?.catch(() => {});
+  }, [prepareDue, prepareNextEpisode, session?.itemId]);
+
   skipActionsRef.current = {
     skip: skipButton ? skipNow : null,
-    next: upNext ? () => void usePlayback.getState().controls?.next() : null,
+    next: card ? (card.kind === "next" ? () => advanceToNext("viewer", "Next Episode") : backToBrowse) : null,
+    dismissCard: card ? dismissCard : null,
   };
 
   // ── Global keyboard shortcuts (active whenever something is loaded) ──
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!usePlayback.getState().session) return;
+      // Someone is here: autoplay may go on without asking.
+      autoplayStreakRef.current = 0;
       if (isTypingTarget(e.target)) return;
       const v = videoRef.current;
       const ctrl = usePlayback.getState().controls;
@@ -1368,7 +1495,9 @@ export default function PlayerHost() {
           }
           break;
         case "n":
-          if (expanded && skipActionsRef.current.next) {
+        case "Enter":
+          // Return is the card's primary action (a focused button keeps its own Return).
+          if (expanded && skipActionsRef.current.next && !(e.target instanceof HTMLButtonElement)) {
             e.preventDefault();
             skipActionsRef.current.next();
           }
@@ -1388,7 +1517,11 @@ export default function PlayerHost() {
           break;
         }
         case "Escape":
-          if (expanded && !document.fullscreenElement) navigate(-1);
+          if (expanded && skipActionsRef.current.dismissCard) {
+            // Esc puts the credits card away first (Watch Credits).
+            e.preventDefault();
+            skipActionsRef.current.dismissCard();
+          } else if (expanded && !document.fullscreenElement) navigate(-1);
           break;
       }
     };
@@ -1691,10 +1824,26 @@ export default function PlayerHost() {
     "--range-buffered": `${volumePercent}%`,
   } as CSSProperties;
   const onEnded = async () => {
-    if (seeker.replacing()) return;
+    if (seeker.replacing() || advancingRef.current) return;
     const finishedRequest = directRequestRef.current;
     const nextDirectEpisode = finishedRequest?.episodeQueue?.[0];
-    const advanced = await playNext();
+    const nextExists = !!nextDirectEpisode || !!nextEpisodeRef.current;
+    if (nextExists && !autoplayAtEnd(autoPlayNextEpisode, autoplayStreakRef.current, true)) {
+      // Autoplay is off, or three episodes played by themselves: the card
+      // stays at the end and the viewer chooses.
+      if (nextDirectEpisode) queueDirectEpisodeProgress(finishedRequest, nextDirectEpisode);
+      setCreditsDismissed(false);
+      setHeldAtEnd(true);
+      console.info(`[upnext] ended, held for the viewer (autoplay ${autoPlayNextEpisode ? "paused: still watching?" : "off"})`);
+      return;
+    }
+    if (nextExists && !advancingRef.current) {
+      advancingRef.current = true;
+      autoplayStreakRef.current += 1;
+      console.info(`[upnext] next episode (autoplay: end, streak ${autoplayStreakRef.current})`);
+    }
+    const advanced = nextExists ? await playNext() : false;
+    if (!advanced) advancingRef.current = false;
 
     if (nextDirectEpisode) {
       // Keep the series in Continue Watching at the exact next episode,
@@ -1717,6 +1866,10 @@ export default function PlayerHost() {
         id="player-surface"
         layout
         onMouseMove={expanded ? poke : undefined}
+        onPointerDown={() => {
+          // Someone is here: autoplay may go on without asking.
+          autoplayStreakRef.current = 0;
+        }}
         onClick={() => {
           if (expanded && mobileApple) {
             if (controlsVisible) {
@@ -1742,7 +1895,7 @@ export default function PlayerHost() {
       >
         <video
           ref={videoRef}
-          className="h-full w-full"
+          className={`ak-video-stage h-full w-full ${expanded && card ? "ak-video-stage--credits" : ""}`}
           playsInline
           preload="auto"
           onPlay={() => {
@@ -2479,13 +2632,14 @@ export default function PlayerHost() {
           <SkipControls
             button={skipButton}
             notice={skipNotice}
-            upNext={upNext}
+            card={cardView}
             raised={controlsVisible}
             touch={mobileApple}
             onSkip={skipNow}
             onUndo={undoAutoSkip}
-            onNext={() => void usePlayback.getState().controls?.next()}
-            onWatchCredits={() => setCreditsDismissed(true)}
+            onNext={() => advanceToNext("viewer", "Next Episode")}
+            onWatchCredits={dismissCard}
+            onBack={backToBrowse}
           />
         )}
       </motion.div>

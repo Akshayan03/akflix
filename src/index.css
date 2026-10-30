@@ -923,16 +923,49 @@ summary:focus-visible,
   gap: 6px;
   margin-left: auto;
 }
-.ak-next-card__primary { min-height: 46px; padding-inline: 20px; font-size: 14px; }
-.ak-next-card__primary .ak-skip-key { margin-left: 2px; }
-/* Credits elapsed: the next episode starts on its own when this ends. */
-.ak-next-card__progress {
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.85);
-  transform-origin: left center;
-  transition: transform 300ms linear;
+.ak-next-card__primary { min-height: 46px; padding-inline: 14px 18px; font-size: 14px; gap: 10px; }
+.ak-next-card__primary .ak-skip-key,
+.ak-next-card__secondary .ak-skip-key { margin-left: 2px; }
+.ak-next-card__secondary { min-height: 40px; gap: 8px; }
+/* Next Episode's countdown: a ring that fills around the play glyph. */
+.ak-next-ring {
+  position: relative;
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  margin-block: -4px;
+}
+.ak-next-ring svg { position: absolute; inset: -2px; width: 34px; height: 34px; transform: rotate(-90deg); }
+.ak-next-ring__track { fill: none; stroke: rgba(0, 0, 0, 0.16); stroke-width: 3; }
+.ak-next-ring__fill {
+  fill: none;
+  stroke: #000000;
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 300ms linear;
+}
+.ak-next-ring__glyph { position: relative; margin-left: 2px; }
+
+/* While the credits card is up the picture steps back (Netflix-style): it
+   shrinks toward the top-left and dims, leaving the card the stage. */
+.ak-video-stage {
+  transform-origin: 32px 32px;
+  transition:
+    transform 700ms var(--ak-ease-out),
+    filter 700ms var(--ak-ease-out),
+    border-radius 700ms var(--ak-ease-out);
+}
+.ak-video-stage--credits {
+  transform: scale(0.62);
+  border-radius: 18px;
+  filter: brightness(0.72);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ak-video-stage { transition: filter 200ms linear; }
+  .ak-video-stage--credits { transform: none; border-radius: 0; }
 }
 .ak-skip-layer--touch .ak-next-card { flex-direction: column; align-items: stretch; gap: 14px; }
 .ak-skip-layer--touch .ak-next-card__actions { flex-direction: row; margin-left: 0; }
