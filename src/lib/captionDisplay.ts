@@ -26,7 +26,9 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 export function captionFrame(
   element: { width: number; height: number },
   picture: { width: number; height: number },
-  coveredBottom = 0
+  coveredBottom = 0,
+  /** A bottom-right overlay (Skip button, Up Next card): its left and top edge in the element. */
+  overlay?: { left: number; top: number } | null
 ): CaptionFrame | null {
   if (!(element.width > 0 && element.height > 0 && picture.width > 0 && picture.height > 0)) return null;
   const scale = Math.min(element.width / picture.width, element.height / picture.height);
@@ -36,11 +38,19 @@ export function captionFrame(
   const top = (element.height - height) / 2;
   const margin = clamp(height * 0.06, 8, 64);
   const clearOfControls = coveredBottom > 0 ? element.height - coveredBottom - 12 : Infinity;
-  const bottom = Math.max(top + height * 0.55, Math.min(top + height - margin, clearOfControls));
+  let bottom = Math.max(top + height * 0.55, Math.min(top + height - margin, clearOfControls));
+  let right = left + width;
+  // Never under the Skip button or the Up Next card: end the lines left of
+  // it, or when that leaves too narrow a column, lift them above it.
+  if (overlay && overlay.top < bottom && overlay.left < right) {
+    const besideRight = overlay.left - 16;
+    if (besideRight - left >= width * 0.5) right = besideRight;
+    else bottom = Math.max(top + height * 0.4, overlay.top - 12);
+  }
   return {
     top,
     left,
-    width,
+    width: right - left,
     height: bottom - top,
     // About today's size in an ordinary window, larger full screen, small in the mini player.
     fontSize: clamp(height * 0.026, height < 300 ? 12 : 16, 40),

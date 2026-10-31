@@ -59,6 +59,24 @@ test("visible controls lift captions above them, never into the top half", () =>
   assert.equal(tall.height, tallHidden.height);
 });
 
+test("captions never sit under the Skip button or the Up Next card", () => {
+  const plain = captionFrame({ width: 1280, height: 720 }, { width: 1920, height: 1080 })!;
+  // Skip Intro bottom-right: the lines end left of it, same height.
+  const skip = captionFrame({ width: 1280, height: 720 }, { width: 1920, height: 1080 }, 0, { left: 1100, top: 630 })!;
+  assert.equal(skip.width, 1100 - 16);
+  assert.equal(skip.height, plain.height);
+  // The Up Next card (360 px wide, tall): still beside it.
+  const card = captionFrame({ width: 1280, height: 720 }, { width: 1920, height: 1080 }, 0, { left: 880, top: 380 })!;
+  assert.equal(card.left + card.width, 880 - 16);
+  // A small window where the card takes most of the width: lifted above it instead.
+  const small = captionFrame({ width: 640, height: 360 }, { width: 1920, height: 1080 }, 0, { left: 260, top: 200 })!;
+  assert.equal(small.width, 640);
+  assert.equal(small.top + small.height, 200 - 12);
+  // An overlay above the captions' last line changes nothing.
+  const high = captionFrame({ width: 1280, height: 720 }, { width: 1920, height: 1080 }, 0, { left: 900, top: 700 })!;
+  assert.deepEqual(high, plain);
+});
+
 test("caption text scales with the picture within limits", () => {
   assert.equal(captionFrame({ width: 256, height: 144 }, { width: 640, height: 360 })!.fontSize, 12);
   const window = captionFrame({ width: 1218, height: 725 }, { width: 640, height: 360 })!.fontSize;

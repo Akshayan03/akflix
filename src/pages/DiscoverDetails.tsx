@@ -68,6 +68,8 @@ function episodesAfter(
     season: video.season,
     episode: video.episode,
     title: video.name ?? video.title ?? `Episode ${video.episode}`,
+    thumbnail: video.thumbnail,
+    overview: video.overview,
   }));
 }
 

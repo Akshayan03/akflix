@@ -26,6 +26,10 @@ export interface DirectEpisodeTarget {
   season: number;
   episode: number;
   title: string;
+  /** The episode's still (Up Next card, episodes panel). */
+  thumbnail?: string;
+  /** A sentence or two about the episode. */
+  overview?: string;
 }
 
 export interface DirectPlaybackMetadata {

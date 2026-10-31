@@ -8,6 +8,8 @@
     "core:default",
     "core:window:allow-start-dragging",
     "core:window:allow-set-fullscreen",
+    "core:window:allow-set-size",
+    "core:window:allow-set-min-size",
     "opener:default",
     "dialog:allow-open",
     "deep-link:default",

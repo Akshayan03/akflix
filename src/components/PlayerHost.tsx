@@ -32,8 +32,11 @@ import {
   Plus,
   RotateCcw,
   RotateCw,
+  ListRestart,
+  ListVideo,
   SkipForward,
   Subtitles,
+  X,
   Trash2,
   Volume1,
   Volume2,
@@ -96,6 +99,12 @@ import {
 import { onlineLookupFor, type OnlineLookup } from "@/lib/skip/online";
 import { prefetchOnlineMarkers, useSkipMarkers, type SkipSubject } from "@/lib/skip/useSkipMarkers";
 import { createNextPreparer, shouldPrepareNext } from "@/lib/nextEpisodePrep";
+import { useWindowFit, type Size } from "@/lib/windowFit";
+import {
+  RECONNECTING_LABEL_DELAY_MS,
+  createFrozenClockWatch,
+  resumeAction,
+} from "@/lib/playbackResume";
 import type { TorrentResult } from "@/types/torrent";
 import type { MediaSource, MediaStream } from "@/types/jellyfin";
 import { useHistory, type HistoryTitle } from "@/stores/historyStore";
@@ -254,6 +263,49 @@ function desktopSkipSubject(options: {
 
 const AUTO_SKIP_NOTICE_MS = 6_000;
 
+type AudioTrackList = ArrayLike<{ label: string; language: string; enabled: boolean }>;
+
+/** The audio tracks WebKit reports for the playing file (direct streams; a conversion has one). */
+function readAudioTracks(video: HTMLVideoElement | null): { label: string; enabled: boolean }[] {
+  const tracks = (video as (HTMLVideoElement & { audioTracks?: AudioTrackList }) | null)?.audioTracks;
+  if (!tracks) return [];
+  return Array.from(tracks, (track, index) => ({
+    label: track.label || languageLabel(track.language) || `Track ${index + 1}`,
+    enabled: track.enabled,
+  }));
+}
+
+function selectAudioTrack(video: HTMLVideoElement | null, index: number) {
+  const tracks = (video as (HTMLVideoElement & { audioTracks?: AudioTrackList }) | null)?.audioTracks;
+  if (!tracks) return;
+  Array.from(tracks).forEach((track, i) => {
+    track.enabled = i === index;
+  });
+}
+
+/** "eng" / "en" → "English"; unknown codes stay as they are. */
+function languageLabel(code: string | undefined): string {
+  if (!code) return "Default";
+  const names = new Intl.DisplayNames(["en"], { type: "language" });
+  for (const candidate of [code, code.slice(0, 2)]) {
+    try {
+      const name = names.of(candidate);
+      if (name && name.toLowerCase() !== candidate.toLowerCase()) return name;
+    } catch {
+      // Not a language code: try the next form, else show it as it is.
+    }
+  }
+  return code;
+}
+
+/** The episode after this one, as the Up Next card shows it. */
+interface NextEpisodeView {
+  label: string;
+  title: string;
+  still?: string;
+  overview?: string;
+}
+
 function queueDirectEpisodeProgress(
   request: DirectPlaybackRequest | null,
   next: DirectEpisodeTarget | undefined
@@ -324,6 +376,11 @@ export default function PlayerHost() {
   // loads (see rereadDirectSource); and whether that reload's canplay is due.
   const rereadingRef = useRef<number | null>(null);
   const rereadCanPlayRef = useRef(false);
+  // When the viewer paused (wall clock, so a Mac sleep counts); null while playing.
+  const pausedAtRef = useRef<number | null>(null);
+  // A fresh conversion is replacing one a long pause or a frozen clock broke.
+  const [reconnecting, setReconnecting] = useState(false);
+  const [reconnectingLabel, setReconnectingLabel] = useState(false);
   const directResumeAppliedRef = useRef<number | null>(null);
   const lastLocalHistoryWrite = useRef(0);
   const loadSeq = useRef(0);
@@ -332,6 +389,7 @@ export default function PlayerHost() {
   const scrubTimeRef = useRef<number | null>(null);
   const scrubPointerActiveRef = useRef(false);
   const controlsBarRef = useRef<HTMLDivElement>(null);
+  const skipLayerRef = useRef<HTMLDivElement>(null);
   const manualCaptionRef = useRef<ManualCaption | null>(null);
   const subtitleBlobUrlsRef = useRef<string[]>([]);
   const captionInputRef = useRef<string | null>(null);
@@ -342,6 +400,13 @@ export default function PlayerHost() {
   const [activeSub, setActiveSub] = useState(-1);
   const [subMenuOpen, setSubMenuOpen] = useState(false);
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
+  const [episodesOpen, setEpisodesOpen] = useState(false);
+  // The picture's size, for fitting the window to it (lib/windowFit.ts).
+  const [videoSize, setVideoSize] = useState<Size | null>(null);
+  // Where the pointer is over the timeline (0..1), for the hover time.
+  const [scrubHover, setScrubHover] = useState<number | null>(null);
+  // Audio tracks WebKit reports for a direct stream, read when the sheet opens.
+  const [audioTracks, setAudioTracks] = useState<{ label: string; enabled: boolean }[]>([]);
   const [pictureInPicture, setPictureInPicture] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [scrubTime, setScrubTime] = useState<number | null>(null);
@@ -357,7 +422,7 @@ export default function PlayerHost() {
   const skipMarkers = useSkipMarkers(skipSubject);
   const [skipNotice, setSkipNotice] = useState<SkipNotice | null>(null);
   const [creditsDismissed, setCreditsDismissed] = useState(false);
-  const [nextTitle, setNextTitle] = useState<string | undefined>(undefined);
+  const [nextEpisode, setNextEpisode] = useState<NextEpisodeView | undefined>(undefined);
   const skipTimeRef = useRef<number | null>(null);
   const autoSkippedRef = useRef(new Set<SkippableKind>());
   const skipDismissedRef = useRef(new Set<SkippableKind>());
@@ -418,6 +483,7 @@ export default function PlayerHost() {
         video.muted = usePlayback.getState().muted;
       },
       failed: (request, target, reason) => {
+        setReconnecting(false);
         // History keeps the point the viewer asked for, not the old one.
         saveDirectProgress(request, videoRef.current, false, target);
         toast.error("Could not jump to that point", {
@@ -441,12 +507,13 @@ export default function PlayerHost() {
         !v.paused &&
         scrubTimeRef.current === null &&
         !subMenuOpen &&
-        !speedMenuOpen
+        !speedMenuOpen &&
+        !episodesOpen
       ) {
         setControlsVisible(false);
       }
     }, 3000);
-  }, [speedMenuOpen, subMenuOpen]);
+  }, [episodesOpen, speedMenuOpen, subMenuOpen]);
 
   useEffect(() => {
     if (mode === "expanded") poke();
@@ -464,6 +531,8 @@ export default function PlayerHost() {
     playbackStallOpen.current = false;
     rereadingRef.current = null;
     rereadCanPlayRef.current = false;
+    pausedAtRef.current = null;
+    setReconnecting(false);
     scrubPointerActiveRef.current = false;
     const s = jfSessionRef.current;
     if (client && v && s) {
@@ -482,7 +551,7 @@ export default function PlayerHost() {
     setHeldAtEnd(false);
     cardShownAtRef.current = null;
     advancingRef.current = false;
-    setNextTitle(undefined);
+    setNextEpisode(undefined);
     skipTimeRef.current = null;
     autoSkippedRef.current = new Set();
     skipDismissedRef.current = new Set();
@@ -590,8 +659,15 @@ export default function PlayerHost() {
               const i = ordered.findIndex((episode) => episode.Id === itemId);
               const next = i >= 0 ? ordered[i + 1] : undefined;
               nextEpisodeRef.current = next?.Id ?? null;
-              setNextTitle(
-                next ? `S${next.ParentIndexNumber ?? 1} E${next.IndexNumber ?? 1} · ${next.Name}` : undefined
+              setNextEpisode(
+                next
+                  ? {
+                      label: `S${next.ParentIndexNumber ?? 1} E${next.IndexNumber ?? 1}`,
+                      title: next.Name,
+                      still: client.imageUrl(next, "Primary", 640) ?? undefined,
+                      overview: next.Overview,
+                    }
+                  : undefined
               );
               _sync({ hasNext: !!next });
             })
@@ -748,7 +824,16 @@ export default function PlayerHost() {
           : request.url);
       setCompatibilityStartSeconds(request.compatibility?.startSeconds ?? 0);
       const upcoming = request.episodeQueue?.[0];
-      setNextTitle(upcoming ? `S${upcoming.season} E${upcoming.episode} · ${upcoming.title}` : undefined);
+      setNextEpisode(
+        upcoming
+          ? {
+              label: `S${upcoming.season} E${upcoming.episode}`,
+              title: upcoming.title,
+              still: upcoming.thumbnail,
+              overview: upcoming.overview,
+            }
+          : undefined
+      );
       const skipInput = captionInputRef.current;
       setSkipSubject(
         skipInput
@@ -865,8 +950,9 @@ export default function PlayerHost() {
     []
   );
 
-  const playNext = useCallback(async (): Promise<boolean> => {
-    const nextId = nextEpisodeRef.current;
+  /** Start an upcoming episode: the next one (index 0), or one picked in the episodes panel. */
+  const playQueuedEpisode = useCallback(async (index: number): Promise<boolean> => {
+    const nextId = index === 0 ? nextEpisodeRef.current : null;
     if (nextId) {
       // Load first, then update the route/store. Updating requestedItemId before
       // load() finishes makes the request effect race this direct call.
@@ -880,7 +966,7 @@ export default function PlayerHost() {
     }
 
     const current = directRequestRef.current;
-    const next = current?.episodeQueue?.[0];
+    const next = current?.episodeQueue?.[index];
     if (!current || !next || !current.catalogId) return false;
     const {
       id: _id,
@@ -895,7 +981,7 @@ export default function PlayerHost() {
       subtitle: `S${next.season} E${next.episode} · ${next.title}`,
       season: next.season,
       episode: next.episode,
-      episodeQueue: episodeQueue.slice(1),
+      episodeQueue: episodeQueue.slice(index + 1),
     };
 
     try {
@@ -909,7 +995,7 @@ export default function PlayerHost() {
       const torrentState = useTorrents.getState();
       const requestId = await torrentState.beginStreamRequest(nextMedia);
       // Usually looked up already, before the card showed (prepareNextEpisode).
-      const results = await (prepareNextEpisode(current, { force: true }) ??
+      const results = await ((index === 0 ? prepareNextEpisode(current, { force: true }) : null) ??
         torrentState.search(current.title, undefined, {
           imdbId: current.catalogId,
           type: "series",
@@ -942,6 +1028,7 @@ export default function PlayerHost() {
       return false;
     }
   }, [load, mobileApple, navigate, preferredAudioLanguage, prepareNextEpisode, _sync]);
+  const playNext = useCallback(() => playQueuedEpisode(0), [playQueuedEpisode]);
 
   /**
    * The extension check sends every MP4 to WebKit directly, but WebKit cannot
@@ -1146,6 +1233,48 @@ export default function PlayerHost() {
     };
     watchStall(startedAt);
   }, [_sync, clearPlaybackStall, rereadDirectSource]);
+
+  // "Reconnecting…" only when a reconnect takes longer than a moment.
+  useEffect(() => {
+    if (!reconnecting) {
+      setReconnectingLabel(false);
+      return;
+    }
+    const timer = setTimeout(() => setReconnectingLabel(true), RECONNECTING_LABEL_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [reconnecting]);
+
+  // A player that says it is playing, has frames ready and whose clock does
+  // not move fires no event at all (lib/playbackResume.ts). Watch the clock
+  // and give it a fresh source at the same spot.
+  useEffect(() => {
+    const watch = createFrozenClockWatch();
+    const timer = setInterval(() => {
+      const video = videoRef.current;
+      const request = directRequestRef.current;
+      if (!video || !request) return;
+      const presentation = (video as HTMLVideoElement & { webkitPresentationMode?: string }).webkitPresentationMode;
+      const hidden = document.visibilityState === "hidden" && presentation !== "picture-in-picture";
+      const frozen = watch.sample({
+        now: Date.now(),
+        time: video.currentTime,
+        paused: video.paused || hidden,
+        seeking: video.seeking,
+        ended: video.ended,
+        readyState: video.readyState,
+        busy: seeker.replacing() || rereadingRef.current !== null,
+      });
+      if (!frozen) return;
+      console.warn(`[resume] clock frozen at ${video.currentTime.toFixed(2)} s with frames ready: reconnecting`);
+      watch.reconnected(Date.now());
+      if (request.compatibility) {
+        if (seeker.reconnect(true)) setReconnecting(true);
+      } else {
+        rereadDirectSource();
+      }
+    }, 500);
+    return () => clearInterval(timer);
+  }, [rereadDirectSource, seeker]);
 
   useEffect(() => {
     _setControls({
@@ -1363,7 +1492,10 @@ export default function PlayerHost() {
   const cardView: CreditsCardView | null = card
     ? {
         kind: card.kind,
-        title: nextTitle,
+        title: nextEpisode?.title,
+        label: nextEpisode?.label,
+        still: nextEpisode?.still,
+        overview: nextEpisode?.overview,
         countdown: countdown?.left != null ? { left: countdown.left, progress: countdown.progress } : null,
         stillWatching: heldAtEnd ? autoPlayNextEpisode : !!countdown?.stillWatching,
       }
@@ -1422,6 +1554,16 @@ export default function PlayerHost() {
     skip: skipButton ? skipNow : null,
     next: card ? (card.kind === "next" ? () => advanceToNext("viewer", "Next Episode") : backToBrowse) : null,
     dismissCard: card ? dismissCard : null,
+  };
+
+  // Esc closes an open sheet or the episodes panel before anything else.
+  const panelsRef = useRef<{ close: () => boolean }>({ close: () => false });
+  panelsRef.current.close = () => {
+    if (!subMenuOpen && !speedMenuOpen && !episodesOpen) return false;
+    setSubMenuOpen(false);
+    setSpeedMenuOpen(false);
+    setEpisodesOpen(false);
+    return true;
   };
 
   // ── Global keyboard shortcuts (active whenever something is loaded) ──
@@ -1524,7 +1666,9 @@ export default function PlayerHost() {
           break;
         }
         case "Escape":
-          if (expanded && skipActionsRef.current.dismissCard) {
+          if (expanded && panelsRef.current.close()) {
+            e.preventDefault();
+          } else if (expanded && skipActionsRef.current.dismissCard) {
             // Esc puts the credits card away first (Watch Credits).
             e.preventDefault();
             skipActionsRef.current.dismissCard();
@@ -1783,11 +1927,24 @@ export default function PlayerHost() {
     if (!video) return;
     const place = () => {
       const inline = !pictureInPicture && (video.webkitPresentationMode ?? "inline") === "inline";
+      // The Skip button or Up Next card, where it will settle (its lift
+      // animates), in the video's coordinates.
+      const layer = mode === "expanded" ? skipLayerRef.current : null;
+      let overlay: { left: number; top: number } | null = null;
+      if (layer && layer.offsetHeight > 0) {
+        // Layout position (no transform) minus the lift the controls give it
+        // (index.css .ak-skip-layer--raised). The video fills the same box.
+        overlay = {
+          left: layer.offsetLeft - video.offsetLeft,
+          top: layer.offsetTop - video.offsetTop - (controlsVisible ? 112 : 0),
+        };
+      }
       const frame = inline
         ? captionFrame(
             { width: video.clientWidth, height: video.clientHeight },
             { width: video.videoWidth, height: video.videoHeight },
-            mode === "expanded" && controlsVisible ? controlsBarRef.current?.offsetHeight ?? 0 : 0
+            mode === "expanded" && controlsVisible ? controlsBarRef.current?.offsetHeight ?? 0 : 0,
+            overlay
           )
         : null;
       if (!frame) {
@@ -1805,18 +1962,23 @@ export default function PlayerHost() {
     place();
     const observer = new ResizeObserver(place);
     observer.observe(video);
+    if (skipLayerRef.current) observer.observe(skipLayerRef.current);
     video.addEventListener("resize", place);
     return () => {
       observer.disconnect();
       video.removeEventListener("resize", place);
     };
-  }, [controlsVisible, mode, pictureInPicture, session]);
+  }, [controlsVisible, mode, pictureInPicture, session, !!skipButton, !!cardView, !!skipNotice]);
+
+  // Windowed playback takes the picture's shape: no black bands.
+  useWindowFit(mode === "expanded" && !mobileApple && !!session, session?.itemId ?? null, videoSize);
 
   // ── Render ───────────────────────────────────────────────────────────
 
   if (!session && !requestedItemId && !requestedDirect) return null;
 
   const expanded = mode === "expanded";
+  const upcomingEpisodes = directRequestRef.current?.episodeQueue ?? [];
   const allSubTracks = manualTrack ? [manualTrack, ...playbackSubTracks] : playbackSubTracks;
   const displayedTime = scrubTime ?? currentTime;
   const progressPercent = duration > 0 ? Math.min(100, (displayedTime / duration) * 100) : 0;
@@ -1907,6 +2069,21 @@ export default function PlayerHost() {
           preload="auto"
           onPlay={() => {
             _sync({ isPlaying: true });
+            const pausedFor = pausedAtRef.current === null ? null : Date.now() - pausedAtRef.current;
+            pausedAtRef.current = null;
+            const request = directRequestRef.current;
+            if (
+              !seeker.replacing() &&
+              rereadingRef.current === null &&
+              resumeAction(request?.compatibility ? "converted" : "direct", pausedFor) === "reconnect" &&
+              seeker.reconnect(true)
+            ) {
+              // The paused conversion's live playlist went still and WebKit
+              // stopped reading it: resume on a fresh one at the same spot.
+              console.info(`[resume] paused ${Math.round((pausedFor ?? 0) / 1000)} s: fresh conversion at the same position`);
+              setReconnecting(true);
+              return;
+            }
             if (session?.direct && activeStreamHash) {
               setCompatibilityStreamPaused(activeStreamHash, false).catch(() => {});
             }
@@ -1917,6 +2094,7 @@ export default function PlayerHost() {
             // never let this pause reach (and freeze) the new converter.
             // Reloading a stuck direct stream pauses it the same way.
             if (seeker.replacing() || rereadingRef.current !== null) return;
+            pausedAtRef.current = Date.now();
             _sync({ isPlaying: false });
             saveDirectProgress(directRequestRef.current, videoRef.current);
             if (session?.direct && activeStreamHash) {
@@ -1930,6 +2108,7 @@ export default function PlayerHost() {
           }}
           onPlaying={() => {
             if (seeker.replacing()) return;
+            setReconnecting(false);
             clearPlaybackStall();
             _sync({ buffering: false });
           }}
@@ -2012,6 +2191,12 @@ export default function PlayerHost() {
             const request = directRequestRef.current;
             const video = e.currentTarget;
             applyPlaybackRate(video, requestedPlaybackRateRef.current);
+            const { videoWidth, videoHeight } = video;
+            if (videoWidth > 0 && videoHeight > 0) {
+              setVideoSize((size) =>
+                size?.width === videoWidth && size.height === videoHeight ? size : { width: videoWidth, height: videoHeight }
+              );
+            }
             const rereadPosition = rereadingRef.current;
             if (rereadPosition !== null) {
               // The position set with the reload may not survive loading.
@@ -2127,9 +2312,18 @@ export default function PlayerHost() {
         </video>
 
         {/* Buffering spinner */}
-        {buffering && !error && (
-          <div role="status" aria-label="Buffering" className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        {(buffering || reconnecting) && !error && (
+          <div
+            role="status"
+            aria-label={reconnectingLabel ? "Reconnecting" : "Buffering"}
+            className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-4"
+          >
             <div className="ak-spinner h-12 w-12" aria-hidden="true" />
+            {reconnectingLabel && (
+              <p className="ak-reconnecting rounded-full bg-black/60 px-4 py-1.5 text-[13px] font-semibold tracking-wide text-white/90 backdrop-blur-md">
+                Reconnecting…
+              </p>
+            )}
           </div>
         )}
 
@@ -2173,179 +2367,157 @@ export default function PlayerHost() {
           </div>
         )}
 
-        {/* Expanded controls overlay.
-            Plain CSS transitions, deliberately no AnimatePresence: exit-gated
-            animation wedges when this parent re-renders on every timeupdate,
-            leaving a zombie overlay at opacity 0. CSS can't get stuck. */}
+        {/* Expanded controls overlay: the picture fills the window, scrims carry
+            the title and controls. Plain CSS transitions, deliberately no
+            AnimatePresence: exit-gated animation wedges when this parent
+            re-renders on every timeupdate, leaving a zombie overlay at
+            opacity 0. CSS can't get stuck. */}
         {expanded && !error && (
           <div
-            className={`absolute inset-0 flex flex-col justify-between bg-gradient-to-b from-black/60 via-transparent to-black/80 transition-opacity duration-300 ${
-              controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
-            }`}
+            className={`ak-chrome ${controlsVisible ? "ak-chrome--shown" : ""} ${mobileApple ? "ak-chrome--touch" : ""}`}
           >
-              {/* Top bar */}
-              <div
-                data-tauri-drag-region
-                className={`flex items-center gap-3 px-4 pb-4 pt-[calc(env(safe-area-inset-top,0px)+12px)] transition-transform duration-300 md:gap-4 md:p-5 ${
-                  controlsVisible ? "translate-y-0" : "-translate-y-3"
-                }`}
+            <div className="ak-chrome__scrim ak-chrome__scrim--top" aria-hidden="true" />
+            <div className="ak-chrome__scrim ak-chrome__scrim--bottom" aria-hidden="true" />
+
+            {/* Top bar: back, show and episode */}
+            <div data-tauri-drag-region className="ak-chrome__top">
+              <motion.button
+                whileTap={{ scale: 0.88 }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(-1); // route unmount → minimize, playback continues
+                }}
+                aria-label={t("player.back")}
+                className="ak-chrome__back"
               >
-                <motion.button
-                  whileTap={mobileApple ? { scale: 0.88 } : undefined}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate(-1); // route unmount → minimize, playback continues
-                  }}
-                  aria-label={t("player.back")}
-                  className={mobileApple ? "ios-circle-button !h-10 !w-10 shrink-0" : "text-zinc-300 transition hover:text-white"}
-                >
-                  <ArrowLeft size={26} />
-                </motion.button>
-                <div className="min-w-0">
-                  <h1 className="truncate text-[15px] font-bold md:text-lg md:font-medium">{session?.title}</h1>
-                  {session?.subtitle && (
-                    <p className="truncate text-[11px] text-zinc-400 md:text-sm">{session.subtitle}</p>
+                <ArrowLeft size={20} />
+              </motion.button>
+              <div className="ak-chrome__heading" data-tauri-drag-region>
+                <h1 className="ak-chrome__title">{session?.title}</h1>
+                {session?.subtitle && <p className="ak-chrome__subtitle">{session.subtitle}</p>}
+              </div>
+            </div>
+
+            {/* Bottom: timeline and controls */}
+            <div ref={controlsBarRef} className="ak-chrome__bottom" onClick={(e) => e.stopPropagation()}>
+              <div
+                className="ak-scrubber"
+                onPointerMove={(event) => {
+                  if (duration <= 0) return;
+                  const bounds = event.currentTarget.getBoundingClientRect();
+                  setScrubHover(Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)));
+                }}
+                onPointerLeave={() => setScrubHover(null)}
+              >
+                {(() => {
+                  // Hover time (and the marked part under the pointer), or the
+                  // position being dragged to. Seek preview stays local while
+                  // dragging, then commits once on release.
+                  const at = scrubTime ?? (scrubHover !== null ? scrubHover * duration : null);
+                  if (at === null || duration <= 0) return null;
+                  const part = (["recap", "intro", "credits"] as const).find((kind) => {
+                    const segment = skipMarkers[kind];
+                    return segment && at >= segment.start && at < segment.end;
+                  });
+                  const percent = (at / duration) * 100;
+                  return (
+                    <div
+                      className="ak-scrubber__tip"
+                      style={{ left: `clamp(32px, ${percent}%, calc(100% - 32px))` }}
+                      aria-hidden="true"
+                    >
+                      {part && <span className="ak-scrubber__tip-part">{part === "intro" ? "Intro" : part === "recap" ? "Recap" : "Credits"}</span>}
+                      {formatClock(at)}
+                    </div>
+                  );
+                })()}
+                <div className="ak-scrubber__rail">
+                  <input
+                    type="range"
+                    min={0}
+                    max={duration || 0}
+                    step={0.25}
+                    value={displayedTime}
+                    disabled={duration <= 0}
+                    aria-label="Playback position"
+                    aria-valuetext={`${formatClock(displayedTime)} of ${formatClock(duration)}`}
+                    onPointerDown={(event) => {
+                      scrubPointerActiveRef.current = true;
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      previewSeek(Number(event.currentTarget.value));
+                    }}
+                    onChange={(event) => {
+                      const value = Number(event.currentTarget.value);
+                      if (scrubPointerActiveRef.current) previewSeek(value);
+                      else commitSeek(value);
+                    }}
+                    onPointerUp={(event) => {
+                      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                        event.currentTarget.releasePointerCapture(event.pointerId);
+                      }
+                      if (scrubPointerActiveRef.current) {
+                        scrubPointerActiveRef.current = false;
+                        commitSeek(Number(event.currentTarget.value));
+                      }
+                    }}
+                    onPointerCancel={() => {
+                      scrubPointerActiveRef.current = false;
+                      scrubTimeRef.current = null;
+                      setScrubTime(null);
+                    }}
+                    onLostPointerCapture={() => {
+                      if (scrubPointerActiveRef.current) {
+                        scrubPointerActiveRef.current = false;
+                        commitSeek();
+                      }
+                    }}
+                    onKeyUp={(event) => commitSeek(Number(event.currentTarget.value))}
+                    onBlur={() => {
+                      if (scrubTimeRef.current !== null) commitSeek();
+                    }}
+                    style={timelineStyle}
+                    className="akflix-range ak-scrubber__input"
+                  />
+                  {/* Intro, recap and credits: gaps cut into the bar at their edges. */}
+                  {duration > 0 && (
+                    <div className="ak-scrubber__marks" aria-hidden="true">
+                      {(["recap", "intro", "credits"] as const).flatMap((kind) => {
+                        const segment = skipMarkers[kind];
+                        if (!segment || segment.end <= segment.start) return [];
+                        const edges = kind === "credits" ? [segment.start] : [segment.start, segment.end];
+                        return edges
+                          .filter((edge) => edge > 1 && edge < duration - 1)
+                          .map((edge) => (
+                            <span key={`${kind}:${edge}`} className="ak-scrubber__gap" style={{ left: `${(edge / duration) * 100}%` }} />
+                          ));
+                      })}
+                    </div>
                   )}
                 </div>
               </div>
 
-              {/* Bottom bar */}
-              <div
-                ref={controlsBarRef}
-                className={`px-4 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] transition-transform duration-300 md:p-5 ${
-                  controlsVisible ? "translate-y-0" : "translate-y-3"
-                }`}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* Seek preview stays local while dragging, then commits once on release. */}
-                <div className="mb-5 flex items-center gap-2 text-[10px] text-zinc-300 md:mb-3 md:gap-3 md:text-xs">
-                  <span className="w-10 text-right font-medium tabular-nums md:w-14">
-                    {formatClock(displayedTime)}
-                  </span>
-                  <div className="group relative flex-1">
-                    <AnimatePresence>
-                      {scrubTime !== null && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 4, scale: 0.92 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: 4, scale: 0.94 }}
-                          className="pointer-events-none absolute bottom-7 z-10 -translate-x-1/2 rounded-lg border border-white/10 bg-black/85 px-2.5 py-1.5 text-xs font-bold tabular-nums shadow-xl backdrop-blur-xl"
-                          style={{ left: `${Math.max(4, Math.min(96, progressPercent))}%` }}
-                        >
-                          {formatClock(scrubTime)}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                    <input
-                      type="range"
-                      min={0}
-                      max={duration || 0}
-                      step={0.25}
-                      value={displayedTime}
-                      disabled={duration <= 0}
-                      aria-label="Playback position"
-                      aria-valuetext={`${formatClock(displayedTime)} of ${formatClock(duration)}`}
-                      onPointerDown={(event) => {
-                        scrubPointerActiveRef.current = true;
-                        event.currentTarget.setPointerCapture(event.pointerId);
-                        previewSeek(Number(event.currentTarget.value));
-                      }}
-                      onChange={(event) => {
-                        const value = Number(event.currentTarget.value);
-                        if (scrubPointerActiveRef.current) previewSeek(value);
-                        else commitSeek(value);
-                      }}
-                      onPointerUp={(event) => {
-                        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                          event.currentTarget.releasePointerCapture(event.pointerId);
-                        }
-                        if (scrubPointerActiveRef.current) {
-                          scrubPointerActiveRef.current = false;
-                          commitSeek(Number(event.currentTarget.value));
-                        }
-                      }}
-                      onPointerCancel={() => {
-                        scrubPointerActiveRef.current = false;
-                        scrubTimeRef.current = null;
-                        setScrubTime(null);
-                      }}
-                      onLostPointerCapture={() => {
-                        if (scrubPointerActiveRef.current) {
-                          scrubPointerActiveRef.current = false;
-                          commitSeek();
-                        }
-                      }}
-                      onKeyUp={(event) => commitSeek(Number(event.currentTarget.value))}
-                      onBlur={() => {
-                        if (scrubTimeRef.current !== null) commitSeek();
-                      }}
-                      style={timelineStyle}
-                      className="akflix-range w-full"
-                    />
-                  </div>
-                  <span className="w-10 font-medium tabular-nums text-zinc-400 md:w-14">
-                    {formatClock(duration)}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-center gap-5 md:justify-start md:gap-3">
+              <div className="ak-chrome__row">
+                <div className="ak-chrome__group">
                   <motion.button
-                    whileTap={mobileApple ? { scale: 0.86 } : undefined}
+                    whileTap={{ scale: 0.88 }}
                     onClick={() => usePlayback.getState().controls?.toggle()}
                     aria-label={isPlaying ? "Pause" : "Play"}
-                    title={isPlaying ? "Pause (Space)" : "Play (Space)"}
-                    className={mobileApple ? "order-2 flex h-14 w-14 items-center justify-center rounded-full bg-white text-black" : "flex h-11 w-11 items-center justify-center rounded-full bg-white text-black shadow-lg transition hover:scale-105 hover:bg-zinc-200"}
+                    data-tip={isPlaying ? "Pause  Space" : "Play  Space"}
+                    className="ak-chrome__play"
                   >
-                    {isPlaying ? (
-                      <Pause size={mobileApple ? 25 : 28} fill={mobileApple ? "currentColor" : "none"} />
-                    ) : (
-                      <Play size={mobileApple ? 25 : 28} fill="currentColor" className={mobileApple ? "ml-1" : ""} />
-                    )}
+                    {isPlaying ? <Pause size={22} fill="currentColor" /> : <Play size={22} fill="currentColor" className="ml-0.5" />}
                   </motion.button>
-                  <motion.button
-                    whileTap={mobileApple ? { scale: 0.82 } : undefined}
-                    onClick={() => jumpBy(-SEEK_SECONDS)}
-                    aria-label="Back 10 seconds"
-                    title="Back 10 seconds"
-                    className={mobileApple ? "order-1 flex h-11 w-11 items-center justify-center text-white" : "flex h-10 w-10 items-center justify-center rounded-full text-zinc-200 transition hover:bg-white/10 hover:text-white"}
-                  >
-                    <RotateCcw size={mobileApple ? 27 : 22} />
-                  </motion.button>
-                  <motion.button
-                    whileTap={mobileApple ? { scale: 0.82 } : undefined}
-                    onClick={() => jumpBy(SEEK_SECONDS)}
-                    aria-label="Forward 10 seconds"
-                    title="Forward 10 seconds"
-                    className={mobileApple ? "order-3 flex h-11 w-11 items-center justify-center text-white" : "flex h-10 w-10 items-center justify-center rounded-full text-zinc-200 transition hover:bg-white/10 hover:text-white"}
-                  >
-                    <RotateCw size={mobileApple ? 27 : 22} />
-                  </motion.button>
-                  {!mobileApple && (
-                    <button
-                      onClick={() => commitSeek(0)}
-                      disabled={duration <= 0}
-                      title="Restart from beginning"
-                      className="desktop-control desktop-secondary"
-                    >
-                      <RotateCcw size={17} /> Restart
-                    </button>
-                  )}
-                  {hasNext && (
-                    <motion.button
-                      whileTap={{ scale: 0.86 }}
-                      whileHover={!mobileApple ? { scale: 1.08 } : undefined}
-                      onClick={() => usePlayback.getState().controls?.next()}
-                      aria-label="Next episode"
-                      title="Next episode"
-                      className={mobileApple ? "order-4 text-zinc-300" : "desktop-control desktop-secondary"}
-                    >
-                      <SkipForward size={24} />
-                      {!mobileApple && <span>Next episode</span>}
-                    </motion.button>
-                  )}
+                  <button onClick={() => jumpBy(-SEEK_SECONDS)} aria-label="Back 10 seconds" data-tip="Back 10 s  ←" className="ak-chrome__icon">
+                    <RotateCcw size={21} />
+                    <span className="ak-chrome__icon-num">10</span>
+                  </button>
+                  <button onClick={() => jumpBy(SEEK_SECONDS)} aria-label="Forward 10 seconds" data-tip="Forward 10 s  →" className="ak-chrome__icon">
+                    <RotateCw size={21} />
+                    <span className="ak-chrome__icon-num">10</span>
+                  </button>
                   {!mobileApple && (
                     <div
-                      className="group/volume ml-1 flex items-center gap-2 rounded-full px-2 py-1 transition hover:bg-white/[0.06]"
+                      className="ak-chrome__volume"
                       onWheel={(event) => {
                         event.preventDefault();
                         usePlayback.getState().controls?.setVolume(
@@ -2356,16 +2528,10 @@ export default function PlayerHost() {
                       <button
                         onClick={() => usePlayback.getState().controls?.setMuted(!muted)}
                         aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
-                        title={muted || volume === 0 ? "Unmute" : "Mute"}
-                        className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-200 transition hover:text-white"
+                        data-tip={muted || volume === 0 ? "Unmute  M" : "Mute  M"}
+                        className="ak-chrome__icon"
                       >
-                        {muted || volume === 0 ? (
-                          <VolumeX size={21} />
-                        ) : volume < 0.5 ? (
-                          <Volume1 size={21} />
-                        ) : (
-                          <Volume2 size={21} />
-                        )}
+                        {muted || volume === 0 ? <VolumeX size={21} /> : volume < 0.5 ? <Volume1 size={21} /> : <Volume2 size={21} />}
                       </button>
                       <input
                         type="range"
@@ -2373,270 +2539,368 @@ export default function PlayerHost() {
                         max={1}
                         step={0.01}
                         value={muted ? 0 : volume}
-                        onChange={(event) =>
-                          usePlayback.getState().controls?.setVolume(Number(event.target.value))
-                        }
+                        onChange={(event) => usePlayback.getState().controls?.setVolume(Number(event.target.value))}
                         aria-label="Volume"
                         aria-valuetext={`${Math.round(volumePercent)} percent`}
-                        title={`Volume ${Math.round(volumePercent)}%`}
                         style={volumeStyle}
-                        className="akflix-range akflix-volume w-24"
+                        className="akflix-range akflix-volume ak-chrome__volume-range"
                       />
                     </div>
                   )}
+                  <span className="ak-chrome__time" aria-hidden="true">
+                    {formatClock(displayedTime)}
+                    <span className="ak-chrome__time-total"> / {formatClock(duration)}</span>
+                  </span>
+                </div>
 
-                  <div className={mobileApple ? "absolute bottom-[calc(env(safe-area-inset-bottom,0px)+27px)] right-4 flex items-center gap-3" : "ml-auto flex items-center gap-5"}>
-                    <div className="relative">
-                        <motion.button
-                          whileTap={{ scale: 0.86 }}
-                          onClick={() => {
-                            setSpeedMenuOpen(false);
-                            setSubMenuOpen((o) => !o);
-                          }}
-                          aria-label={t("player.subtitles")}
-                          aria-pressed={activeSub >= 0}
-                          aria-expanded={subMenuOpen}
-                          className={`rounded-lg p-1 transition ${
-                            activeSub >= 0
-                              ? "bg-white text-black"
-                              : "text-zinc-300 hover:bg-white/10 hover:text-white"
-                          }`}
+                <div className="ak-chrome__group ak-chrome__group--end">
+                  {!mobileApple && (
+                    <button
+                      onClick={() => commitSeek(0)}
+                      disabled={duration <= 0}
+                      aria-label="Restart from beginning"
+                      data-tip="Restart from beginning"
+                      className="ak-chrome__icon"
+                    >
+                      <ListRestart size={21} />
+                    </button>
+                  )}
+                  {hasNext && (
+                    <button
+                      onClick={() => usePlayback.getState().controls?.next()}
+                      aria-label="Next episode"
+                      data-tip={nextEpisode ? `Next: ${nextEpisode.label} · ${nextEpisode.title}` : "Next episode"}
+                      className="ak-chrome__icon"
+                    >
+                      <SkipForward size={21} />
+                    </button>
+                  )}
+                  {upcomingEpisodes.length > 0 && (
+                    <button
+                      onClick={() => {
+                        setSubMenuOpen(false);
+                        setSpeedMenuOpen(false);
+                        setEpisodesOpen((open) => !open);
+                      }}
+                      aria-label="Episodes"
+                      aria-expanded={episodesOpen}
+                      data-tip="Episodes"
+                      className={`ak-chrome__icon ${episodesOpen ? "ak-chrome__icon--on" : ""}`}
+                    >
+                      <ListVideo size={21} />
+                    </button>
+                  )}
+
+                  <div className="relative">
+                    <button
+                      onClick={() => {
+                        setSpeedMenuOpen(false);
+                        setEpisodesOpen(false);
+                        setAudioTracks(readAudioTracks(videoRef.current));
+                        setSubMenuOpen((o) => !o);
+                      }}
+                      aria-label={`${t("player.subtitles")} and audio`}
+                      aria-pressed={activeSub >= 0}
+                      aria-expanded={subMenuOpen}
+                      data-tip="Audio & subtitles"
+                      className={`ak-chrome__icon ${activeSub >= 0 ? "ak-chrome__icon--on" : ""}`}
+                    >
+                      <Subtitles size={21} />
+                    </button>
+                    <AnimatePresence>
+                      {subMenuOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 12, scale: 0.97 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                          transition={{ type: "spring", stiffness: 430, damping: 34 }}
+                          role="dialog"
+                          aria-label="Audio and subtitles"
+                          className="ak-pop ak-pop--media"
                         >
-                          <Subtitles size={22} />
-                        </motion.button>
-                        <AnimatePresence>
-                          {subMenuOpen && (
-                            <motion.div
-                              initial={{ opacity: 0, y: 12, scale: 0.94 }}
-                              animate={{ opacity: 1, y: 0, scale: 1 }}
-                              exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                              transition={{ type: "spring", stiffness: 430, damping: 32 }}
-                              role="menu"
-                              aria-label="Captions"
-                              className="absolute bottom-10 right-0 max-h-[70vh] w-80 origin-bottom-right overflow-y-auto rounded-2xl border border-white/15 bg-[#101010]/95 p-1.5 shadow-2xl backdrop-blur-xl"
+                          <div className="ak-pop__column">
+                            <p className="ak-pop__label">Audio</p>
+                            {audioTracks.length > 1 ? (
+                              audioTracks.map((track, index) => (
+                                <button
+                                  key={`${index}:${track.label}`}
+                                  onClick={() => {
+                                    selectAudioTrack(videoRef.current, index);
+                                    setAudioTracks(readAudioTracks(videoRef.current));
+                                  }}
+                                  role="menuitemradio"
+                                  aria-checked={track.enabled}
+                                  className={`ak-pop__option ${track.enabled ? "ak-pop__option--on" : ""}`}
+                                >
+                                  <span className="truncate">{track.label}</span>
+                                  {track.enabled && <Check size={15} aria-hidden="true" />}
+                                </button>
+                              ))
+                            ) : (
+                              <div className="ak-pop__option ak-pop__option--on ak-pop__option--static">
+                                <span className="truncate">
+                                  {directRequestRef.current?.compatibility
+                                    ? languageLabel(directRequestRef.current.compatibility.audioLanguage)
+                                    : audioTracks[0]?.label ?? languageLabel(preferredAudioLanguage)}
+                                </span>
+                                <Check size={15} aria-hidden="true" />
+                              </div>
+                            )}
+                            <p className="ak-pop__note">
+                              {directRequestRef.current?.compatibility
+                                ? "Converted to stereo AAC for this Mac."
+                                : audioTracks.length > 1
+                                  ? "From this release's own tracks."
+                                  : "This release has one audio track."}
+                            </p>
+                          </div>
+
+                          <div className="ak-pop__column ak-pop__column--wide">
+                            <p className="ak-pop__label">Subtitles</p>
+                            <button
+                              onClick={() => {
+                                setActiveSub(-1);
+                                setSubMenuOpen(false);
+                              }}
+                              role="menuitemradio"
+                              aria-checked={activeSub === -1}
+                              className={`ak-pop__option ${activeSub === -1 ? "ak-pop__option--on" : ""}`}
                             >
-                              <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-400">
-                                Captions
-                              </p>
+                              {t("player.subtitlesOff")}
+                              {activeSub === -1 && <Check size={15} aria-hidden="true" />}
+                            </button>
+                            {allSubTracks.map((s) => (
                               <button
-                                onClick={() => void toggleGeneratedCaptions()}
-                                disabled={captionTask === "syncing" || !captionKey}
-                                className="mb-1 flex w-full items-center gap-3 rounded-xl border border-white/20 bg-white/[0.06] px-3 py-2.5 text-left transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-black">
-                                  <AudioLines size={16} className={captionTask === "generating" ? "animate-pulse" : ""} />
-                                </span>
-                                <span className="min-w-0">
-                                  <span className="block text-sm font-semibold text-zinc-100">
-                                    {captionTask === "generating" ? "Pause live captions" : "Generate live captions"}
-                                  </span>
-                                  <span className="block text-[10px] text-zinc-400">
-                                    Private speech recognition, saved for this episode
-                                  </span>
-                                </span>
-                              </button>
-
-                              <button
-                                onClick={() => void autoSyncCurrentCaption()}
-                                disabled={!!captionTask || !subTracks.some((track) => track.index === activeSub)}
-                                className="mb-1 flex w-full items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-2.5 text-left transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
-                              >
-                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-zinc-300">
-                                  {captionTask === "syncing" ? <LoaderCircle size={16} className="animate-spin" /> : <RotateCw size={16} />}
-                                </span>
-                                <span className="min-w-0">
-                                  <span className="block text-sm font-semibold text-zinc-200">
-                                    {captionTask === "syncing" ? "Matching dialogue..." : "Auto sync selected captions"}
-                                  </span>
-                                  <span className="block text-[10px] text-zinc-400">
-                                    Listens and corrects the caption timing
-                                  </span>
-                                </span>
-                              </button>
-
-                              {manualCaption && (
-                                <div className="mb-1 rounded-xl border border-white/[0.08] bg-black/25 p-3">
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <p className="truncate text-xs font-semibold text-zinc-200">
-                                        {manualCaption.name}
-                                      </p>
-                                      <p className="mt-0.5 text-[10px] text-zinc-400">
-                                        {manualCaption.kind === "generated" ? "Generated from the video audio" : "Timing matched to spoken dialogue"}
-                                      </p>
-                                    </div>
-                                    <button
-                                      onClick={deleteManualCaption}
-                                      aria-label="Remove Akflix captions"
-                                      title="Remove Akflix captions"
-                                      className="rounded-lg p-1.5 text-zinc-300 transition hover:bg-white hover:text-black"
-                                    >
-                                      <Trash2 size={14} />
-                                    </button>
-                                  </div>
-                                  <div className="mt-3 flex items-center justify-between gap-2">
-                                    <button
-                                      onClick={() => adjustManualCaption(-0.5)}
-                                      className="flex h-8 items-center gap-1 rounded-lg bg-white/[0.06] px-2.5 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/10"
-                                    >
-                                      <Minus size={12} /> 0.5s
-                                    </button>
-                                    <button
-                                      onClick={() => adjustManualCaption(-manualCaption.offsetSeconds)}
-                                      title="Reset caption timing"
-                                      className="min-w-[72px] rounded-lg px-2 py-1 text-center text-[11px] font-bold tabular-nums text-white transition hover:bg-white/[0.08]"
-                                    >
-                                      {manualCaption.offsetSeconds > 0 ? "+" : ""}
-                                      {manualCaption.offsetSeconds.toFixed(1)}s
-                                    </button>
-                                    <button
-                                      onClick={() => adjustManualCaption(0.5)}
-                                      className="flex h-8 items-center gap-1 rounded-lg bg-white/[0.06] px-2.5 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/10"
-                                    >
-                                      <Plus size={12} /> 0.5s
-                                    </button>
-                                  </div>
-                                  <p className="mt-2 text-[9px] leading-4 text-zinc-400">
-                                    Timing is automatic. Minus and plus are available for a final personal adjustment.
-                                  </p>
-                                </div>
-                              )}
-
-                              <div className="my-1 border-t border-white/[0.06]" />
-                              <button
+                                key={s.index}
                                 onClick={() => {
-                                  setActiveSub(-1);
+                                  setActiveSub(s.index);
                                   setSubMenuOpen(false);
                                 }}
                                 role="menuitemradio"
-                                aria-checked={activeSub === -1}
-                                className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition hover:bg-white/10 ${
-                                  activeSub === -1 ? "font-semibold text-white" : "text-zinc-300"
-                                }`}
+                                aria-checked={activeSub === s.index}
+                                className={`ak-pop__option ${activeSub === s.index ? "ak-pop__option--on" : ""}`}
                               >
-                                {t("player.subtitlesOff")}
-                                {activeSub === -1 && <Check size={15} aria-hidden="true" />}
-                              </button>
-                              {allSubTracks.map((s) => (
-                                <button
-                                  key={s.index}
-                                  onClick={() => {
-                                    setActiveSub(s.index);
-                                    setSubMenuOpen(false);
-                                  }}
-                                  role="menuitemradio"
-                                  aria-checked={activeSub === s.index}
-                                  className={`block w-full truncate rounded-xl px-3 py-2 text-left text-sm transition hover:bg-white/10 ${
-                                    activeSub === s.index ? "font-semibold text-white" : "text-zinc-300"
-                                  }`}
-                                >
-                                  <span className="flex items-center justify-between gap-2">
-                                    <span className="truncate">{s.label}</span>
-                                    <span className="flex shrink-0 items-center gap-2">
-                                      {s.manual && (
-                                        <span className="rounded-full border border-white/30 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-zinc-200">
-                                          Akflix
-                                        </span>
-                                      )}
-                                      {activeSub === s.index && <Check size={15} aria-hidden="true" />}
-                                    </span>
-                                  </span>
-                                </button>
-                              ))}
-                              {!allSubTracks.length && (
-                                <p className="px-3 py-2 text-xs leading-5 text-zinc-400">
-                                  No captions are available for this source.
-                                </p>
-                              )}
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-
-                    <div className="relative">
-                      <motion.button
-                        whileTap={{ scale: 0.86 }}
-                        onClick={() => {
-                          setSubMenuOpen(false);
-                          setSpeedMenuOpen((open) => !open);
-                        }}
-                        aria-label={`Playback speed ${playbackRate}x`}
-                        aria-expanded={speedMenuOpen}
-                        className={`flex items-center gap-1 rounded-lg px-1 py-0.5 transition ${playbackRate !== 1 ? "bg-white text-black" : "text-zinc-300 hover:bg-white/10 hover:text-white"}`}
-                      >
-                        <Gauge size={21} />
-                        <span className="text-[11px] font-bold tabular-nums">{playbackRate}x</span>
-                      </motion.button>
-                      <AnimatePresence>
-                        {speedMenuOpen && (
-                          <motion.div
-                            initial={{ opacity: 0, y: 12, scale: 0.94 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                            transition={{ type: "spring", stiffness: 430, damping: 32 }}
-                            role="menu"
-                            aria-label="Playback speed"
-                            className="absolute bottom-10 right-0 w-40 origin-bottom-right overflow-hidden rounded-2xl border border-white/15 bg-[#101010]/95 p-1.5 shadow-2xl backdrop-blur-xl"
-                          >
-                            <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-400">
-                              Playback speed
-                            </p>
-                            {PLAYBACK_RATES.map((rate) => (
-                              <button
-                                key={rate}
-                                onClick={() => {
-                                  usePlayback.getState().controls?.setPlaybackRate(rate);
-                                  setSpeedMenuOpen(false);
-                                }}
-                                role="menuitemradio"
-                                aria-checked={playbackRate === rate}
-                                className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition hover:bg-white/10 ${
-                                  playbackRate === rate ? "font-semibold text-white" : "text-zinc-300"
-                                }`}
-                              >
-                                <span>{rate === 1 ? "Normal" : `${rate}x`}</span>
-                                {playbackRate === rate && <Check size={15} aria-hidden="true" />}
+                                <span className="truncate">{s.label}</span>
+                                <span className="flex shrink-0 items-center gap-2">
+                                  {s.manual && <span className="ak-pop__badge">Akflix</span>}
+                                  {activeSub === s.index && <Check size={15} aria-hidden="true" />}
+                                </span>
                               </button>
                             ))}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
+                            {!allSubTracks.length && (
+                              <p className="ak-pop__note">No captions are available for this source.</p>
+                            )}
 
+                            <div className="ak-pop__divider" />
+                            <button
+                              onClick={() => void toggleGeneratedCaptions()}
+                              disabled={captionTask === "syncing" || !captionKey}
+                              className="ak-pop__tool"
+                            >
+                              <span className="ak-pop__tool-icon ak-pop__tool-icon--solid">
+                                <AudioLines size={16} className={captionTask === "generating" ? "animate-pulse" : ""} />
+                              </span>
+                              <span className="min-w-0">
+                                <span className="ak-pop__tool-title">
+                                  {captionTask === "generating" ? "Pause live captions" : "Generate live captions"}
+                                </span>
+                                <span className="ak-pop__tool-note">Private speech recognition, saved for this episode</span>
+                              </span>
+                            </button>
+                            <button
+                              onClick={() => void autoSyncCurrentCaption()}
+                              disabled={!!captionTask || !subTracks.some((track) => track.index === activeSub)}
+                              className="ak-pop__tool"
+                            >
+                              <span className="ak-pop__tool-icon">
+                                {captionTask === "syncing" ? <LoaderCircle size={16} className="animate-spin" /> : <RotateCw size={16} />}
+                              </span>
+                              <span className="min-w-0">
+                                <span className="ak-pop__tool-title">
+                                  {captionTask === "syncing" ? "Matching dialogue..." : "Auto sync selected captions"}
+                                </span>
+                                <span className="ak-pop__tool-note">Listens and corrects the caption timing</span>
+                              </span>
+                            </button>
+
+                            {manualCaption && (
+                              <div className="ak-pop__manual">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="truncate text-xs font-semibold text-zinc-200">{manualCaption.name}</p>
+                                    <p className="mt-0.5 text-[10px] text-zinc-400">
+                                      {manualCaption.kind === "generated" ? "Generated from the video audio" : "Timing matched to spoken dialogue"}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={deleteManualCaption}
+                                    aria-label="Remove Akflix captions"
+                                    title="Remove Akflix captions"
+                                    className="rounded-lg p-1.5 text-zinc-300 transition hover:bg-white hover:text-black"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                                <div className="mt-3 flex items-center justify-between gap-2">
+                                  <button
+                                    onClick={() => adjustManualCaption(-0.5)}
+                                    className="flex h-8 items-center gap-1 rounded-lg bg-white/[0.06] px-2.5 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/10"
+                                  >
+                                    <Minus size={12} /> 0.5s
+                                  </button>
+                                  <button
+                                    onClick={() => adjustManualCaption(-manualCaption.offsetSeconds)}
+                                    title="Reset caption timing"
+                                    className="min-w-[72px] rounded-lg px-2 py-1 text-center text-[11px] font-bold tabular-nums text-white transition hover:bg-white/[0.08]"
+                                  >
+                                    {manualCaption.offsetSeconds > 0 ? "+" : ""}
+                                    {manualCaption.offsetSeconds.toFixed(1)}s
+                                  </button>
+                                  <button
+                                    onClick={() => adjustManualCaption(0.5)}
+                                    className="flex h-8 items-center gap-1 rounded-lg bg-white/[0.06] px-2.5 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/10"
+                                  >
+                                    <Plus size={12} /> 0.5s
+                                  </button>
+                                </div>
+                                <p className="mt-2 text-[9px] leading-4 text-zinc-400">
+                                  Timing is automatic. Minus and plus are available for a final personal adjustment.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  <div className="relative">
+                    <button
+                      onClick={() => {
+                        setSubMenuOpen(false);
+                        setEpisodesOpen(false);
+                        setSpeedMenuOpen((open) => !open);
+                      }}
+                      aria-label={`Playback speed ${playbackRate}x`}
+                      aria-expanded={speedMenuOpen}
+                      data-tip="Speed  < >"
+                      className={`ak-chrome__icon ak-chrome__icon--speed ${playbackRate !== 1 ? "ak-chrome__icon--on" : ""}`}
+                    >
+                      <Gauge size={20} />
+                      <span>{playbackRate}x</span>
+                    </button>
+                    <AnimatePresence>
+                      {speedMenuOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 12, scale: 0.97 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                          transition={{ type: "spring", stiffness: 430, damping: 34 }}
+                          role="menu"
+                          aria-label="Playback speed"
+                          className="ak-pop ak-pop--speed"
+                        >
+                          <p className="ak-pop__label">Playback speed</p>
+                          {PLAYBACK_RATES.map((rate) => (
+                            <button
+                              key={rate}
+                              onClick={() => {
+                                usePlayback.getState().controls?.setPlaybackRate(rate);
+                                setSpeedMenuOpen(false);
+                              }}
+                              role="menuitemradio"
+                              aria-checked={playbackRate === rate}
+                              className={`ak-pop__option ${playbackRate === rate ? "ak-pop__option--on" : ""}`}
+                            >
+                              <span>{rate === 1 ? "Normal" : `${rate}x`}</span>
+                              {playbackRate === rate && <Check size={15} aria-hidden="true" />}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void togglePictureInPicture();
+                    }}
+                    aria-label={pictureInPicture ? "Close picture in picture" : "Picture in picture"}
+                    data-tip={pictureInPicture ? "Close picture in picture" : "Picture in picture"}
+                    aria-pressed={pictureInPicture}
+                    className={`ak-chrome__icon ${pictureInPicture ? "ak-chrome__icon--on" : ""}`}
+                  >
+                    <PictureInPicture2 size={21} />
+                  </button>
+
+                  {!mobileApple && (
                     <button
                       onClick={(event) => {
                         event.stopPropagation();
-                        void togglePictureInPicture();
+                        void toggleFullscreen();
                       }}
-                      aria-label={pictureInPicture ? "Close picture in picture" : "Picture in picture"}
-                      title={pictureInPicture ? "Close picture in picture" : "Picture in picture"}
-                      aria-pressed={pictureInPicture}
-                      className={`rounded-lg p-1 transition ${
-                        pictureInPicture ? "bg-white text-black" : "text-zinc-300 hover:bg-white/10 hover:text-white"
-                      }`}
+                      aria-label="Fullscreen"
+                      data-tip="Full screen  F"
+                      className="ak-chrome__icon"
                     >
-                      <PictureInPicture2 size={22} />
+                      <Maximize size={21} />
                     </button>
-
-                    {!mobileApple && (
-                      <button
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void toggleFullscreen();
-                        }}
-                        aria-label="Fullscreen"
-                        className="rounded-lg p-1 text-zinc-300 transition hover:bg-white/10 hover:text-white"
-                      >
-                        <Maximize size={22} />
-                      </button>
-                    )}
-                  </div>
+                  )}
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Episodes: the rest of the season (and beyond), with stills. */}
+        {expanded && !error && (
+          <div
+            className={`ak-episodes ${episodesOpen ? "ak-episodes--open" : ""}`}
+            aria-hidden={!episodesOpen}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <div className="ak-episodes__head">
+              <div className="min-w-0">
+                <p className="ak-pop__label">Up next</p>
+                <p className="ak-episodes__show">{session?.title}</p>
+              </div>
+              <button onClick={() => setEpisodesOpen(false)} aria-label="Close episodes" className="ak-chrome__icon" tabIndex={episodesOpen ? 0 : -1}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="ak-episodes__list">
+              {upcomingEpisodes.map((episode, index) => (
+                <button
+                  key={`${episode.season}:${episode.episode}`}
+                  tabIndex={episodesOpen ? 0 : -1}
+                  onClick={() => {
+                    setEpisodesOpen(false);
+                    void playQueuedEpisode(index);
+                  }}
+                  className="ak-episode"
+                >
+                  <span className="ak-episode__still">
+                    {episode.thumbnail ? <img src={episode.thumbnail} alt="" loading="lazy" draggable={false} /> : null}
+                    <span className="ak-episode__play" aria-hidden="true"><Play size={16} fill="currentColor" /></span>
+                  </span>
+                  <span className="ak-episode__text">
+                    <span className="ak-episode__label">
+                      S{episode.season} E{episode.episode}
+                      {index === 0 && <span className="ak-pop__badge">Next</span>}
+                    </span>
+                    <span className="ak-episode__title">{episode.title}</span>
+                    {episode.overview && <span className="ak-episode__overview">{episode.overview}</span>}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {expanded && !error && (
           <SkipControls
+            ref={skipLayerRef}
             button={skipButton}
             notice={skipNotice}
             card={cardView}

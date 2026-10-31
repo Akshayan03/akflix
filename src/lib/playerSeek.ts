@@ -190,6 +190,21 @@ export function createPlayerSeek(host: SeekHost) {
       return true;
     },
     /**
+     * Start a fresh conversion where playback is, even inside what the
+     * current one produced: after a long pause or a frozen clock the old
+     * conversion cannot play on (lib/playbackResume.ts). False when there is
+     * no conversion to replace or a restart is already on its way.
+     */
+    reconnect: (play: boolean): boolean => {
+      const request = host.request();
+      if (!request?.compatibility || resume !== null || detached) return false;
+      const next = position();
+      target = next;
+      resume = play;
+      scheduleRestart(request, next, 0);
+      return true;
+    },
+    /**
      * True while the video still shows a conversion that a restart stopped.
      * Its pause, progress, errors and end are not the user's playback.
      */
