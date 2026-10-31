@@ -774,19 +774,20 @@ summary:focus-visible,
 
 /* Skip Intro / Skip Recap, the auto-skip notice and the credits card
    (components/SkipControls.tsx). They float bottom-right over the picture
-   and lift clear of the timeline while the controls show. Entrances use
-   `backwards` fill so :active can still press them afterwards; leaving
-   elements carry data-leaving for their exit (SKIP_EXIT_MS). */
+   and lift clear of the timeline while the controls show. Restrained and
+   monochrome, Netflix proportions; sizes follow the window (clamp on vw).
+   Entrances use `backwards` fill so :active can still press them afterwards;
+   leaving elements carry data-leaving for their exit (SKIP_EXIT_MS). */
 .ak-skip-layer {
   position: absolute;
-  right: 32px;
-  bottom: 36px;
+  right: clamp(16px, 3vw, 44px);
+  bottom: clamp(24px, 5vh, 48px);
   z-index: 20;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 12px;
-  max-width: calc(100% - 48px);
+  gap: 10px;
+  max-width: calc(100% - 32px);
   transition: transform 340ms var(--ak-ease-out);
 }
 .ak-skip-layer--raised { transform: translateY(-112px); }
@@ -794,12 +795,12 @@ summary:focus-visible,
 .ak-skip-layer--touch.ak-skip-layer--raised { transform: translateY(-150px); }
 
 @keyframes ak-skip-in {
-  from { opacity: 0; transform: translateY(14px) scale(0.96); }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
 }
 @keyframes ak-skip-out {
   from { opacity: 1; transform: none; }
-  to { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 0; transform: translateY(6px); }
 }
 .ak-skip-button[data-leaving],
 .ak-skip-notice[data-leaving],
@@ -808,222 +809,176 @@ summary:focus-visible,
   animation: ak-skip-out 220ms var(--ak-ease-in-out) forwards;
 }
 
-/* Skip Intro: a quiet outline over the picture. Its light fill drains while
-   the part plays, so it shows how long the button stays. */
+/* Skip Intro: a translucent rectangle with a white outline and only its
+   label. The hairline along its bottom drains while the part plays. */
 .ak-skip-button {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  min-height: 48px;
-  padding: 12px 16px 12px 22px;
+  justify-content: center;
+  min-height: clamp(40px, 3.4vw, 58px);
+  padding: 0 clamp(18px, 1.9vw, 32px);
   overflow: hidden;
-  border: 1.5px solid rgba(255, 255, 255, 0.92);
-  border-radius: 10px;
-  background: rgba(10, 10, 10, 0.42);
+  border: 1.5px solid rgba(255, 255, 255, 0.82);
+  border-radius: 6px;
+  background: rgba(22, 22, 22, 0.5);
   color: #ffffff;
-  font-size: 15px;
-  font-weight: 720;
-  letter-spacing: -0.005em;
-  backdrop-filter: blur(14px) saturate(130%);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.42);
-  animation: ak-skip-in 360ms cubic-bezier(0.34, 1.4, 0.64, 1) backwards;
+  font-size: clamp(14px, 1.15vw, 20px);
+  font-weight: 620;
+  letter-spacing: 0;
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
+  animation: ak-skip-in 260ms var(--ak-ease-out) backwards;
   transition:
-    background-color var(--ak-dur) var(--ak-ease-out),
-    color var(--ak-dur) var(--ak-ease-out),
+    background-color 160ms var(--ak-ease-out),
+    border-color 160ms var(--ak-ease-out),
+    color 160ms var(--ak-ease-out),
     transform var(--ak-dur-fast) var(--ak-ease-out);
 }
-.ak-skip-button > :not(.ak-skip-button__fill) { position: relative; }
-.ak-skip-button:hover { background: #ffffff; color: #000000; }
-.ak-skip-button:active { transform: scale(0.96); }
+.ak-skip-button:hover { border-color: #ffffff; background: #ffffff; color: #000000; }
+.ak-skip-button:active { transform: scale(0.97); }
 .ak-skip-button:focus-visible,
 .ak-next-card button:focus-visible,
 .ak-skip-notice__undo:focus-visible {
   outline: 2px solid #ffffff;
   outline-offset: 3px;
 }
-.ak-skip-button__fill {
+.ak-skip-button__time {
   position: absolute;
-  inset: 0;
-  background: rgba(255, 255, 255, 0.2);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.7);
   transform-origin: left center;
-  transition: transform 300ms linear, opacity var(--ak-dur) var(--ak-ease-out);
+  transition: transform 300ms linear, background-color 160ms var(--ak-ease-out);
 }
-.ak-skip-button:hover .ak-skip-button__fill { opacity: 0; }
-
-.ak-skip-key {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 19px;
-  height: 19px;
-  padding: 0 5px;
-  border: 1px solid currentColor;
-  border-radius: 5px;
-  font-family: inherit;
-  font-size: 9.5px;
-  font-weight: 800;
-  line-height: 1;
-  opacity: 0.55;
-}
+.ak-skip-button:hover .ak-skip-button__time { background: rgba(0, 0, 0, 0.3); }
 
 .ak-skip-notice {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 5px 5px 5px 16px;
-  border: 1px solid var(--ak-line-strong);
-  border-radius: 999px;
-  background: rgba(10, 10, 10, 0.72);
+  padding: 4px 4px 4px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(16, 16, 16, 0.72);
   color: #f4f4f4;
   font-size: 13px;
-  font-weight: 650;
-  backdrop-filter: blur(18px);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
-  animation: ak-skip-in var(--ak-dur-slow) var(--ak-ease-out) backwards;
+  font-weight: 600;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  animation: ak-skip-in 260ms var(--ak-ease-out) backwards;
 }
 .ak-skip-notice__undo {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 34px;
-  padding: 0 14px;
-  border-radius: 999px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 4px;
   color: #ffffff;
-  transition: background-color var(--ak-dur) var(--ak-ease-out);
+  transition: background-color 160ms var(--ak-ease-out);
 }
 .ak-skip-notice__undo:hover { background: rgba(255, 255, 255, 0.12); }
 
-/* Up Next: the next episode's still, title and synopsis; Next Episode with
-   its countdown ring, Watch Credits beside it. The picture keeps playing. */
+/* Up Next: a compact row (still, episode, title) over Watch Credits and a
+   white Next Episode with the countdown along its bottom. The picture keeps
+   playing full size. */
 .ak-next-card {
-  position: relative;
   display: flex;
   flex-direction: column;
-  width: min(360px, calc(100vw - 48px));
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 16px;
-  background: rgba(10, 10, 10, 0.84);
-  backdrop-filter: blur(24px) saturate(130%);
-  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.62);
-  animation: ak-skip-in 420ms cubic-bezier(0.34, 1.3, 0.64, 1) backwards;
+  gap: 12px;
+  width: clamp(300px, 29vw, 460px);
+  max-width: calc(100vw - 32px);
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(16, 16, 16, 0.78);
+  backdrop-filter: blur(20px) saturate(120%);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  animation: ak-skip-in 300ms var(--ak-ease-out) backwards;
 }
-.ak-next-card__still {
-  position: relative;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  background: #111;
-}
-.ak-next-card__still img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  animation: ak-next-still 9s linear both;
-}
-@keyframes ak-next-still { from { transform: scale(1.06); } to { transform: scale(1); } }
-.ak-next-card__still::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to top, rgba(10, 10, 10, 0.96) 2%, rgba(10, 10, 10, 0.35) 45%, transparent 70%);
-}
-.ak-next-card__heading {
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: 10px;
-  z-index: 1;
+.ak-next-card__info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
 }
-.ak-next-card__heading--plain { position: static; padding: 16px 16px 0; }
+.ak-next-card__still {
+  width: 42%;
+  aspect-ratio: 16 / 9;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: #1a1a1a;
+  object-fit: cover;
+}
+.ak-next-card__heading { min-width: 0; }
 .ak-next-card__eyebrow {
-  font-size: 10px;
-  font-weight: 760;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-weight: 560;
 }
 .ak-next-card__title {
-  margin-top: 3px;
+  display: -webkit-box;
+  margin-top: 2px;
   overflow: hidden;
   color: #ffffff;
-  font-size: 17px;
-  font-weight: 760;
-  letter-spacing: -0.015em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ak-next-card__overview {
-  display: -webkit-box;
-  margin: 8px 16px 0;
-  overflow: hidden;
-  color: var(--ak-text-3);
-  font-size: 12.5px;
-  line-height: 1.45;
+  font-size: clamp(14px, 1.1vw, 18px);
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
+.ak-next-card__status {
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+}
 .ak-next-card__actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
-  padding: 14px 16px 0;
 }
 .ak-next-card__primary,
 .ak-next-card__secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  min-height: 42px;
-  padding: 0 16px;
-  border-radius: 999px;
-  font-size: 13.5px;
-  font-weight: 720;
-  white-space: nowrap;
-  transition:
-    background-color var(--ak-dur) var(--ak-ease-out),
-    border-color var(--ak-dur) var(--ak-ease-out),
-    transform var(--ak-dur-fast) var(--ak-ease-out);
-}
-.ak-next-card__primary { flex: 1; padding-left: 10px; background: #ffffff; color: #000000; }
-.ak-next-card__primary:hover { background: #e6e6e6; }
-.ak-next-card__secondary { border: 1px solid rgba(255, 255, 255, 0.3); color: #f0f0f0; }
-.ak-next-card__secondary:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.55); }
-.ak-next-card__primary:active,
-.ak-next-card__secondary:active { transform: scale(0.97); }
-.ak-next-card__hint {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 16px 14px;
-  color: var(--ak-text-4);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-}
-.ak-next-card__keys { display: inline-flex; align-items: center; gap: 5px; }
-.ak-next-card__keys .ak-skip-key { margin-left: 4px; }
-/* Next Episode's countdown: a ring that fills around the play glyph. */
-.ak-next-ring {
   position: relative;
   display: inline-flex;
-  width: 26px;
-  height: 26px;
-  flex-shrink: 0;
   align-items: center;
   justify-content: center;
+  min-height: clamp(36px, 3vw, 46px);
+  padding: 0 12px;
+  overflow: hidden;
+  border-radius: 6px;
+  font-size: clamp(13.5px, 1.05vw, 16px);
+  font-weight: 620;
+  white-space: nowrap;
+  transition:
+    background-color 160ms var(--ak-ease-out),
+    border-color 160ms var(--ak-ease-out),
+    transform var(--ak-dur-fast) var(--ak-ease-out);
 }
-.ak-next-ring__svg { position: absolute; inset: 0; width: 26px; height: 26px; transform: rotate(-90deg); }
-.ak-next-ring__track { fill: none; stroke: rgba(0, 0, 0, 0.14); stroke-width: 3.2; }
-.ak-next-ring__fill {
-  fill: none;
-  stroke: #000000;
-  stroke-width: 3.2;
-  stroke-linecap: round;
-  transition: stroke-dashoffset 300ms linear;
+.ak-next-card__primary { background: #ffffff; color: #000000; }
+.ak-next-card__primary:hover { background: #e8e8e8; }
+/* The countdown: a hairline filling along the bottom, the skip button's
+   draining line in reverse. */
+.ak-next-card__countdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.42);
+  transform-origin: left center;
+  transition: transform 300ms linear;
 }
-.ak-next-ring__glyph { position: relative; margin-left: 1px; }
+.ak-next-card__label { position: relative; }
+.ak-next-card__secondary { border: 1px solid rgba(255, 255, 255, 0.32); color: #ffffff; }
+.ak-next-card__secondary:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.6); }
+.ak-next-card__primary:active,
+.ak-next-card__secondary:active { transform: scale(0.97); }
 
 /* The picture stays full size under the card; only the corner behind it
    darkens a little so the card reads on bright credits. */
@@ -1032,16 +987,16 @@ summary:focus-visible,
 @media (prefers-reduced-motion: reduce) {
   .ak-skip-button,
   .ak-skip-notice,
-  .ak-next-card,
-  .ak-next-card__still img { animation: none; }
+  .ak-next-card { animation: none; }
   .ak-skip-button[data-leaving],
   .ak-skip-notice[data-leaving],
   .ak-next-card[data-leaving] { animation: none; opacity: 0; }
   .ak-skip-layer { transition: none; }
 }
-.ak-skip-layer--touch .ak-next-card { width: min(400px, calc(100vw - 32px)); }
+.ak-skip-layer--touch .ak-next-card { width: min(380px, calc(100vw - 32px)); }
+.ak-skip-layer--touch .ak-skip-button,
 .ak-skip-layer--touch .ak-next-card__primary,
-.ak-skip-layer--touch .ak-next-card__secondary { min-height: 48px; }
+.ak-skip-layer--touch .ak-next-card__secondary { min-height: 44px; }
 
 /* A whole-row on/off switch (Settings → Playback). */
 .ak-switch-row {

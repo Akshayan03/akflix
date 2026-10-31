@@ -13,6 +13,7 @@
  */
 import type { DirectPlaybackRequest } from "@/stores/playbackStore";
 import { convertedSeekTime, type SeekableRanges } from "@/lib/compatSeek";
+import { placeConversion } from "@/lib/compatStream";
 
 /** Quiet period that merges a burst of skips into one converter restart. */
 export const RESTART_DEBOUNCE_MS = 280;
@@ -114,7 +115,7 @@ export function createPlayerSeek(host: SeekHost) {
     resume = null;
     detached = false;
     target = null;
-    source.startSeconds = next;
+    placeConversion(source, url, next);
     request.url = url;
     video.src = `${url}${url.includes("?") ? "&" : "?"}seek=${Date.now()}`;
     video.load();

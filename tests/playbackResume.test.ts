@@ -87,7 +87,7 @@ class Video implements SeekVideo {
   load() { this.currentTime = 0; }
 }
 
-function seekerAt(position: number, converted = true) {
+function seekerAt(position: number, converted = true, route = (target: number) => `playlist-${target}`) {
   const video = new Video();
   video.currentTime = position - 100;
   const request: DirectPlaybackRequest = {
@@ -102,7 +102,7 @@ function seekerAt(position: number, converted = true) {
     request: () => request,
     shownPosition: () => shown.currentTime,
     shownDuration: () => 3_120,
-    startConverter: async (_r, target) => { starts.push(target); return `playlist-${target}`; },
+    startConverter: async (_r, target) => { starts.push(target); return route(target); },
     sync: (patch) => Object.assign(shown, patch),
     attached: () => {},
     failed: () => {},
@@ -126,6 +126,24 @@ test("reconnect restarts the conversion where the viewer paused, inside the conv
   assert.match(t.video.src, /^playlist-964.6\?seek=/);
   assert.equal(t.video.plays, 1);
   assert.equal(t.seeker.replacing(), false);
+});
+
+test("a remuxed conversion starts at the keyframe before the spot and lands on the spot itself", async () => {
+  // Copying VisionQuest's HEVC starts at the keyframe at or before 964.6 s (every ~10.4 s).
+  const t = seekerAt(964.6, true, (target) => `playlist-${target}?start=958.333`);
+  assert.equal(t.seeker.reconnect(true), true);
+  await t.flush();
+  assert.equal(t.request.compatibility?.startSeconds, 958.333);
+  assert.ok(Math.abs((t.request.compatibility?.landAt ?? 0) - 6.267) < 1e-6);
+  assert.match(t.video.src, /^playlist-964.6\?start=958.333&seek=/);
+  // A converter that starts on the spot (or reports nothing) needs no jump.
+  for (const route of [(n: number) => `playlist-${n}`, (n: number) => `playlist-${n}?start=${n}`, () => "p?start=990"]) {
+    const exact = seekerAt(964.6, true, route);
+    exact.seeker.reconnect(true);
+    await exact.flush();
+    assert.equal(exact.request.compatibility?.startSeconds, 964.6);
+    assert.equal(exact.request.compatibility?.landAt, undefined);
+  }
 });
 
 test("reconnect does nothing for a direct stream or while a restart is already on its way", async () => {

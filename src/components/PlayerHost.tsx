@@ -74,6 +74,8 @@ import { captionFrame, showOnlyCaptionTrack } from "@/lib/captionDisplay";
 import { transcribeCaptionChunk } from "@/lib/liveCaptions";
 import { httpRaw } from "@/lib/http";
 import {
+  placeConversion,
+  releaseCompatibilityStream,
   setCompatibilityStreamPaused,
   startCompatibilityStream,
   startCompatibilityStreamUrl,
@@ -101,6 +103,7 @@ import { prefetchOnlineMarkers, useSkipMarkers, type SkipSubject } from "@/lib/s
 import { createNextPreparer, shouldPrepareNext } from "@/lib/nextEpisodePrep";
 import { useWindowFit, type Size } from "@/lib/windowFit";
 import {
+  LONG_PAUSE_MS,
   RECONNECTING_LABEL_DELAY_MS,
   createFrozenClockWatch,
   resumeAction,
@@ -111,6 +114,8 @@ import { useHistory, type HistoryTitle } from "@/stores/historyStore";
 
 const PROGRESS_INTERVAL_MS = 10_000;
 const LOCAL_HISTORY_INTERVAL_MS = 5_000;
+/** How often the clock reaches the store while nothing on screen shows it. */
+const CLOCK_SYNC_HIDDEN_MS = 1_000;
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 const SEEK_SECONDS = 10;
 const MANUAL_SUBTITLE_INDEX = 900_000;
@@ -378,6 +383,8 @@ export default function PlayerHost() {
   const rereadCanPlayRef = useRef(false);
   // When the viewer paused (wall clock, so a Mac sleep counts); null while playing.
   const pausedAtRef = useRef<number | null>(null);
+  // Ends a paused conversion's FFmpeg once resuming would replace it anyway.
+  const releaseTimerRef = useRef<ReturnType<typeof setTimeout>>();
   // A fresh conversion is replacing one a long pause or a frozen clock broke.
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectingLabel, setReconnectingLabel] = useState(false);
@@ -409,6 +416,11 @@ export default function PlayerHost() {
   const [audioTracks, setAudioTracks] = useState<{ label: string; enabled: boolean }[]>([]);
   const [pictureInPicture, setPictureInPicture] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
+  // Whether anything on screen follows the clock (controls, Skip, Up Next).
+  // When nothing does, the clock reaches the store once a second instead of
+  // on every timeupdate (~4/s), so the whole player is not re-rendered.
+  const clockShownRef = useRef(true);
+  const lastClockSyncRef = useRef(0);
   const [scrubTime, setScrubTime] = useState<number | null>(null);
   const [bufferedUntil, setBufferedUntil] = useState(0);
   const [seekFeedback, setSeekFeedback] = useState<number | null>(null);
@@ -473,8 +485,8 @@ export default function PlayerHost() {
         return null;
       },
       sync: (patch) => usePlayback.getState()._sync(patch),
-      attached: (_request, target) => {
-        setCompatibilityStartSeconds(target);
+      attached: (request, target) => {
+        setCompatibilityStartSeconds(request.compatibility?.startSeconds ?? target);
         setError(null);
         const video = videoRef.current;
         if (!video) return;
@@ -818,7 +830,7 @@ export default function PlayerHost() {
         currentTime: request.compatibility?.startSeconds ?? 0,
         duration: request.durationSeconds ?? 0,
       });
-      if ((request.compatibility?.startSeconds ?? 0) > 10) {
+      if ((request.compatibility?.startSeconds ?? 0) + (request.compatibility?.landAt ?? 0) > 10) {
         directResumeAppliedRef.current = request.playbackRequestId ?? null;
       }
       const display = mediaDisplayFromRelease(request.title);
@@ -1067,11 +1079,13 @@ export default function PlayerHost() {
       try {
         const url = await startCompatibilityStreamUrl(inputUrl, streamId, preferredAudioLanguage, startSeconds);
         if (directRequestRef.current !== request) return true;
-        request.compatibility = { streamId, audioLanguage: preferredAudioLanguage, inputUrl, startSeconds };
+        const compatibility = { streamId, audioLanguage: preferredAudioLanguage, inputUrl, startSeconds };
+        placeConversion(compatibility, url, startSeconds);
+        request.compatibility = compatibility;
         request.url = url;
         directResumeAppliedRef.current = request.playbackRequestId ?? null;
         captionInputRef.current = inputUrl;
-        setCompatibilityStartSeconds(startSeconds);
+        setCompatibilityStartSeconds(compatibility.startSeconds);
         video.src = url;
         video.load();
         watchFirstFrame(request, COMPATIBILITY_FIRST_FRAME_LIMIT_MS);
@@ -1501,6 +1515,7 @@ export default function PlayerHost() {
           time: currentTime,
         })
       : null;
+  clockShownRef.current = controlsVisible || !!skip.button || !!card || !!skipNotice || mode !== "expanded";
   const cardView: CreditsCardView | null = card
     ? {
         kind: card.kind,
@@ -2080,6 +2095,7 @@ export default function PlayerHost() {
           playsInline
           preload="auto"
           onPlay={() => {
+            clearTimeout(releaseTimerRef.current);
             _sync({ isPlaying: true });
             const pausedFor = pausedAtRef.current === null ? null : Date.now() - pausedAtRef.current;
             pausedAtRef.current = null;
@@ -2111,6 +2127,15 @@ export default function PlayerHost() {
             saveDirectProgress(directRequestRef.current, videoRef.current);
             if (session?.direct && activeStreamHash) {
               setCompatibilityStreamPaused(activeStreamHash, true).catch(() => {});
+              // Past LONG_PAUSE_MS play starts a fresh conversion, so the
+              // stopped one would only hold memory and the torrent stream.
+              const hash = activeStreamHash;
+              clearTimeout(releaseTimerRef.current);
+              releaseTimerRef.current = setTimeout(() => {
+                if (videoRef.current?.paused && directRequestRef.current?.compatibility) {
+                  releaseCompatibilityStream(hash).catch(() => {});
+                }
+              }, LONG_PAUSE_MS + 1_000);
             }
           }}
           onWaiting={schedulePlaybackStall}
@@ -2167,10 +2192,14 @@ export default function PlayerHost() {
               usePlayback.getState().buffering &&
               video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA;
             if (recovered) clearPlaybackStall();
-            _sync({
-              currentTime: timelineTime,
-              ...(recovered ? { buffering: false } : {}),
-            });
+            const now = Date.now();
+            if (recovered || clockShownRef.current || now - lastClockSyncRef.current >= CLOCK_SYNC_HIDDEN_MS) {
+              lastClockSyncRef.current = now;
+              _sync({
+                currentTime: timelineTime,
+                ...(recovered ? { buffering: false } : {}),
+              });
+            }
             if (
               directRequestRef.current &&
               Date.now() - lastLocalHistoryWrite.current >= LOCAL_HISTORY_INTERVAL_MS
@@ -2208,6 +2237,12 @@ export default function PlayerHost() {
               setVideoSize((size) =>
                 size?.width === videoWidth && size.height === videoHeight ? size : { width: videoWidth, height: videoHeight }
               );
+            }
+            // A remuxed conversion starts at the keyframe before the request.
+            const landAt = request?.compatibility?.landAt;
+            if (request?.compatibility && landAt !== undefined) {
+              request.compatibility.landAt = undefined;
+              video.currentTime = landAt;
             }
             const rereadPosition = rereadingRef.current;
             if (rereadPosition !== null) {

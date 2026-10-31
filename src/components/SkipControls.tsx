@@ -4,17 +4,20 @@
  * browse + Watch Credits), over the expanded player. They stay up while the
  * playback controls hide; the controls only lift them clear of the timeline.
  *
- * Design (design/contact-sheet.png in the 2026-10-30 polish lane): the skip
- * button is a quiet outline whose light fill drains while the part plays; the
- * Up Next card shows the next episode's still, title and synopsis with the
- * countdown ring on Next Episode, and the picture keeps playing full size.
+ * Design (2026-10-31, after the owner found the 1.0.33/1.0.34 look worse):
+ * restrained and monochrome with Netflix proportions. Skip is a plain
+ * translucent rectangle with a white outline and nothing but its label; a
+ * hairline along its bottom drains while the part plays. Up Next is a compact
+ * row (still, episode, title) over Watch Credits and a white Next Episode
+ * whose bottom hairline fills as the countdown runs. No icons, key chips or hint
+ * rows: the shortcuts (S, Return, Esc) are in the tooltips and aria.
  * Plain CSS motion (see index.css .ak-skip-*): this re-renders on every time
  * update. Leaving elements stay mounted for their exit animation; Reduce
  * Motion turns both off.
  */
 
 import { forwardRef, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, ChevronsRight, Play, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import type { SkipButtonView, SkippableKind } from "@/lib/skip/markers";
 
 export interface SkipNotice {
@@ -55,36 +58,6 @@ interface Props {
 /** How long a leaving element stays for its exit animation (index.css ak-skip-out). */
 export const SKIP_EXIT_MS = 220;
 
-const RING_RADIUS = 15;
-const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
-
-/** The countdown ring around the play glyph: fills as the next episode comes. */
-function CountdownRing({ progress }: { progress: number }) {
-  return (
-    <span className="ak-next-ring" aria-hidden="true">
-      <svg viewBox="0 0 36 36" className="ak-next-ring__svg">
-        <circle cx="18" cy="18" r={RING_RADIUS} className="ak-next-ring__track" />
-        <circle
-          cx="18"
-          cy="18"
-          r={RING_RADIUS}
-          className="ak-next-ring__fill"
-          style={{ strokeDasharray: RING_LENGTH, strokeDashoffset: RING_LENGTH * (1 - Math.min(1, Math.max(0, progress))) }}
-        />
-      </svg>
-      <Play size={11} fill="currentColor" className="ak-next-ring__glyph" />
-    </span>
-  );
-}
-
-function Key({ children }: { children: string }) {
-  return (
-    <kbd aria-hidden="true" className="ak-skip-key">
-      {children}
-    </kbd>
-  );
-}
-
 /**
  * The value while it is set, then the last one for SKIP_EXIT_MS so it can
  * animate out. `leaving` is true during that time.
@@ -114,47 +87,34 @@ function CardShell({
   still,
   eyebrow,
   title,
-  overview,
+  status,
   leaving,
   children,
-  hint,
 }: {
   label: string;
   still?: string;
   eyebrow: string;
   title?: string;
-  overview?: string;
+  /** Why nothing counts down (autoplay off, still watching). */
+  status?: string;
   leaving: boolean;
   children: ReactNode;
-  hint?: ReactNode;
 }) {
   return (
-    <section
-      aria-label={label}
-      className={`ak-next-card ${still ? "ak-next-card--still" : ""}`}
-      data-leaving={leaving || undefined}
-    >
-      {still ? (
-        <div className="ak-next-card__still">
-          <img src={still} alt="" draggable={false} />
-          <div className="ak-next-card__heading">
-            <p className="ak-next-card__eyebrow">{eyebrow}</p>
-            {title && <p className="ak-next-card__title">{title}</p>}
-          </div>
-        </div>
-      ) : (
-        <div className="ak-next-card__heading ak-next-card__heading--plain">
+    <section aria-label={label} className="ak-next-card" data-leaving={leaving || undefined}>
+      <div className="ak-next-card__info">
+        {still && <img className="ak-next-card__still" src={still} alt="" draggable={false} />}
+        <div className="ak-next-card__heading">
           <p className="ak-next-card__eyebrow">{eyebrow}</p>
           {title && <p className="ak-next-card__title">{title}</p>}
+          {status && (
+            <p className="ak-next-card__status" aria-live="polite">
+              {status}
+            </p>
+          )}
         </div>
-      )}
-      {overview && <p className="ak-next-card__overview">{overview}</p>}
+      </div>
       <div className="ak-next-card__actions">{children}</div>
-      {hint && (
-        <p className="ak-next-card__hint" aria-live="polite">
-          {hint}
-        </p>
-      )}
     </section>
   );
 }
@@ -169,21 +129,7 @@ const SkipControls = forwardRef<HTMLDivElement, Props>(function SkipControls(
   if (!skip.shown && !noticeShown.shown && !cardShown.shown) return null;
 
   const view = cardShown.shown;
-  const nextHint = (view: CreditsCardView) => {
-    const status = view.countdown
-      ? `Starts in ${Math.ceil(view.countdown.left)} s`
-      : view.stillWatching
-        ? "Autoplay paused after three episodes"
-        : "Autoplay is off";
-    return touch ? status : (
-      <>
-        {status}
-        <span className="ak-next-card__keys">
-          <Key>↩</Key> next <Key>esc</Key> credits
-        </span>
-      </>
-    );
-  };
+  const shortcut = (key: string) => (touch ? undefined : key);
 
   return (
     <div
@@ -214,17 +160,16 @@ const SkipControls = forwardRef<HTMLDivElement, Props>(function SkipControls(
           disabled={skip.leaving}
           data-leaving={skip.leaving || undefined}
           aria-label={`${skip.shown.label}, ${Math.ceil(skip.shown.remaining)} seconds`}
-          aria-keyshortcuts={touch ? undefined : "S"}
+          aria-keyshortcuts={shortcut("S")}
+          title={touch ? undefined : `${skip.shown.label} (S)`}
           className="ak-skip-button"
         >
+          {skip.shown.label}
           <span
             aria-hidden="true"
-            className="ak-skip-button__fill"
+            className="ak-skip-button__time"
             style={{ transform: `scaleX(${Math.max(0, 1 - skip.shown.progress)})` }}
           />
-          <span className="ak-skip-button__label">{skip.shown.label}</span>
-          <ChevronsRight size={18} strokeWidth={2.4} aria-hidden="true" />
-          {!touch && <Key>S</Key>}
         </button>
       )}
 
@@ -233,16 +178,27 @@ const SkipControls = forwardRef<HTMLDivElement, Props>(function SkipControls(
           key="up-next"
           label={view.stillWatching ? "Are you still watching?" : "Up next"}
           still={view.still}
-          eyebrow={
-            view.stillWatching
-              ? "Are you still watching?"
-              : `Next episode${view.label ? ` · ${view.label}` : ""}`
+          eyebrow={view.stillWatching ? "Are you still watching?" : view.label ? `Next · ${view.label}` : "Next Episode"}
+          title={view.title}
+          status={
+            view.countdown
+              ? undefined
+              : view.stillWatching
+                ? "Autoplay paused after three episodes"
+                : "Autoplay is off"
           }
-          title={view.stillWatching && view.label ? `${view.label} · ${view.title ?? ""}` : view.title}
-          overview={view.stillWatching ? undefined : view.overview}
           leaving={cardShown.leaving}
-          hint={nextHint(view)}
         >
+          <button
+            type="button"
+            onClick={onWatchCredits}
+            disabled={cardShown.leaving}
+            aria-keyshortcuts={shortcut("Escape")}
+            title={touch ? undefined : "Watch Credits (Esc)"}
+            className="ak-next-card__secondary"
+          >
+            Watch Credits
+          </button>
           <button
             type="button"
             onClick={onNext}
@@ -252,24 +208,18 @@ const SkipControls = forwardRef<HTMLDivElement, Props>(function SkipControls(
                 ? `Next Episode, starts in ${Math.ceil(view.countdown.left)} seconds`
                 : "Next Episode"
             }
-            aria-keyshortcuts={touch ? undefined : "Enter"}
+            aria-keyshortcuts={shortcut("Enter")}
+            title={touch ? undefined : "Next Episode (Return)"}
             className="ak-next-card__primary"
           >
-            {view.countdown ? (
-              <CountdownRing progress={view.countdown.progress} />
-            ) : (
-              <Play size={15} fill="currentColor" aria-hidden="true" />
+            {view.countdown && (
+              <span
+                aria-hidden="true"
+                className="ak-next-card__countdown"
+                style={{ transform: `scaleX(${Math.min(1, Math.max(0, view.countdown.progress))})` }}
+              />
             )}
-            Next Episode
-          </button>
-          <button
-            type="button"
-            onClick={onWatchCredits}
-            disabled={cardShown.leaving}
-            aria-keyshortcuts={touch ? undefined : "Escape"}
-            className="ak-next-card__secondary"
-          >
-            Watch Credits
+            <span className="ak-next-card__label">Next Episode</span>
           </button>
         </CardShell>
       )}
@@ -281,29 +231,26 @@ const SkipControls = forwardRef<HTMLDivElement, Props>(function SkipControls(
           eyebrow="Credits"
           title="Thanks for watching"
           leaving={cardShown.leaving}
-          hint={touch ? undefined : (
-            <span className="ak-next-card__keys">
-              <Key>↩</Key> browse <Key>esc</Key> credits
-            </span>
-          )}
         >
-          <button
-            type="button"
-            onClick={onBack}
-            disabled={cardShown.leaving}
-            aria-keyshortcuts={touch ? undefined : "Enter"}
-            className="ak-next-card__primary"
-          >
-            <ArrowLeft size={15} aria-hidden="true" /> Back to browse
-          </button>
           <button
             type="button"
             onClick={onWatchCredits}
             disabled={cardShown.leaving}
-            aria-keyshortcuts={touch ? undefined : "Escape"}
+            aria-keyshortcuts={shortcut("Escape")}
+            title={touch ? undefined : "Watch Credits (Esc)"}
             className="ak-next-card__secondary"
           >
             Watch Credits
+          </button>
+          <button
+            type="button"
+            onClick={onBack}
+            disabled={cardShown.leaving}
+            aria-keyshortcuts={shortcut("Enter")}
+            title={touch ? undefined : "Back to browse (Return)"}
+            className="ak-next-card__primary"
+          >
+            <span className="ak-next-card__label">Back to Browse</span>
           </button>
         </CardShell>
       )}

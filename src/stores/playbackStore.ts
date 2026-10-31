@@ -64,7 +64,13 @@ export interface CompatibilityPlaybackSource {
   audioLanguage: string;
   inputUrl?: string;
   filename?: string;
+  /** Where the conversion starts on the title's clock. */
   startSeconds: number;
+  /**
+   * A remuxed conversion starts at the keyframe before the request: how far
+   * into it the video still has to jump once it loads (lib/compatStream.ts).
+   */
+  landAt?: number;
 }
 
 export interface DirectPlaybackRequest extends DirectPlaybackMetadata {

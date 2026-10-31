@@ -696,14 +696,14 @@ fn safe_media_path(url: &str) -> Option<PathBuf> {
 }
 
 static HLS_PROCESSES: OnceLock<Mutex<HashMap<String, Child>>> = OnceLock::new();
-static AUDIO_STREAM_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+static STREAM_REPORT_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
 
 fn hls_processes() -> &'static Mutex<HashMap<String, Child>> {
     HLS_PROCESSES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn audio_stream_cache() -> &'static Mutex<HashMap<String, String>> {
-    AUDIO_STREAM_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+fn stream_report_cache() -> &'static Mutex<HashMap<String, String>> {
+    STREAM_REPORT_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn safe_stream_id(value: &str) -> Option<String> {
@@ -1338,66 +1338,209 @@ fn audio_language_aliases(value: Option<&str>) -> Vec<String> {
     }
 }
 
-/// Ask the bundled ffmpeg to inspect only the container header, then map the
-/// preferred language by its absolute stream index. This avoids assuming that
-/// audio track zero is English in MULTI releases. If tags are absent, retain
-/// ffmpeg's safe first-audio fallback.
-fn preferred_audio_map(ffmpeg: &PathBuf, input: &str, language: Option<&str>) -> String {
-    let aliases = audio_language_aliases(language);
-    let cache_key = format!("{}\0{}", aliases.join(","), input);
-    if let Ok(cache) = audio_stream_cache().lock() {
-        if let Some(found) = cache.get(&cache_key) {
+/// What the bundled ffmpeg reports about the input's streams (`ffmpeg -i`,
+/// container header only), cached per input once it lists a stream. An
+/// inconclusive network probe is not cached: the next playback retry may have
+/// enough torrent header bytes.
+fn stream_report(ffmpeg: &PathBuf, input: &str) -> String {
+    if let Ok(cache) = stream_report_cache().lock() {
+        if let Some(found) = cache.get(input) {
             return found.clone();
         }
     }
-
     let mut probe = Command::new(ffmpeg);
     probe.args(["-hide_banner", "-loglevel", "info", "-nostdin"]);
     if input.starts_with("http://") || input.starts_with("https://") {
-        // A stalled peer must not make language inspection block forever.
+        // A stalled peer must not make inspection block forever.
         probe.args(["-rw_timeout", "4000000"]);
     }
-    let output = probe.arg("-i").arg(input).output();
-    let mut selected = "0:a:0?".to_string();
-    let mut found_audio = false;
-
-    if let Ok(output) = output {
-        let report = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
-        for line in report.lines().filter(|line| line.contains("audio:")) {
-            found_audio = true;
-            if !aliases
-                .iter()
-                .any(|alias| line.contains(&format!("({alias})")))
-            {
-                continue;
-            }
-            let Some(after_marker) = line.split("stream #0:").nth(1) else {
-                continue;
-            };
-            let index = after_marker
-                .chars()
-                .take_while(|character| character.is_ascii_digit())
-                .collect::<String>();
-            if !index.is_empty() {
-                selected = format!("0:{index}");
-                break;
-            }
+    let report = probe
+        .arg("-i")
+        .arg(input)
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stderr).into_owned())
+        .unwrap_or_default();
+    if report.to_ascii_lowercase().contains("stream #0:") {
+        if let Ok(mut cache) = stream_report_cache().lock() {
+            cache.insert(input.to_string(), report.clone());
         }
     }
-
-    // Do not cache an inconclusive network probe; the next playback retry may
-    // have enough torrent header bytes to expose the language tags.
-    if found_audio {
-        if let Ok(mut cache) = audio_stream_cache().lock() {
-            cache.insert(cache_key, selected.clone());
-        }
-    }
-    selected
+    report
 }
 
-/// Convert containers/codecs WebKit cannot play into an HLS event playlist
-/// that keeps every segment. The platform media encoder keeps this hardware
-/// accelerated where the operating system exposes one.
+/// Map the preferred language by its absolute stream index. This avoids
+/// assuming that audio track zero is English in MULTI releases. If tags are
+/// absent, retain ffmpeg's safe first-audio fallback.
+fn preferred_audio_map(ffmpeg: &PathBuf, input: &str, language: Option<&str>) -> String {
+    audio_map_from_report(&stream_report(ffmpeg, input), language)
+}
+
+fn audio_map_from_report(report: &str, language: Option<&str>) -> String {
+    let aliases = audio_language_aliases(language);
+    let report = report.to_ascii_lowercase();
+    for line in report.lines().filter(|line| line.contains("audio:")) {
+        if !aliases
+            .iter()
+            .any(|alias| line.contains(&format!("({alias})")))
+        {
+            continue;
+        }
+        let Some(after_marker) = line.split("stream #0:").nth(1) else {
+            continue;
+        };
+        let index = after_marker
+            .chars()
+            .take_while(|character| character.is_ascii_digit())
+            .collect::<String>();
+        if !index.is_empty() {
+            return format!("0:{index}");
+        }
+    }
+    "0:a:0?".to_string()
+}
+
+/// How a conversion can pass the source through instead of re-encoding it.
+#[derive(Debug, PartialEq, Clone, Copy)]
+struct CopyPlan {
+    /// HEVC needs the `hvc1` tag for WebKit; H.264 keeps `avc1`.
+    hevc: bool,
+    /// The audio plays as it is (AAC, AC-3, E-AC-3, MP3); otherwise it alone
+    /// is encoded to AAC, which costs next to nothing.
+    copy_audio: bool,
+}
+
+/// The stream line ffmpeg printed for `stream #0:<index>`, if any.
+fn stream_line<'a>(report: &'a str, index: &str) -> Option<&'a str> {
+    let marker = format!("stream #0:{index}");
+    report.lines().find(|line| {
+        line.split_once(&marker)
+            .is_some_and(|(_, rest)| rest.starts_with(['(', ':', '[']))
+    })
+}
+
+/// WebKit on macOS plays H.264 (8-bit 4:2:0) and HEVC Main / Main 10 from an
+/// fMP4 HLS playlist with hardware decoding, so those sources are remuxed
+/// (`-c:v copy`): no decode, no VideoToolbox encode, ~1% of the CPU and a
+/// seventh of the memory of a conversion, and the original picture quality.
+/// Anything else (Hi10P H.264, 4:2:2/4:4:4, interlaced, Dolby Vision without an
+/// HDR10/SDR base layer, AV1, VC-1, MPEG-2, ...) is still converted.
+fn copy_plan(report: &str, audio_map: &str) -> Option<CopyPlan> {
+    let report = report.to_ascii_lowercase();
+    let lines: Vec<&str> = report.lines().collect();
+    let video_at = lines
+        .iter()
+        .position(|line| line.contains("stream #0:") && line.contains(": video: "))?;
+    let video = lines[video_at];
+    let codec = video.split(": video: ").nth(1)?;
+    if ["top first", "bottom first", "interlaced"]
+        .iter()
+        .any(|marker| video.contains(marker))
+    {
+        return None;
+    }
+    let eight_bit = video.contains("yuv420p,") || video.contains("yuv420p(");
+    let hevc = if codec.starts_with("h264") {
+        if !eight_bit || codec.starts_with("h264 (high 10") || codec.starts_with("h264 (high 4:") {
+            return None;
+        }
+        false
+    } else if codec.starts_with("hevc (main)") || codec.starts_with("hevc (main 10)") {
+        if !eight_bit && !video.contains("yuv420p10le") {
+            return None;
+        }
+        // Dolby Vision profile 8 carries an HDR10/SDR base layer WebKit
+        // shows correctly; profiles 5 and 7 would play with wrong colours.
+        let side_data = lines[video_at + 1..]
+            .iter()
+            .take_while(|line| !line.contains("stream #0:"));
+        for line in side_data {
+            if line.contains("dovi configuration record") && !line.contains("profile: 8") {
+                return None;
+            }
+        }
+        true
+    } else {
+        return None;
+    };
+    let audio = match audio_map.strip_prefix("0:") {
+        Some(index) if index.chars().all(|character| character.is_ascii_digit()) => {
+            stream_line(&report, index)
+        }
+        _ => lines
+            .iter()
+            .copied()
+            .find(|line| line.contains("stream #0:") && line.contains(": audio: ")),
+    };
+    let copy_audio = audio.is_none_or(|line| {
+        let codec = line.split(": audio: ").nth(1).unwrap_or("");
+        ["aac", "ac3", "eac3", "mp3"].iter().any(|name| {
+            codec
+                .strip_prefix(name)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', ',', '(']))
+        })
+    });
+    Some(CopyPlan { hevc, copy_audio })
+}
+
+/// `Duration: 00:54:08.21, start: 0.000000, bitrate: ...` -> 0.0
+fn ffmpeg_reported_start(report: &str) -> f64 {
+    report
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Duration: "))
+        .and_then(|rest| rest.split("start: ").nth(1))
+        .and_then(|rest| rest.split(',').next())
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .filter(|seconds| seconds.is_finite())
+        .unwrap_or(0.0)
+}
+
+/// The first packet's decode time in `ffmpeg -f framecrc` output:
+/// `#tb 0: 1/1000` then `0,     291584,     291667,  41, 13782, 0x9cd18e20`.
+fn framecrc_first_seconds(text: &str) -> Option<f64> {
+    let (numerator, denominator) = text
+        .lines()
+        .find_map(|line| line.strip_prefix("#tb 0:"))?
+        .trim()
+        .split_once('/')?;
+    let timebase = numerator.trim().parse::<f64>().ok()? / denominator.trim().parse::<f64>().ok()?;
+    let line = text
+        .lines()
+        .find(|line| !line.starts_with('#') && !line.trim().is_empty())?;
+    let dts = line.split(',').nth(1)?.trim().parse::<i64>().ok()?;
+    let seconds = dts as f64 * timebase;
+    (seconds.is_finite() && timebase > 0.0).then_some(seconds)
+}
+
+/// A copy that starts further than this before the request did not find it.
+const MAX_KEYFRAME_GAP_SECONDS: f64 = 30.0;
+
+/// Where a stream-copy conversion really starts, on the title's clock. With
+/// stream copy, input seeking starts at the keyframe at or before the request
+/// (up to ~10 s earlier on x265 releases) and FFmpeg moves that to zero. One
+/// packet with its original timestamp tells the player the true start, so
+/// the clock, captions, skips and saved progress stay exact.
+fn copy_start_seconds(ffmpeg: &PathBuf, input: &str, seek: &str, input_start: f64) -> Option<f64> {
+    let mut probe = Command::new(ffmpeg);
+    probe.args(["-hide_banner", "-loglevel", "error", "-nostdin"]);
+    if input.starts_with("http://") || input.starts_with("https://") {
+        probe.args(["-rw_timeout", "8000000"]);
+    }
+    let output = probe
+        .args(["-ss", seek, "-i"])
+        .arg(input)
+        .args(["-map", "0:v:0", "-c", "copy", "-copyts", "-frames:v", "1", "-f", "framecrc", "-"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    framecrc_first_seconds(&String::from_utf8_lossy(&output.stdout))
+        .map(|seconds| (seconds - input_start).max(0.0))
+}
+
+/// Turn containers WebKit cannot open (MKV, AVI, ...) into an HLS event
+/// playlist that keeps every segment. On macOS, video and audio WebKit can
+/// decode are passed through into fMP4 segments (see `copy_plan`); everything
+/// else is converted with the platform's hardware encoder.
 fn start_hls_input(
     input: String,
     stream_id: String,
@@ -1414,15 +1557,20 @@ fn start_hls_input(
     let _ = fs::remove_dir_all(&output);
     fs::create_dir_all(&output).map_err(|error| error.to_string())?;
     let playlist = output.join("index.m3u8");
-    let segment_pattern = output.join("segment-%06d.ts");
 
-    let audio_map = preferred_audio_map(&ffmpeg, &input, audio_language.as_deref());
+    let report = stream_report(&ffmpeg, &input);
+    let audio_map = audio_map_from_report(&report, audio_language.as_deref());
+    let plan = if cfg!(target_os = "macos") {
+        copy_plan(&report, &audio_map)
+    } else {
+        None
+    };
     let start_seconds = start_seconds
         .filter(|value| value.is_finite())
         .unwrap_or_default()
         .max(0.0);
     let seek_value = format!("{start_seconds:.3}");
-    let mut command = Command::new(ffmpeg);
+    let mut command = Command::new(&ffmpeg);
     command
         .args([
             "-hide_banner",
@@ -1457,38 +1605,66 @@ fn start_hls_input(
         .arg("-i")
         .arg(&input)
         .args(["-map", "0:v:0", "-map"])
-        .arg(audio_map)
-        // Normalize imperfect torrent timestamps into one monotonic timeline.
-        // This also guarantees that a seek-restarted conversion begins at zero;
-        // the frontend adds its requested timeline offset exactly once.
-        .args(["-vf", "setpts=PTS-STARTPTS", "-af", "asetpts=PTS-STARTPTS"])
-        .arg("-c:v");
+        .arg(&audio_map);
 
-    if cfg!(target_os = "macos") {
+    if let Some(plan) = plan {
+        command.args(["-c:v", "copy"]);
+        if plan.hevc {
+            command.args(["-tag:v", "hvc1"]);
+        }
+        if plan.copy_audio {
+            command.args(["-c:a", "copy"]);
+        } else {
+            command.args(["-c:a", "aac", "-b:a", "160k", "-ac", "2"]);
+        }
         command.args([
-            "h264_videotoolbox",
-            "-b:v",
-            "4500k",
-            "-maxrate",
-            "6000k",
-            "-bufsize",
-            "9000k",
-            "-allow_sw",
+            "-f",
+            "hls",
+            "-hls_time",
             "1",
+            "-hls_list_size",
+            "0",
+            "-hls_playlist_type",
+            "event",
+            "-hls_segment_type",
+            "fmp4",
+            "-hls_fmp4_init_filename",
+            "init.mp4",
+            "-hls_flags",
+            "independent_segments+temp_file",
+            "-hls_segment_filename",
         ]);
-    } else if cfg!(target_os = "windows") {
-        command.args([
-            "h264_mf", "-b:v", "4500k", "-maxrate", "6000k", "-bufsize", "9000k",
-        ]);
+        command.arg(output.join("segment-%06d.m4s"));
     } else {
+        command
+            // Normalize imperfect torrent timestamps into one monotonic timeline.
+            // This also guarantees that a seek-restarted conversion begins at zero;
+            // the frontend adds its requested timeline offset exactly once.
+            .args(["-vf", "setpts=PTS-STARTPTS", "-af", "asetpts=PTS-STARTPTS"])
+            .arg("-c:v");
+        if cfg!(target_os = "macos") {
+            command.args([
+                "h264_videotoolbox",
+                "-b:v",
+                "4500k",
+                "-maxrate",
+                "6000k",
+                "-bufsize",
+                "9000k",
+                "-allow_sw",
+                "1",
+            ]);
+        } else if cfg!(target_os = "windows") {
+            command.args([
+                "h264_mf", "-b:v", "4500k", "-maxrate", "6000k", "-bufsize", "9000k",
+            ]);
+        } else {
+            command.args([
+                "libx264", "-preset", "veryfast", "-b:v", "4500k", "-maxrate", "6000k", "-bufsize",
+                "9000k",
+            ]);
+        }
         command.args([
-            "libx264", "-preset", "veryfast", "-b:v", "4500k", "-maxrate", "6000k", "-bufsize",
-            "9000k",
-        ]);
-    }
-
-    let child = command
-        .args([
             "-c:a",
             "aac",
             "-b:a",
@@ -1508,19 +1684,49 @@ fn start_hls_input(
             "-hls_flags",
             "independent_segments+temp_file",
             "-hls_segment_filename",
-        ])
-        .arg(&segment_pattern)
+        ]);
+        command.arg(output.join("segment-%06d.ts"));
+    }
+
+    let child = command
         .arg(&playlist)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .map_err(|error| format!("Could not start FFmpeg: {error}"))?;
 
+    // A copy starts at the keyframe before the request: find out where, while
+    // the converter fills its first segment.
+    let true_start = (plan.is_some() && start_seconds > 0.05).then(|| {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let (ffmpeg, input, seek) = (ffmpeg.clone(), input.clone(), seek_value.clone());
+        let input_start = ffmpeg_reported_start(&report);
+        thread::spawn(move || {
+            let _ = sender.send(copy_start_seconds(&ffmpeg, &input, &seek, input_start));
+        });
+        receiver
+    });
+
     let pid = register_hls_process(&id, child)?;
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(20) {
         if hls_playlist_has_media(&playlist) {
-            return Ok(format!("Streaming%20Cache/.akflix-hls/{id}/index.m3u8"));
+            let route = format!("Streaming%20Cache/.akflix-hls/{id}/index.m3u8");
+            let start = true_start
+                .and_then(|receiver| receiver.recv_timeout(Duration::from_secs(4)).ok().flatten())
+                .filter(|start| *start <= start_seconds + 0.5);
+            // Keyframes are seconds apart, never this far: the request is past
+            // what the source has (its end), where a copy falls back to the
+            // last keyframe. Report it like a conversion that produced nothing.
+            if start.is_some_and(|start| start_seconds - start > MAX_KEYFRAME_GAP_SECONDS) {
+                stop_hls_process(&id);
+                return Err("FFmpeg could not read this source yet".into());
+            }
+            let start = start.filter(|start| (start - start_seconds).abs() > 0.01);
+            return Ok(match start {
+                Some(start) => format!("{route}?start={start:.3}"),
+                None => route,
+            });
         }
         match hls_child_state(&id, pid) {
             HlsChildState::Running => {}
@@ -1693,6 +1899,19 @@ async fn stop_hls_stream(stream_id: String) -> Result<(), String> {
     .await
 }
 
+/// End a paused stream's converter but keep what it produced: after a long
+/// pause the player resumes on a fresh conversion anyway (playbackResume.ts),
+/// so a stopped FFmpeg would only hold memory and the torrent connection.
+#[tauri::command]
+async fn release_hls_stream(stream_id: String) -> Result<(), String> {
+    let id = safe_stream_id(&stream_id).ok_or("Invalid stream id")?;
+    off_main_thread(move || {
+        stop_hls_process(&id);
+        Ok(())
+    })
+    .await
+}
+
 #[tauri::command]
 fn set_hls_stream_paused(stream_id: String, paused: bool) -> Result<(), String> {
     let id = safe_stream_id(&stream_id).ok_or("Invalid stream id")?;
@@ -1843,6 +2062,7 @@ pub fn run() {
             start_hls_url,
             stop_hls_stream,
             set_hls_stream_paused,
+            release_hls_stream,
             transcribe_caption_chunk,
             skip_media_pcm,
             skip_media_probe,
@@ -2224,6 +2444,86 @@ mod tests {
         assert_eq!(converters(), 0);
         let _ = fs::remove_file(raw);
         let _ = fs::remove_file(input);
+    }
+
+    const VISIONQUEST_REPORT: &str = "Input #0, matroska,webm, from 'x.mkv':
+  Duration: 00:54:08.21, start: 0.000000, bitrate: 1626 kb/s
+  Stream #0:0: Video: hevc (Main 10), yuv420p10le(tv, bt709, progressive), 1920x1080 [SAR 1:1 DAR 16:9], 24 fps, 24 tbr, 1k tbn (default) (original)
+  Stream #0:1: Audio: eac3 (Dolby Digital Plus + Dolby Atmos), 48000 Hz, 5.1(side), fltp, 768 kb/s (default) (original)
+  Stream #0:2: Subtitle: subrip (srt) (default) (original)
+  Stream #0:10: Audio: dts (DTS-HD MA), 48000 Hz, 5.1(side), s32p (24 bit)";
+
+    #[test]
+    fn natively_playable_sources_are_remuxed_not_converted() {
+        // The owner's VisionQuest S1E6: HEVC Main 10 + E-AC-3 Atmos, both pass through.
+        assert_eq!(
+            copy_plan(VISIONQUEST_REPORT, "0:a:0?"),
+            Some(CopyPlan { hevc: true, copy_audio: true })
+        );
+        assert_eq!(
+            copy_plan(VISIONQUEST_REPORT, "0:1"),
+            Some(CopyPlan { hevc: true, copy_audio: true })
+        );
+        // DTS (stream 10, not stream 1) is the only part converted.
+        assert_eq!(
+            copy_plan(VISIONQUEST_REPORT, "0:10"),
+            Some(CopyPlan { hevc: true, copy_audio: false })
+        );
+        let h264 = "  Duration: 00:10:00.02, start: 0.000000, bitrate: 9706 kb/s
+  Stream #0:0(eng): Video: h264 (High), yuv420p(tv, bt709, progressive), 1920x1080, 23.98 fps
+  Stream #0:1(eng): Audio: ac3, 48000 Hz, 5.1(side), fltp, 384 kb/s";
+        assert_eq!(copy_plan(h264, "0:1"), Some(CopyPlan { hevc: false, copy_audio: true }));
+        let aac = h264.replace("ac3, 48000", "aac (LC), 48000");
+        assert_eq!(copy_plan(&aac, "0:a:0?"), Some(CopyPlan { hevc: false, copy_audio: true }));
+        let no_audio = "  Stream #0:0: Video: h264 (Main), yuv420p(progressive), 1280x720";
+        assert_eq!(copy_plan(no_audio, "0:a:0?"), Some(CopyPlan { hevc: false, copy_audio: true }));
+    }
+
+    #[test]
+    fn sources_webkit_cannot_decode_are_still_converted() {
+        for video in [
+            "Video: h264 (High 10), yuv420p10le(progressive), 1920x1080",
+            "Video: h264 (High 4:4:4 Predictive), yuv444p(progressive), 1920x1080",
+            "Video: h264 (High), yuv420p(tv, top first), 1920x1080",
+            "Video: hevc (Rext), yuv422p10le(tv), 1920x1080",
+            "Video: av1 (Main), yuv420p10le(tv), 3840x2160",
+            "Video: mpeg2video (Main), yuv420p(tv, top first), 720x576",
+            "Video: vc1 (Advanced), yuv420p, 1920x1080",
+        ] {
+            let report = format!("  Stream #0:0: {video}\n  Stream #0:1: Audio: aac (LC), 48000 Hz, stereo");
+            assert_eq!(copy_plan(&report, "0:a:0?"), None, "{video}");
+        }
+        let dolby_vision = |profile: u8| {
+            format!(
+                "  Stream #0:0: Video: hevc (Main 10), yuv420p10le(tv, bt2020nc/bt2020/smpte2084), 3840x2160\n      Side data:\n        DOVI configuration record: version: 1.0, profile: {profile}, level: 6, rpu flag: 1, el flag: 0, bl flag: 1\n  Stream #0:1: Audio: eac3, 48000 Hz, 5.1(side)"
+            )
+        };
+        assert_eq!(copy_plan(&dolby_vision(5), "0:a:0?"), None);
+        assert_eq!(copy_plan(&dolby_vision(7), "0:a:0?"), None);
+        assert!(copy_plan(&dolby_vision(8), "0:a:0?").is_some());
+        // TrueHD / FLAC / Opus audio: only the audio is encoded.
+        for audio in ["truehd", "flac", "opus", "aac_latm", "pcm_s16le"] {
+            let report = format!("  Stream #0:0: Video: h264 (High), yuv420p(progressive), 1920x1080\n  Stream #0:1: Audio: {audio}, 48000 Hz, stereo");
+            assert_eq!(copy_plan(&report, "0:a:0?"), Some(CopyPlan { hevc: false, copy_audio: false }), "{audio}");
+        }
+    }
+
+    #[test]
+    fn reads_the_true_start_of_a_copy() {
+        assert_eq!(ffmpeg_reported_start(VISIONQUEST_REPORT), 0.0);
+        assert_eq!(
+            ffmpeg_reported_start("  Duration: 00:42:00.00, start: 1.400000, bitrate: 1 kb/s"),
+            1.4
+        );
+        let framecrc = "#software: Lavf62.3.100\n#tb 0: 1/1000\n#media_type 0: video\n#codec_id 0: hevc\n#dimensions 0: 1920x1080\n#sar 0: 1/1\n0,     291584,     291667,       41,    13782, 0x9cd18e20\n";
+        assert_eq!(framecrc_first_seconds(framecrc), Some(291.584));
+        assert_eq!(framecrc_first_seconds("#tb 0: 1/90000\n0, 900000, 903003, 3003, 1, 0x0\n"), Some(10.0));
+        assert_eq!(framecrc_first_seconds("#tb 0: 1/1000\n"), None);
+        assert_eq!(audio_map_from_report(VISIONQUEST_REPORT, Some("eng")), "0:a:0?");
+        assert_eq!(
+            audio_map_from_report("  Stream #0:3(eng): Audio: aac, 48000 Hz", Some("en")),
+            "0:3"
+        );
     }
 
     #[test]

@@ -38,6 +38,29 @@ export async function startCompatibilityStreamUrl(
   return `${STREAM_GATEWAY}/${route}`;
 }
 
+/**
+ * A remuxed (stream-copy) conversion starts at the keyframe at or before the
+ * requested point, up to ~10 s earlier; its route says where (`?start=`).
+ * Records that start and how far into the conversion the request is.
+ */
+export function placeConversion(
+  source: { startSeconds: number; landAt?: number },
+  url: string,
+  requested: number
+): void {
+  const reported = Number(new URL(url, STREAM_GATEWAY).searchParams.get("start"));
+  const start = Number.isFinite(reported) && reported > 0 && reported <= requested ? reported : requested;
+  source.startSeconds = start;
+  source.landAt = requested - start > 0.05 ? requested - start : undefined;
+}
+
+/** End a paused conversion's FFmpeg but keep what it produced. */
+export async function releaseCompatibilityStream(hash: string): Promise<void> {
+  if (!isTauri()) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("release_hls_stream", { streamId: hash });
+}
+
 export async function stopCompatibilityStream(hash: string): Promise<void> {
   if (!isTauri()) return;
   const { invoke } = await import("@tauri-apps/api/core");

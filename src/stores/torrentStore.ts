@@ -136,7 +136,8 @@ export function torrentPollDelay(
   torrents: QbtTorrent[]
 ): number {
   if (state.pendingStreamHash || state.sourceRaceActive || state.streamLaunchPhase) return 1_000;
-  if (state.activeStreamHash) return 2_000;
+  // Playing: nothing on screen needs the swarm every two seconds; hidden, even less.
+  if (state.activeStreamHash) return typeof document !== "undefined" && document.visibilityState === "hidden" ? 15_000 : 5_000;
   if (torrents.some((torrent) => torrent.progress < 1 && !torrent.state.startsWith("paused"))) return 2_000;
   return 15_000;
 }
@@ -1068,8 +1069,15 @@ export const useTorrents = create<TorrentState>()((set, get) => ({
           pending && fileIndex !== null && !client.instantStreaming
             ? await client.contiguousFileHeadBytes(pending, fileIndex).catch(() => 0)
             : 0;
+        // An unchanged list is not stored again: every set re-renders the
+        // components that read the whole store (StreamController).
+        const previous = get().torrents;
+        const same =
+          previous.length === torrents.length &&
+          JSON.stringify(previous) === JSON.stringify(torrents);
+        if (same && get().qbtOnline && !streamHash) return;
         set({
-          torrents,
+          torrents: same ? previous : torrents,
           qbtOnline: true,
           ...(streamHash ? { pendingStreamHeadBytes: headBytes } : {}),
           ...(adopted

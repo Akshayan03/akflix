@@ -232,7 +232,8 @@ test("an idle engine is listed every 15 s, a starting stream every second", asyn
   const paused = { hash: "c", progress: 0.4, state: "pausedDL" } as QbtTorrent;
   assert.equal(torrentPollDelay(idle, [seeding, paused]), 15_000);
   assert.equal(torrentPollDelay(idle, [downloading]), 2_000);
-  assert.equal(torrentPollDelay({ ...idle, activeStreamHash: "a" }, []), 2_000);
+  // Playing: every 5 s (15 s while the app is hidden), not every 2 s.
+  assert.equal(torrentPollDelay({ ...idle, activeStreamHash: "a" }, []), 5_000);
   assert.equal(torrentPollDelay({ ...idle, streamLaunchPhase: "Finding available sources" }, []), 1_000);
   assert.equal(torrentPollDelay({ ...idle, pendingStreamHash: "a" }, []), 1_000);
 });

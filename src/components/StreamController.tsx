@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { useTorrents } from "@/stores/torrentStore";
 import { usePlayback } from "@/stores/playbackStore";
 import { formatBytes, formatSpeed } from "@/lib/utils";
-import { startCompatibilityStream, startCompatibilityStreamUrl } from "@/lib/compatStream";
+import { placeConversion, startCompatibilityStream, startCompatibilityStreamUrl } from "@/lib/compatStream";
 import { useSettings } from "@/stores/settingsStore";
 import Artwork from "@/components/Artwork";
 import { mediaDisplayFromRelease } from "@/lib/mediaTitle";
@@ -286,6 +286,7 @@ export default function StreamController() {
               )
             : gatewayUrl(pendingStreamFileName);
         if (!stillCurrent()) return;
+        if (compatibilitySource) placeConversion(compatibilitySource, url, resumeSeconds);
         const fallback = mediaDisplayFromRelease(pendingStreamFileName);
         if (!markStreamReady(handoffHash, requestId)) return;
         openDirect({
