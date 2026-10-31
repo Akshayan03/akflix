@@ -496,8 +496,8 @@ export default function PlayerHost() {
   );
 
   // ── Controls auto-hide ───────────────────────────────────────────────
-  const poke = useCallback(() => {
-    setControlsVisible(true);
+  // Hide the controls 3 s from now unless something keeps them up.
+  const armControlsHide = useCallback(() => {
     clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => {
       // Keep controls up while paused, scrubbing, or using a menu.
@@ -515,10 +515,22 @@ export default function PlayerHost() {
     }, 3000);
   }, [episodesOpen, speedMenuOpen, subMenuOpen]);
 
+  const poke = useCallback(() => {
+    setControlsVisible(true);
+    armControlsHide();
+  }, [armControlsHide]);
+
   useEffect(() => {
     if (mode === "expanded") poke();
     return () => clearTimeout(hideTimer.current);
   }, [mode, poke]);
+
+  // Playback that starts (or resumes) after the timer ran, with the controls
+  // up, would otherwise keep them up until the pointer moves.
+  useEffect(() => {
+    if (mode === "expanded" && isPlaying && controlsVisible) armControlsHide();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, mode]);
 
   // ── Teardown helpers ─────────────────────────────────────────────────
 
