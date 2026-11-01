@@ -1588,11 +1588,18 @@ fn start_hls_input(
     // source stalls. The player loads the playlist at its first segment, so
     // running ahead never makes WebKit start at the live edge. Requires
     // FFmpeg 7.1+; every Akflix build bundles 8.1.
+    //
+    // A copy can only cut segments at the source's keyframes (~10 s apart on
+    // x265 releases), and WebKit's seekable end trails the newest segment by
+    // three of them, ~30 s. A 60 s burst lists the four segments
+    // `copy_playlist_filled` waits for at once and keeps a +10 s skip inside
+    // what is seekable (with 20 s, starts, resumes and +10 s each waited
+    // ~11 s). Copying costs almost no CPU.
     command.args([
         "-readrate",
         "1.5",
         "-readrate_initial_burst",
-        "20",
+        if plan.is_some() { "60" } else { "20" },
         "-readrate_catchup",
         "4",
     ]);
@@ -1709,8 +1716,15 @@ fn start_hls_input(
 
     let pid = register_hls_process(&id, child)?;
     let started = Instant::now();
+    let mut first_media: Option<Instant> = None;
     while started.elapsed() < Duration::from_secs(20) {
-        if hls_playlist_has_media(&playlist) {
+        let has_media = hls_playlist_has_media(&playlist);
+        let filling = has_media
+            && true_start.is_some()
+            && first_media.get_or_insert_with(Instant::now).elapsed() < COPY_FILL_WAIT
+            && hls_child_state(&id, pid) == HlsChildState::Running
+            && !fs::read_to_string(&playlist).is_ok_and(|text| copy_playlist_filled(&text));
+        if has_media && !filling {
             let route = format!("Streaming%20Cache/.akflix-hls/{id}/index.m3u8");
             let start = true_start
                 .and_then(|receiver| receiver.recv_timeout(Duration::from_secs(4)).ok().flatten())
@@ -1761,6 +1775,35 @@ fn hls_playlist_has_media(playlist: &Path) -> bool {
                 .is_some_and(|seconds| seconds > 0.0)
         })
     })
+}
+
+/// Longest a copy that lands mid-title waits for `copy_playlist_filled`.
+const COPY_FILL_WAIT: Duration = Duration::from_secs(8);
+
+/// WebKit reloads a live playlist only once per target duration (a copy's
+/// segments are keyframe-long, ~10 s on x265 releases), and its seekable end
+/// trails the newest segment by three of them. A copy landing up to one
+/// segment into its first is playable at once only when the first load
+/// lists four; with less, WebKit sat ~10 s until its next reload (measured:
+/// resume 17 s -> 4.3 s, seek 17.4 s -> 3.1 s). Finished playlists are full.
+fn copy_playlist_filled(text: &str) -> bool {
+    let mut target = 0.0;
+    let mut listed = 0.0;
+    for line in text.lines() {
+        if line.starts_with("#EXT-X-ENDLIST") {
+            return true;
+        }
+        if let Some(value) = line.strip_prefix("#EXT-X-TARGETDURATION:") {
+            target = value.trim().parse::<f64>().unwrap_or(0.0);
+        } else if let Some(seconds) = line
+            .strip_prefix("#EXTINF:")
+            .and_then(|rest| rest.split(',').next())
+            .and_then(|seconds| seconds.trim().parse::<f64>().ok())
+        {
+            listed += seconds;
+        }
+    }
+    listed >= 4.0 * target + 1.0
 }
 
 /// Track the converter for a stream. Commands no longer queue on the main
@@ -2549,6 +2592,83 @@ mod tests {
         .expect("write playlist");
         assert!(hls_playlist_has_media(&playlist));
         fs::remove_dir_all(folder).expect("remove playlist folder");
+    }
+
+    #[test]
+    fn a_copy_landing_mid_title_waits_for_four_target_durations() {
+        let header = "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:EVENT\n#EXT-X-MAP:URI=\"init.mp4\"\n";
+        let segments = |count: usize| {
+            (0..count)
+                .map(|index| format!("#EXTINF:10.010000,\nsegment-{index:06}.m4s\n"))
+                .collect::<String>()
+        };
+        assert!(!copy_playlist_filled(header));
+        assert!(!copy_playlist_filled(&format!("{header}{}", segments(1))));
+        assert!(!copy_playlist_filled(&format!("{header}{}", segments(4))), "40.04 s < 41 s");
+        assert!(copy_playlist_filled(&format!("{header}{}", segments(5))));
+        // The end of the title: nothing more is coming.
+        assert!(copy_playlist_filled(&format!("{header}{}#EXT-X-ENDLIST\n", segments(1))));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_copy_resumed_mid_title_hands_over_a_playlist_webkit_can_land_in() {
+        let root = test_media_root();
+        let ffmpeg = find_ffmpeg().expect("bundled ffmpeg");
+        let raw = root.join(format!("gop10-{}.yuv", std::process::id()));
+        let pcm = root.join(format!("gop10-{}.pcm", std::process::id()));
+        let input = root.join(format!("gop10-{}.mp4", std::process::id()));
+        // 10 s of moving frames and a 440 Hz tone (the bundled FFmpeg has no
+        // lavfi), looped to two minutes.
+        let (width, height, frames) = (160usize, 120usize, 240);
+        let frame = width * height * 3 / 2;
+        let mut pattern = vec![128u8; frame * frames];
+        for index in 0..frames {
+            for pixel in 0..width * height {
+                pattern[index * frame + pixel] = ((pixel + index * 3) & 0xff) as u8;
+            }
+        }
+        fs::write(&raw, &pattern).expect("write raw frames");
+        let tone: Vec<u8> = (0..48_000 * 10)
+            .flat_map(|sample| {
+                let phase = 2.0 * std::f64::consts::PI * 440.0 * sample as f64 / 48_000.0;
+                ((phase.sin() * 8_000.0) as i16).to_le_bytes()
+            })
+            .collect();
+        fs::write(&pcm, &tone).expect("write raw audio");
+        // Two minutes of H.264 with a keyframe every 10 s, like an x265/x264 release.
+        let encoded = Command::new(&ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-stream_loop", "11"])
+            .args(["-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", "160x120", "-r", "24", "-i"])
+            .arg(&raw)
+            .args(["-stream_loop", "11", "-f", "s16le", "-ar", "48000", "-ac", "1", "-i"])
+            .arg(&pcm)
+            .args(["-t", "120", "-c:v", "h264_videotoolbox", "-allow_sw", "1", "-g", "240"])
+            .args(["-force_key_frames", "expr:gte(t,n_forced*10)", "-c:a", "aac"])
+            .arg(&input)
+            .status()
+            .expect("run ffmpeg");
+        let _ = fs::remove_file(raw);
+        let _ = fs::remove_file(pcm);
+        assert!(encoded.success());
+
+        let id = format!("c0f{:08x}", std::process::id());
+        let started = Instant::now();
+        let route = start_hls_input(input.to_string_lossy().into_owned(), id.clone(), None, Some(35.0))
+            .expect("copy starts");
+        let waited = started.elapsed();
+        let playlist = root.join("Streaming Cache/.akflix-hls").join(&id).join("index.m3u8");
+        let text = fs::read_to_string(&playlist).expect("playlist");
+        stop_hls_process(&id);
+        let _ = fs::remove_dir_all(playlist.parent().expect("stream folder"));
+        let _ = fs::remove_file(input);
+
+        // Copied (fMP4), starting at the 30 s keyframe before the request.
+        assert!(text.contains("#EXT-X-MAP"), "a stream copy: {text}");
+        let start: f64 = route.split("?start=").nth(1).expect("true start").parse().expect("number");
+        assert!((start - 30.0).abs() < 0.5, "keyframe start {start}");
+        assert!(copy_playlist_filled(&text), "handed over too early: {text}");
+        assert!(waited < COPY_FILL_WAIT + Duration::from_secs(2), "waited {waited:?}");
     }
 
     #[cfg(target_os = "macos")]
