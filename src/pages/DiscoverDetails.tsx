@@ -2,11 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   AlertTriangle,
+  Check,
+  CheckCheck,
   Clock3,
   ListFilter,
   LoaderCircle,
   Play,
   RefreshCw,
+  RotateCcw,
   Sparkles,
   Star,
 } from "lucide-react";
@@ -33,6 +36,8 @@ import {
   type HistoryTitle,
 } from "@/stores/historyStore";
 import { parseRuntimeSeconds } from "@/lib/utils";
+import { useEpisodes, useShowMarks } from "@/stores/episodeStore";
+import { episodeMark, resumeClock, seasonWatched } from "@/lib/episodeMarks";
 
 function discoverHistoryTitle(meta: StremioMeta): HistoryTitle {
   return {
@@ -144,6 +149,8 @@ export default function DiscoverDetails() {
   const historyEntries = useHistory((state) => state.entries);
   const ratings = useHistory((state) => state.ratings);
   const setRating = useHistory((state) => state.setRating);
+  const { imdbId: routeImdbId } = useParams<{ imdbId: string }>();
+  const showMarks = useShowMarks(routeImdbId);
   const preferredAudioLanguage = useSettings((state) => state.audioLanguage);
   const { type, imdbId } = useParams<{ type: StremioMediaType; imdbId: string }>();
   const [meta, setMeta] = useState<StremioMeta | null>(null);
@@ -289,7 +296,8 @@ export default function DiscoverDetails() {
     durationSeconds: parseRuntimeSeconds(meta.runtime),
   };
 
-  const watchNow = async (episode = selectedEpisode) => {
+  /** restart: from the beginning (Start over), not from where it was left. */
+  const watchNow = async (episode = selectedEpisode, restart = false) => {
     if (starting) {
       watchAbortRef.current?.abort();
       usePlayback.getState().stop();
@@ -312,10 +320,15 @@ export default function DiscoverDetails() {
       (!!episode &&
         savedProgress?.season === episode.season &&
         savedProgress?.episode === episode.episode);
-    const resumeSeconds =
-      savedProgress && !savedProgress.completed && matchesSavedEpisode && savedProgress.position > 10
+    // Continue Watching's point, else the episode's own (one left part-way earlier).
+    const episodePoint = type === "series" && episode ? episodeMark(showMarks, episode.season, episode.episode) : null;
+    const resumeSeconds = restart
+      ? undefined
+      : savedProgress && !savedProgress.completed && matchesSavedEpisode && savedProgress.position > 10
         ? savedProgress.position
-        : undefined;
+        : episodePoint && !episodePoint.watched && episodePoint.position > 10
+          ? episodePoint.position
+          : undefined;
     const media = {
       title: meta.name,
       subtitle:
@@ -646,6 +659,10 @@ export default function DiscoverDetails() {
   }
 
   const episodeTitle = (episode: StremioVideo) => episode.name ?? episode.title ?? `Episode ${episode.episode}`;
+  const episodeNumbers = episodes.map((episode) => episode.episode);
+  const wholeSeasonWatched = seasonWatched(showMarks, selectedSeason, episodeNumbers);
+  const watchedCount = episodes.filter((episode) => episodeMark(showMarks, episode.season, episode.episode).watched).length;
+  const { setWatched: setEpisodeWatched, setSeasonWatched } = useEpisodes.getState();
   const selectSeason = (season: number) => {
     setSelectedSeason(season);
     setSelectedEpisode(meta.videos?.find((video) => video.season === season) ?? null);
@@ -711,6 +728,11 @@ export default function DiscoverDetails() {
                 {starting ? <LoaderCircle size={18} className="animate-spin" aria-hidden="true" /> : <Play size={18} fill="currentColor" aria-hidden="true" />}
                 {starting ? "Cancel" : resumeActionLabel}
               </button>
+              {canResume && !starting && (
+                <button type="button" onClick={() => void watchNow(selectedEpisode, true)} disabled={!lookup} className="desktop-control desktop-secondary">
+                  <RotateCcw size={17} aria-hidden="true" /> Start over
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setSourceOpen(true)}
@@ -769,11 +791,25 @@ export default function DiscoverDetails() {
               )}
               <span className="ml-auto text-xs text-zinc-400">
                 {episodes.length} episode{episodes.length === 1 ? "" : "s"}
+                {watchedCount > 0 && ` · ${watchedCount === episodes.length ? "all" : watchedCount} watched`}
               </span>
+              <button
+                type="button"
+                onClick={() => setSeasonWatched(imdbId, selectedSeason, episodeNumbers, !wholeSeasonWatched)}
+                aria-pressed={wholeSeasonWatched}
+                className="desktop-control desktop-ghost desktop-control--sm"
+              >
+                <CheckCheck size={15} aria-hidden="true" /> {wholeSeasonWatched ? "Season watched" : "Mark season watched"}
+              </button>
             </div>
             <ol key={selectedSeason} className="ak-page-in divide-y divide-white/[0.06] border-y border-white/[0.06]">
               {episodes.map((episode) => {
                 const selected = selectedEpisode?.id === episode.id;
+                const mark = episodeMark(showMarks, episode.season, episode.episode);
+                const inContinue =
+                  !!savedProgress && !savedProgress.completed && savedProgress.season === episode.season && savedProgress.episode === episode.episode;
+                const position = inContinue && savedProgress.position > 10 ? savedProgress.position : mark.position;
+                const progress = mark.watched ? 0 : inContinue && savedProgress.progress > 0 ? savedProgress.progress : mark.progress;
                 return (
                   <li
                     key={episode.id}
@@ -808,10 +844,23 @@ export default function DiscoverDetails() {
                             <Play size={14} fill="currentColor" aria-hidden="true" />
                           </span>
                         </span>
+                        {mark.watched && (
+                          <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-full bg-white px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-black">
+                            <Check size={9} strokeWidth={3} aria-hidden="true" /> Watched
+                          </span>
+                        )}
+                        {progress > 0 && progress < 100 && (
+                          <span className="absolute inset-x-0 bottom-0 h-[3px] bg-white/25" aria-hidden="true">
+                            <span className="block h-full bg-white" style={{ width: `${Math.max(3, progress)}%` }} />
+                          </span>
+                        )}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-400">
                           Episode {episode.episode}
+                          {!mark.watched && position > 10 && (
+                            <span className="ml-2 normal-case tracking-normal text-zinc-200">· Resume {resumeClock(position)}</span>
+                          )}
                           {selected && <span className="ml-2 normal-case tracking-normal text-white">· Selected</span>}
                         </span>
                         <span className="mt-1 block truncate text-[15px] font-semibold text-zinc-100">{episodeTitle(episode)}</span>
@@ -819,6 +868,18 @@ export default function DiscoverDetails() {
                           <span className="mt-1 line-clamp-2 block max-w-[640px] text-[13px] leading-5 text-zinc-400">{episode.overview}</span>
                         )}
                       </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEpisodeWatched(imdbId, episode.season, episode.episode, !mark.watched)}
+                      aria-pressed={mark.watched}
+                      title={mark.watched ? "Mark as unwatched" : "Mark as watched"}
+                      aria-label={`${mark.watched ? "Mark as unwatched" : "Mark as watched"}: episode ${episode.episode}`}
+                      className={`desktop-control desktop-ghost desktop-control--sm shrink-0 !px-2.5 transition-opacity focus-visible:opacity-100 ${
+                        mark.watched ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                      }`}
+                    >
+                      <Check size={15} aria-hidden="true" />
                     </button>
                     <button
                       type="button"

@@ -46,6 +46,7 @@ import { toast } from "sonner";
 import { useAuth, useJellyfinClient } from "@/stores/authStore";
 import { useSettings } from "@/stores/settingsStore";
 import { usePlayback } from "@/stores/playbackStore";
+import { useEpisodes } from "@/stores/episodeStore";
 import type {
   DirectEpisodeTarget,
   DirectPlaybackRequest,
@@ -73,6 +74,7 @@ import {
 import { captionFrame, showOnlyCaptionTrack } from "@/lib/captionDisplay";
 import { transcribeCaptionChunk } from "@/lib/liveCaptions";
 import { httpRaw } from "@/lib/http";
+import { installOutsideDismiss, pressIsInPanel } from "@/lib/outsideDismiss";
 import {
   placeConversion,
   releaseCompatibilityStream,
@@ -220,6 +222,10 @@ function saveDirectProgress(
     episode: request.episode,
     completed,
   });
+  // The show's episode list keeps this episode's own mark too.
+  if (media.type === "series" && request.season && request.episode) {
+    useEpisodes.getState().record(media.id, request.season, request.episode, currentTime, duration, completed);
+  }
 }
 
 /** Background skip detection for one playing file (see lib/skip). */
@@ -318,6 +324,8 @@ function queueDirectEpisodeProgress(
   if (!request || !next) return;
   const media = directHistoryTitle(request);
   if (!media || media.type !== "series") return;
+  // Moving on means the one before is done (Next Episode at the credits, autoplay).
+  if (request.season && request.episode) useEpisodes.getState().record(media.id, request.season, request.episode, 0, 0, true);
   useHistory.getState().recordProgress(media, 0, 0, {
     subtitle: `S${next.season} E${next.episode} · ${next.title}`,
     season: next.season,
@@ -1593,6 +1601,17 @@ export default function PlayerHost() {
     return true;
   };
 
+  // A click or tap anywhere outside the open panel closes it, and only that:
+  // the press is swallowed so it can't also pause, seek or go fullscreen.
+  const anyPanelOpen = subMenuOpen || speedMenuOpen || episodesOpen;
+  const panelsLive = anyPanelOpen && mode === "expanded";
+  useEffect(() => {
+    if (!panelsLive) return;
+    return installOutsideDismiss(window, pressIsInPanel, () => {
+      panelsRef.current.close();
+    });
+  }, [panelsLive]);
+
   // ── Global keyboard shortcuts (active whenever something is loaded) ──
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2631,6 +2650,7 @@ export default function PlayerHost() {
                       }}
                       aria-label="Episodes"
                       aria-expanded={episodesOpen}
+                      data-panel-toggle
                       data-tip="Episodes"
                       className={`ak-chrome__icon ${episodesOpen ? "ak-chrome__icon--on" : ""}`}
                     >
@@ -2649,6 +2669,7 @@ export default function PlayerHost() {
                       aria-label={`${t("player.subtitles")} and audio`}
                       aria-pressed={activeSub >= 0}
                       aria-expanded={subMenuOpen}
+                      data-panel-toggle
                       data-tip="Audio & subtitles"
                       className={`ak-chrome__icon ${activeSub >= 0 ? "ak-chrome__icon--on" : ""}`}
                     >
@@ -2830,6 +2851,7 @@ export default function PlayerHost() {
                       }}
                       aria-label={`Playback speed ${playbackRate}x`}
                       aria-expanded={speedMenuOpen}
+                      data-panel-toggle
                       data-tip="Speed  < >"
                       className={`ak-chrome__icon ak-chrome__icon--speed ${playbackRate !== 1 ? "ak-chrome__icon--on" : ""}`}
                     >

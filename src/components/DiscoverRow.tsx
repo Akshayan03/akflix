@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import DiscoverCard from "@/components/DiscoverCard";
-import type { DiscoverCardState } from "@/components/DiscoverCard";
+import type { CardAction, DiscoverCardState } from "@/components/DiscoverCard";
 import type { StremioMeta } from "@/types/stremio";
 import { useRowScroller } from "@/components/MediaRow";
 
@@ -14,6 +14,7 @@ export default function DiscoverRow({
   id,
   seeAll,
   className = "",
+  actionsFor,
 }: {
   title: string;
   items: StremioMeta[];
@@ -25,6 +26,8 @@ export default function DiscoverRow({
   /** Route of a page with everything in this row. */
   seeAll?: string;
   className?: string;
+  /** Quick actions for a card (Continue Watching). */
+  actionsFor?: (item: StremioMeta) => CardAction[];
 }) {
   const { rowRef, edges, updateEdges, scroll } = useRowScroller(items);
   if (!items.length) return null;
@@ -57,6 +60,7 @@ export default function DiscoverRow({
               item={item}
               state={cardState?.[`${item.type}:${item.id}`]}
               variant={variant}
+              actions={actionsFor?.(item)}
             />
           ))}
         </div>

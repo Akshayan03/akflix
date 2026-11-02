@@ -8,7 +8,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { AlertTriangle, Check, RefreshCw, X } from "lucide-react";
+import { toast } from "sonner";
+import { markContinueWatched } from "@/lib/continueActions";
 import { useAuth } from "@/stores/authStore";
 import { useT } from "@/i18n";
 import HeroBanner from "@/components/HeroBanner";
@@ -160,6 +162,35 @@ export default function Home() {
     [personalRatings, profileId]
   );
 
+  // Continue Watching cards: Mark as watched (a show moves on to its next
+  // episode) and Remove (every signed-in device drops the card too).
+  const continueActions = (item: StremioMeta) => {
+    const entry = profileHistory.find(
+      (row) => row.media.source === "discover" && row.media.type === item.type && row.media.id === item.id
+    );
+    if (!entry) return [];
+    const episode = entry.media.type === "series" && entry.season && entry.episode ? ` S${entry.season} E${entry.episode}` : "";
+    return [
+      {
+        label: `Mark${episode} as watched`,
+        icon: <Check size={15} aria-hidden="true" />,
+        onSelect: () => {
+          markContinueWatched(entry)
+            .then(() => toast.success(episode ? `Marked${episode} as watched` : `Marked ${entry.media.name} as watched`))
+            .catch(() => toast.error("Couldn't load the next episode", { description: "The episode is marked watched; try again for the row." }));
+        },
+      },
+      {
+        label: "Remove from Continue Watching",
+        icon: <X size={15} aria-hidden="true" />,
+        onSelect: () => {
+          useHistory.getState().removeEntry(entry.media);
+          toast(`Removed ${entry.media.name} from Continue Watching`);
+        },
+      },
+    ];
+  };
+
   const personalRows = useMemo(() => {
     const toMeta = (media: (typeof profileHistory)[number]["media"]): StremioMeta => ({
       id: media.id,
@@ -269,6 +300,7 @@ export default function Home() {
           items={personalRows.continuing}
           cardState={continuingState}
           variant="landscape"
+          actionsFor={continueActions}
         />
         {showStart && (
           <PickThree profileId={profileId ?? "akflix-local"} items={plan.onboarding} onDone={() => setStartDismissed(true)} />

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Check, Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { StremioMeta } from "@/types/stremio";
@@ -16,12 +17,20 @@ export interface DiscoverCardState {
   reason?: string;
 }
 
+/** A quick action on a card (Continue Watching: Mark as watched, Remove). */
+export interface CardAction {
+  label: string;
+  icon: ReactNode;
+  onSelect: () => void;
+}
+
 export default function DiscoverCard({
   item,
   state,
   variant = "poster",
   fluid = false,
   caption = false,
+  actions,
 }: {
   item: StremioMeta;
   state?: DiscoverCardState;
@@ -29,6 +38,8 @@ export default function DiscoverCard({
   fluid?: boolean;
   /** Name and year under the artwork (search grids) instead of on hover. */
   caption?: boolean;
+  /** Small round buttons over the card's top right, shown on hover or focus (always on iPhone). */
+  actions?: CardAction[];
 }) {
   const navigate = useNavigate();
   const mobileApple = isAppleMobile();
@@ -87,7 +98,7 @@ export default function DiscoverCard({
     );
   }
 
-  return (
+  const card = (
     <button
       type="button"
       onClick={open}
@@ -146,5 +157,33 @@ export default function DiscoverCard({
         </div>
       )}
     </button>
+  );
+  if (!actions?.length) return card;
+  // The actions sit beside the card's button (a button can't hold buttons).
+  return (
+    <div className="group/card relative shrink-0">
+      {card}
+      <div
+        className={`ak-card-actions absolute right-2.5 top-2.5 z-20 flex gap-1.5 transition-opacity duration-150 ${
+          mobileApple ? "opacity-100" : "opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100"
+        }`}
+      >
+        {actions.map((action) => (
+          <button
+            key={action.label}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              action.onSelect();
+            }}
+            title={action.label}
+            aria-label={`${action.label}: ${item.name}`}
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/25 bg-black/70 text-white shadow-lg backdrop-blur-xl transition hover:bg-white hover:text-black focus-visible:bg-white focus-visible:text-black"
+          >
+            {action.icon}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

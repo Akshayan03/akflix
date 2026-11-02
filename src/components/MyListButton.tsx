@@ -38,7 +38,7 @@ export default function MyListButton({ media, variant = "stacked" }: { media: Hi
         whileTap={{ scale: 0.95 }}
         onClick={onClick}
         aria-pressed={saved}
-        className="glass-panel flex items-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-semibold transition hover:-translate-y-0.5 hover:bg-white/[0.10]"
+        className="desktop-control desktop-secondary"
       >
         {icon}
         {saved ? "In My List" : "My List"}

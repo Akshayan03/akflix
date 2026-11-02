@@ -12,6 +12,8 @@ import "./stream-start.test";
 import "./artwork.test";
 import "./playbackResume.test";
 import "./windowFit.test";
+import "./outsideDismiss.test";
+import "./episodes.test";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { selectVideoFile, sourceNamesAnotherShow } from "../src/lib/mediaSelection";
