@@ -205,3 +205,19 @@ test("desktop motion stays short and Reduce Motion still turns it off", () => {
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*animation-duration: 0\.01ms !important/);
   assert.match(read("src/App.tsx"), /<MotionConfig reducedMotion="user">/);
 });
+
+test("Skip and Up Next keep the glass style (A): frosted pills, countdown rings, 260/220 ms motion", () => {
+  const css = read("src/index.css");
+  const tsx = read("src/components/SkipControls.tsx");
+  const glass = css.match(/\.ak-skip-button,\s*\.ak-skip-notice,\s*\.ak-next-card__pill,\s*\.ak-next-card__chip\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(glass, /border-radius:\s*999px/);
+  assert.match(glass, /background:\s*rgba\(255, 255, 255, 0\.14\)/);
+  assert.match(glass, /backdrop-filter:\s*blur\(24px\) saturate\(140%\)/);
+  // The skip ring drains with the part; the Play ring fills with the countdown.
+  assert.match(tsx, /<Ring progress=\{1 - skip\.shown\.progress\} tone="glass" icon="skip" \/>/);
+  assert.match(tsx, /<Ring progress=\{view\.countdown \? view\.countdown\.progress : null\} tone="solid" icon="play" \/>/);
+  assert.match(css, /\.ak-skip-button \{[^}]*animation: ak-skip-in 260ms/);
+  assert.match(css, /animation: ak-skip-out 220ms/);
+  assert.match(tsx, /SKIP_EXIT_MS = 220/);
+  assert.match(css, /\.ak-skip-layer--touch \.ak-next-card__play,[\s\S]*?min-height: 44px/);
+});

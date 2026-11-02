@@ -774,10 +774,12 @@ summary:focus-visible,
 
 /* Skip Intro / Skip Recap, the auto-skip notice and the credits card
    (components/SkipControls.tsx). They float bottom-right over the picture
-   and lift clear of the timeline while the controls show. Restrained and
-   monochrome, Netflix proportions; sizes follow the window (clamp on vw).
-   Entrances use `backwards` fill so :active can still press them afterwards;
-   leaving elements carry data-leaving for their exit (SKIP_EXIT_MS). */
+   and lift clear of the timeline while the controls show. Style "A — Glass":
+   frosted white-glass pills, black and white only. Sizes follow the window:
+   each pill sets its font-size with clamp() on vw and everything inside is in
+   em. Entrances use `backwards` fill so :active can still press them
+   afterwards; leaving elements carry data-leaving for their exit
+   (SKIP_EXIT_MS). */
 .ak-skip-layer {
   position: absolute;
   right: clamp(16px, 3vw, 44px);
@@ -795,7 +797,7 @@ summary:focus-visible,
 .ak-skip-layer--touch.ak-skip-layer--raised { transform: translateY(-150px); }
 
 @keyframes ak-skip-in {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: none; }
 }
 @keyframes ak-skip-out {
@@ -809,176 +811,199 @@ summary:focus-visible,
   animation: ak-skip-out 220ms var(--ak-ease-in-out) forwards;
 }
 
-/* Skip Intro: a translucent rectangle with a white outline and only its
-   label. The hairline along its bottom drains while the part plays. */
-.ak-skip-button {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: clamp(40px, 3.4vw, 58px);
-  padding: 0 clamp(18px, 1.9vw, 32px);
-  overflow: hidden;
-  border: 1.5px solid rgba(255, 255, 255, 0.82);
-  border-radius: 6px;
-  background: rgba(22, 22, 22, 0.5);
+/* The frosted glass shared by every pill and chip. */
+.ak-skip-button,
+.ak-skip-notice,
+.ak-next-card__pill,
+.ak-next-card__chip {
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
   color: #ffffff;
-  font-size: clamp(14px, 1.15vw, 20px);
-  font-weight: 620;
-  letter-spacing: 0;
-  white-space: nowrap;
-  backdrop-filter: blur(10px);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
-  animation: ak-skip-in 260ms var(--ak-ease-out) backwards;
-  transition:
-    background-color 160ms var(--ak-ease-out),
-    border-color 160ms var(--ak-ease-out),
-    color 160ms var(--ak-ease-out),
-    transform var(--ak-dur-fast) var(--ak-ease-out);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
-.ak-skip-button:hover { border-color: #ffffff; background: #ffffff; color: #000000; }
-.ak-skip-button:active { transform: scale(0.97); }
 .ak-skip-button:focus-visible,
 .ak-next-card button:focus-visible,
 .ak-skip-notice__undo:focus-visible {
   outline: 2px solid #ffffff;
   outline-offset: 3px;
 }
-.ak-skip-button__time {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  background: rgba(255, 255, 255, 0.7);
-  transform-origin: left center;
-  transition: transform 300ms linear, background-color 160ms var(--ak-ease-out);
-}
-.ak-skip-button:hover .ak-skip-button__time { background: rgba(0, 0, 0, 0.3); }
 
-.ak-skip-notice {
+/* Skip Intro: a glass pill led by the countdown ring (drains while the part
+   plays) around the skip icon. 17px label at a 1440px window. */
+.ak-skip-button {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 4px 4px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 6px;
-  background: rgba(16, 16, 16, 0.72);
-  color: #f4f4f4;
-  font-size: 13px;
-  font-weight: 600;
-  backdrop-filter: blur(16px);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
-  animation: ak-skip-in 260ms var(--ak-ease-out) backwards;
-}
-.ak-skip-notice__undo {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 0 12px;
-  border-radius: 4px;
-  color: #ffffff;
-  transition: background-color 160ms var(--ak-ease-out);
-}
-.ak-skip-notice__undo:hover { background: rgba(255, 255, 255, 0.12); }
-
-/* Up Next: a compact row (still, episode, title) over Watch Credits and a
-   white Next Episode with the countdown along its bottom. The picture keeps
-   playing full size. */
-.ak-next-card {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: clamp(300px, 29vw, 460px);
-  max-width: calc(100vw - 32px);
-  padding: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  background: rgba(16, 16, 16, 0.78);
-  backdrop-filter: blur(20px) saturate(120%);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
-  animation: ak-skip-in 300ms var(--ak-ease-out) backwards;
-}
-.ak-next-card__info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-.ak-next-card__still {
-  width: 42%;
-  aspect-ratio: 16 / 9;
-  flex-shrink: 0;
-  border-radius: 6px;
-  background: #1a1a1a;
-  object-fit: cover;
-}
-.ak-next-card__heading { min-width: 0; }
-.ak-next-card__eyebrow {
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 12px;
-  font-weight: 560;
-}
-.ak-next-card__title {
-  display: -webkit-box;
-  margin-top: 2px;
-  overflow: hidden;
-  color: #ffffff;
-  font-size: clamp(14px, 1.1vw, 18px);
+  gap: 0.6em;
+  height: 3.06em;
+  padding: 0 1.3em 0 0.47em;
+  font-size: clamp(15px, 1.18vw, 21px);
   font-weight: 650;
-  line-height: 1.3;
-  letter-spacing: -0.01em;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-.ak-next-card__status {
-  margin-top: 4px;
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 12px;
-}
-.ak-next-card__actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-.ak-next-card__primary,
-.ak-next-card__secondary {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: clamp(36px, 3vw, 46px);
-  padding: 0 12px;
-  overflow: hidden;
-  border-radius: 6px;
-  font-size: clamp(13.5px, 1.05vw, 16px);
-  font-weight: 620;
+  letter-spacing: -0.005em;
   white-space: nowrap;
+  animation: ak-skip-in 260ms var(--ak-ease-out) backwards;
   transition:
     background-color 160ms var(--ak-ease-out),
     border-color 160ms var(--ak-ease-out),
     transform var(--ak-dur-fast) var(--ak-ease-out);
 }
-.ak-next-card__primary { background: #ffffff; color: #000000; }
-.ak-next-card__primary:hover { background: #e8e8e8; }
-/* The countdown: a hairline filling along the bottom, the skip button's
-   draining line in reverse. */
-.ak-next-card__countdown {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 3px;
-  background: rgba(0, 0, 0, 0.42);
-  transform-origin: left center;
-  transition: transform 300ms linear;
+.ak-skip-button:hover,
+.ak-next-card__chip:hover { background: rgba(255, 255, 255, 0.22); border-color: rgba(255, 255, 255, 0.32); }
+.ak-skip-button:active,
+.ak-next-card__chip:active,
+.ak-next-card__play:active { transform: scale(0.97); }
+
+/* The countdown ring (SkipControls Ring): 38px beside a 17px label. On glass
+   a white arc over a faint track around a dark disc; on the white Play pill a
+   black arc around a white disc. */
+.ak-ring {
+  display: block;
+  flex-shrink: 0;
+  width: 2.235em;
+  height: 2.235em;
 }
-.ak-next-card__label { position: relative; }
-.ak-next-card__secondary { border: 1px solid rgba(255, 255, 255, 0.32); color: #ffffff; }
-.ak-next-card__secondary:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.6); }
-.ak-next-card__primary:active,
-.ak-next-card__secondary:active { transform: scale(0.97); }
+.ak-ring__svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.ak-ring__track,
+.ak-ring__arc { fill: none; stroke-width: 3; }
+.ak-ring__arc {
+  transform: rotate(-90deg);
+  transform-origin: 19px 19px;
+  transition: stroke-dashoffset 300ms linear;
+}
+.ak-ring--glass .ak-ring__track { stroke: rgba(255, 255, 255, 0.18); }
+.ak-ring--glass .ak-ring__arc { stroke: #ffffff; }
+.ak-ring--glass .ak-ring__disc { fill: rgba(30, 30, 30, 0.85); }
+.ak-ring--glass .ak-ring__icon { fill: #ffffff; }
+.ak-ring--solid .ak-ring__track { stroke: rgba(0, 0, 0, 0.15); }
+.ak-ring--solid .ak-ring__arc { stroke: #000000; }
+.ak-ring--solid .ak-ring__disc { fill: #ffffff; }
+.ak-ring--solid .ak-ring__icon { fill: #000000; }
+.ak-ring__icon--line {
+  fill: none !important;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ak-ring--solid .ak-ring__icon--line { stroke: #000000; }
+
+/* "Intro skipped · Watch it": a slim glass pill. */
+.ak-skip-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  animation: ak-skip-in 260ms var(--ak-ease-out) backwards;
+}
+.ak-skip-notice__text { color: rgba(255, 255, 255, 0.85); }
+.ak-skip-notice__undo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  color: #ffffff;
+  transition: background-color 160ms var(--ak-ease-out), transform var(--ak-dur-fast) var(--ak-ease-out);
+}
+.ak-skip-notice__undo:hover { background: rgba(255, 255, 255, 0.16); }
+.ak-skip-notice__undo:active { transform: scale(0.97); }
+
+/* Up Next: a small "Watch credits" chip over one glass pill holding the
+   rounded still, "Up next · S8 E12" and the title, and a white Play pill whose
+   black ring fills as the countdown runs. The picture keeps playing full size. */
+.ak-next-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  max-width: calc(100vw - 32px);
+  font-size: clamp(15px, 1.18vw, 21px);
+  animation: ak-skip-in 260ms var(--ak-ease-out) backwards;
+}
+.ak-next-card__chip {
+  padding: 0.62em 1.08em;
+  font-size: 0.765em;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.1);
+  transition:
+    background-color 160ms var(--ak-ease-out),
+    border-color 160ms var(--ak-ease-out),
+    color 160ms var(--ak-ease-out),
+    transform var(--ak-dur-fast) var(--ak-ease-out);
+}
+.ak-next-card__chip:hover { color: #ffffff; }
+.ak-next-card__pill {
+  display: flex;
+  align-items: center;
+  gap: 0.82em;
+  max-width: 100%;
+  padding: 0.47em;
+}
+.ak-next-card__pill--text { padding-left: 1.3em; }
+.ak-next-card__still {
+  width: 5.4em;
+  height: 3.06em;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: #1a1a1a;
+  object-fit: cover;
+}
+.ak-next-card__heading {
+  min-width: 0;
+  max-width: clamp(170px, 18vw, 300px);
+  padding-right: 0.24em;
+}
+.ak-next-card__eyebrow {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.71em;
+  font-weight: 560;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ak-next-card__title {
+  margin-top: 1px;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 0.88em;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ak-next-card__status {
+  margin-top: 1px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.71em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ak-next-card__play {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.5em;
+  height: 2.82em;
+  padding: 0 1.18em 0 0.35em;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #000000;
+  font-size: 0.94em;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background-color 160ms var(--ak-ease-out), transform var(--ak-dur-fast) var(--ak-ease-out);
+}
+.ak-next-card__play .ak-ring { width: 2.25em; height: 2.25em; }
+.ak-next-card__play:hover { background: #e8e8e8; }
+.ak-next-card__play:hover .ak-ring--solid .ak-ring__disc { fill: #e8e8e8; }
 
 /* The picture stays full size under the card; only the corner behind it
    darkens a little so the card reads on bright credits. */
@@ -991,12 +1016,14 @@ summary:focus-visible,
   .ak-skip-button[data-leaving],
   .ak-skip-notice[data-leaving],
   .ak-next-card[data-leaving] { animation: none; opacity: 0; }
-  .ak-skip-layer { transition: none; }
+  .ak-skip-layer,
+  .ak-ring__arc { transition: none; }
 }
-.ak-skip-layer--touch .ak-next-card { width: min(380px, calc(100vw - 32px)); }
+.ak-skip-layer--touch .ak-next-card__heading { max-width: calc(100vw - 32px - 13.5em); }
 .ak-skip-layer--touch .ak-skip-button,
-.ak-skip-layer--touch .ak-next-card__primary,
-.ak-skip-layer--touch .ak-next-card__secondary { min-height: 44px; }
+.ak-skip-layer--touch .ak-next-card__play,
+.ak-skip-layer--touch .ak-next-card__chip,
+.ak-skip-layer--touch .ak-skip-notice__undo { min-height: 44px; }
 
 /* A whole-row on/off switch (Settings → Playback). */
 .ak-switch-row {
