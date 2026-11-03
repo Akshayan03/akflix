@@ -75,9 +75,9 @@ export function useWindowFit(active: boolean, titleKey: string | null, video: Si
         fittedFor.current = titleKey;
         if (!saved.current) saved.current = { size: { width: inner.width, height: inner.height }, applied: null };
         await win.setMinSize(new LogicalSize(PLAYER_MIN_SIZE.width, PLAYER_MIN_SIZE.height));
-        if (!target) return;
-        await win.setSize(new LogicalSize(target.width, target.height));
-        saved.current.applied = target;
+        // 1.0.39 (owner): the window keeps the size he gave it; it no longer
+        // reshapes to each title's picture (the picture letterboxes instead).
+        void target;
       } catch (error) {
         console.warn("[window] could not fit the window to the picture", error);
       }

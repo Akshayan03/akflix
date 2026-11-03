@@ -29,3 +29,9 @@ test("never below the player's minimum size, never for unknown sizes", () => {
   assert.equal(fit.width, Math.round(PLAYER_MIN_SIZE.height * 2.4));
   assert.equal(fittedWindowSize({ width: 1200, height: 700 }, { width: 0, height: 0 }, screen), null);
 });
+
+test("the player never resizes the window to the picture (owner, 1.0.39)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync("src/lib/windowFit.ts", "utf8");
+  assert.doesNotMatch(src, /setSize\(new LogicalSize\(target\.width, target\.height\)\)/);
+});
