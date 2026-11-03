@@ -13,7 +13,7 @@ import {
   Sparkles,
   Star,
 } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { cinemeta } from "@/api/cinemeta";
 import { TitleSkeleton } from "@/components/Skeletons";
@@ -198,6 +198,20 @@ export default function DiscoverDetails() {
   }, [type, imdbId, loadAttempt]);
 
   useEffect(() => () => watchAbortRef.current?.abort(), []);
+
+  // ?play=1 (the Play button on a Continue Watching card): start the saved
+  // episode / movie as soon as the title has loaded, exactly like pressing
+  // Continue here. Once only; the flag is dropped from the address.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const autoPlayRef = useRef(false);
+  const watchNowRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (searchParams.get("play") !== "1" || autoPlayRef.current || !meta) return;
+    if (type === "series" && !selectedEpisode) return;
+    autoPlayRef.current = true;
+    setSearchParams((params) => { params.delete("play"); return params; }, { replace: true });
+    watchNowRef.current?.();
+  }, [searchParams, setSearchParams, meta, selectedEpisode, type]);
 
   useEffect(() => {
     if (!meta) {
@@ -667,6 +681,8 @@ export default function DiscoverDetails() {
     setSelectedSeason(season);
     setSelectedEpisode(meta.videos?.find((video) => video.season === season) ?? null);
   };
+
+  watchNowRef.current = () => void watchNow();
 
   return (
     <motion.main

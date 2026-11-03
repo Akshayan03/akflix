@@ -46,3 +46,13 @@ test("resume clock and the episode after (seasons roll over, specials skipped)",
   assert.equal(episodeAfter(videos, 1, 1)?.id, "x:1:2");
   assert.equal(episodeAfter(videos, 2, 1), null);
 });
+
+test("Continue Watching cards have Play (straight into the player) instead of Mark as watched", async () => {
+  const { readFileSync } = await import("node:fs");
+  const home = readFileSync("src/pages/Home.tsx", "utf8");
+  assert.match(home, /\?play=1/);
+  assert.doesNotMatch(home, /Mark\$\{episode\} as watched/);
+  const details = readFileSync("src/pages/DiscoverDetails.tsx", "utf8");
+  assert.match(details, /searchParams\.get\("play"\) !== "1"/);
+  assert.match(details, /watchNowRef\.current = \(\) => void watchNow\(\);/);
+});

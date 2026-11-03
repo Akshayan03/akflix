@@ -8,9 +8,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, Check, RefreshCw, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { AlertTriangle, Play, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
-import { markContinueWatched } from "@/lib/continueActions";
 import { useAuth } from "@/stores/authStore";
 import { useT } from "@/i18n";
 import HeroBanner from "@/components/HeroBanner";
@@ -56,6 +56,7 @@ const cardKey = (item: { type: string; id: string }) => `${item.type}:${item.id}
 export default function Home() {
   const t = useT();
   const client = useAuth((s) => s.client)();
+  const navigate = useNavigate();
   const profileId = useAuth((s) => s.activeProfileId);
   const historyEntries = useHistory((state) => state.entries);
   const personalRatings = useHistory((state) => state.ratings);
@@ -162,8 +163,8 @@ export default function Home() {
     [personalRatings, profileId]
   );
 
-  // Continue Watching cards: Mark as watched (a show moves on to its next
-  // episode) and Remove (every signed-in device drops the card too).
+  // Continue Watching cards: Play (starts where it was left, no extra click)
+  // and Remove (every signed-in device drops the card too).
   const continueActions = (item: StremioMeta) => {
     const entry = profileHistory.find(
       (row) => row.media.source === "discover" && row.media.type === item.type && row.media.id === item.id
@@ -172,13 +173,9 @@ export default function Home() {
     const episode = entry.media.type === "series" && entry.season && entry.episode ? ` S${entry.season} E${entry.episode}` : "";
     return [
       {
-        label: `Mark${episode} as watched`,
-        icon: <Check size={15} aria-hidden="true" />,
-        onSelect: () => {
-          markContinueWatched(entry)
-            .then(() => toast.success(episode ? `Marked${episode} as watched` : `Marked ${entry.media.name} as watched`))
-            .catch(() => toast.error("Couldn't load the next episode", { description: "The episode is marked watched; try again for the row." }));
-        },
+        label: episode ? `Play${episode}` : `Play ${entry.media.name}`,
+        icon: <Play size={15} fill="currentColor" aria-hidden="true" />,
+        onSelect: () => navigate(`/discover/${item.type}/${item.id}?play=1`),
       },
       {
         label: "Remove from Continue Watching",
