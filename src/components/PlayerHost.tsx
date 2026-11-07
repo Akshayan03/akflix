@@ -89,7 +89,7 @@ import { directSubtitleTracks } from "@/api/subtitles";
 import MiniPlayer from "@/components/MiniPlayer";
 import SkipControls, { type CreditsCardView, type SkipNotice } from "@/components/SkipControls";
 import { openingWindow } from "@/lib/skip/detector";
-import { desktopSkipReader } from "@/lib/skip/desktopSource";
+import { desktopSkipReader, probeMediaDuration } from "@/lib/skip/desktopSource";
 import {
   autoplayAtEnd,
   creditsCard,
@@ -894,6 +894,23 @@ export default function PlayerHost() {
       video.muted = usePlayback.getState().muted;
       await video.play().catch(() => {});
       if (seq === loadSeq.current) _sync({ buffering: false });
+      // The file's own duration (the catalog runtime is only an estimate):
+      // read once playback is under way so it never competes with the start.
+      if (skipInput && request.compatibility) {
+        const probeFor = request.playbackRequestId ?? request.id;
+        setTimeout(() => {
+          if ((directRequestRef.current?.playbackRequestId ?? directRequestRef.current?.id) !== probeFor) return;
+          probeMediaDuration(skipInput)
+            .then((seconds) => {
+              const current = directRequestRef.current;
+              if (!current || (current.playbackRequestId ?? current.id) !== probeFor) return;
+              if (!(seconds > 0)) return;
+              current.durationSeconds = seconds;
+              _sync({ duration: seconds });
+            })
+            .catch(() => {});
+        }, 6_000);
+      }
 
       if (request.catalogId && request.mediaType) {
         directSubtitleTracks(
@@ -2211,6 +2228,12 @@ export default function PlayerHost() {
               usePlayback.getState().buffering &&
               video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA;
             if (recovered) clearPlaybackStall();
+            // Played past the estimated end: the estimate was short. Grow it so
+            // the clock never reads past the total and the bar keeps moving.
+            if (request && timelineTime > (request.durationSeconds ?? 0) && (request.durationSeconds ?? 0) > 0) {
+              request.durationSeconds = Math.ceil(timelineTime + 60);
+              _sync({ duration: request.durationSeconds });
+            }
             const now = Date.now();
             if (recovered || clockShownRef.current || now - lastClockSyncRef.current >= CLOCK_SYNC_HIDDEN_MS) {
               lastClockSyncRef.current = now;
@@ -2230,10 +2253,16 @@ export default function PlayerHost() {
           onSeeked={() => seeker.settle()}
           onDurationChange={(e) => {
             const request = directRequestRef.current;
+            const own = e.currentTarget.duration;
+            // A plain stream knows its own length; the catalog runtime is only
+            // an estimate (often minutes short), so the file wins. A conversion
+            // only knows what it has produced so far and keeps the estimate
+            // until the file's own duration is probed.
+            if (request && !request.compatibility && Number.isFinite(own) && own > 0) {
+              request.durationSeconds = own;
+            }
             const mediaDuration =
-              request?.durationSeconds && request.durationSeconds > 0
-                ? request.durationSeconds
-                : e.currentTarget.duration;
+              request?.durationSeconds && request.durationSeconds > 0 ? request.durationSeconds : own;
             _sync({ duration: Number.isFinite(mediaDuration) ? mediaDuration : 0 });
           }}
           onProgress={(e) => {

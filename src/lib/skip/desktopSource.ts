@@ -43,6 +43,12 @@ function toPcm(response: unknown): Int16Array {
   return new Int16Array(buffer.slice(0, buffer.byteLength - (buffer.byteLength % 2)));
 }
 
+/** The file's own duration in seconds (0 when FFmpeg reports none). */
+export async function probeMediaDuration(input: string): Promise<number> {
+  const probe = await invoke<{ metadata: string; duration: number }>("skip_media_probe", { input });
+  return probe.duration > 0 ? probe.duration : 0;
+}
+
 export function desktopSkipReader(source: DesktopSkipSource): DesktopSkipReader {
   let probed = 0;
   const duration = () => probed || source.duration();
