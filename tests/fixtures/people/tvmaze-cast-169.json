@@ -1,0 +1,101 @@
+[
+ {
+  "person": {
+   "id": 14245,
+   "name": "Bryan Cranston"
+  },
+  "character": {
+   "name": "Walter White"
+  }
+ },
+ {
+  "person": {
+   "id": 12328,
+   "name": "Aaron Paul"
+  },
+  "character": {
+   "name": "Jesse Pinkman"
+  }
+ },
+ {
+  "person": {
+   "id": 11207,
+   "name": "Anna Gunn"
+  },
+  "character": {
+   "name": "Skyler White"
+  }
+ },
+ {
+  "person": {
+   "id": 31023,
+   "name": "RJ Mitte"
+  },
+  "character": {
+   "name": "Walter White Jr."
+  }
+ },
+ {
+  "person": {
+   "id": 9,
+   "name": "Dean Norris"
+  },
+  "character": {
+   "name": "Hank Schrader"
+  }
+ },
+ {
+  "person": {
+   "id": 8507,
+   "name": "Betsy Brandt"
+  },
+  "character": {
+   "name": "Marie Schrader"
+  }
+ },
+ {
+  "person": {
+   "id": 21268,
+   "name": "Bob Odenkirk"
+  },
+  "character": {
+   "name": "Saul Goodman"
+  }
+ },
+ {
+  "person": {
+   "id": 12153,
+   "name": "Jonathan Banks"
+  },
+  "character": {
+   "name": "Michael 'Mike' Ehrmantraut"
+  }
+ },
+ {
+  "person": {
+   "id": 2955,
+   "name": "Giancarlo Esposito"
+  },
+  "character": {
+   "name": "Gustavo 'Gus' Fring"
+  }
+ },
+ {
+  "person": {
+   "id": 8813,
+   "name": "Jesse Plemons"
+  },
+  "character": {
+   "name": "Todd Alquist"
+  }
+ },
+ {
+  "person": {
+   "id": 31024,
+   "name": "Laura Fraser"
+  },
+  "character": {
+   "name": "Lydia Rodarte-Quayle"
+  }
+ }
+]

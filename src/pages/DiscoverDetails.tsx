@@ -21,6 +21,7 @@ import TorrentModal from "@/components/TorrentModal";
 import Artwork from "@/components/Artwork";
 import DiscoverCard from "@/components/DiscoverCard";
 import DiscoverRow from "@/components/DiscoverRow";
+import CastList from "@/components/CastList";
 import type { StremioMediaType, StremioMeta, StremioVideo } from "@/types/stremio";
 import { useTorrents } from "@/stores/torrentStore";
 import { usePlayback } from "@/stores/playbackStore";
@@ -492,6 +493,8 @@ export default function DiscoverDetails() {
             </div>
           </div>
 
+          <CastList meta={meta} variant="mobile" />
+
           <div className="mt-5 grid grid-cols-[1fr_52px] gap-2.5">
             <motion.button
               whileTap={{ scale: 0.965 }}
@@ -729,6 +732,7 @@ export default function DiscoverDetails() {
               )}
               {!!meta.genres?.length && <span>{meta.genres.slice(0, 3).join(", ")}</span>}
             </div>
+            <CastList meta={meta} variant="desktop" />
             {meta.description && (
               <p className="mt-4 line-clamp-3 max-w-[600px] text-[15px] leading-[1.6] text-zinc-300">
                 {meta.description}

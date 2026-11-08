@@ -311,6 +311,43 @@ summary:focus-visible,
 .ak-chip:hover { border-color: rgba(255, 255, 255, 0.6); color: #fff; }
 .ak-chip[aria-pressed="true"] { border-color: #fff; background: #fff; color: #000; }
 
+/* Cast and crew under a title: a label column, then name chips that open the
+   person. Chips sit on artwork, so they carry a dark glass fill. */
+.ak-cast-row { display: flex; align-items: flex-start; gap: 10px; }
+.ak-cast-label {
+  flex: 0 0 86px;
+  padding-top: 8px;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ak-text-3);
+}
+.ak-person-chip {
+  background: rgba(0, 0, 0, 0.32);
+  color: #e6e6e6;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.ak-person-chip:hover { background: #fff; border-color: #fff; color: #000; }
+.ak-person-chip--more { color: var(--ak-text-3); border-style: dashed; }
+.ak-person-chip[data-revealed] { animation: ak-rise-in var(--ak-dur-slow) var(--ak-ease-out) both; }
+.ak-person-chip--mobile {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color 150ms ease, color 150ms ease, transform 150ms ease;
+}
+.ak-person-chip--mobile:active { background: #fff; color: #000; transform: scale(0.96); }
+.ak-cast-row:has(.ak-person-chip--mobile) .ak-cast-label { flex-basis: 74px; padding-top: 10px; font-size: 9px; letter-spacing: 0.14em; }
+
 /* Quiet field used by selects and inline searches on dark surfaces. */
 .ak-field {
   min-height: 36px;

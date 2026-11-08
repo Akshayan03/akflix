@@ -21,6 +21,7 @@ import DirectPlayer from "@/pages/DirectPlayer";
 import Browse from "@/pages/Browse";
 import WhatsNew from "@/pages/WhatsNew";
 import Account from "@/pages/Account";
+import Person from "@/pages/Person";
 import { initCloudSync } from "@/lib/cloud/engine";
 import { isAppleMobile } from "@/lib/platform";
 
@@ -65,6 +66,7 @@ export default function App() {
       <Route path="/search" element={<RequireAuth><Search /></RequireAuth>} />
       <Route path="/title/:itemId" element={<RequireAuth><Details /></RequireAuth>} />
       <Route path="/discover/:type/:imdbId" element={<RequireAuth><DiscoverDetails /></RequireAuth>} />
+      <Route path="/person/:personId" element={<RequireAuth><Person /></RequireAuth>} />
       <Route path="/play/:itemId" element={<RequireAuth><Player /></RequireAuth>} />
       <Route path="/stream" element={<RequireAuth><DirectPlayer /></RequireAuth>} />
       <Route path="/downloads" element={<RequireAuth><Downloads /></RequireAuth>} />

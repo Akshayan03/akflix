@@ -1,0 +1,10 @@
+{
+ "type": "standard",
+ "title": "Leonardo DiCaprio",
+ "extract": "Leonardo Wilhelm DiCaprio is an American actor and film producer. Regarded as one of Hollywood’s defining leading men, his work spans character-driven cinema and major blockbusters across genres, exploring themes of ambition, corruption, and moral decline. He is the recipient of numerous accolades, including an Academy Award, an Actor Award, a BAFTA Award, an Emmy Award, a Silver Bear and three Golden Globes. With his starring films grossing $7 billion worldwide, he has placed eight times in annual rankings of the world's highest-paid actors.",
+ "thumbnail": {
+  "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2d/LeoPTABFI191125-28_%28cropped%29.jpg/330px-LeoPTABFI191125-28_%28cropped%29.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail",
+  "width": 330,
+  "height": 458
+ }
+}
